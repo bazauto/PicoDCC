@@ -1,0 +1,90 @@
+
+;; Clock @ 7.25us per cycle
+.program dcc
+.side_set 1 opt
+
+;.define public PreambleCount 13             ; zero based, will be 14 1 bits
+
+.wrap_target
+    ; Take first word of packet from FIFO, will block here if no data in FIFO
+    pull block
+
+    ; First byte is number of Preamble bits that should be sent (allows same code for main and prog)
+    out y, 8                              ; setup preamble bit count
+
+    ; Second byte is number of bytes in packet (inc. Error byte that is pre calculated in CPU)
+    ; Shift first byte from OSR in to ISR to use as a byte counter
+    ; This is done before the preamble to ensure correct timing to first packet bit
+    out x, 8
+    jmp x-- preamble_bits                   ; Need to decrement for the post decrement at the end of the loop other wise we will loop 1 too many times
+
+    ; Send preamble
+preamble_bits:
+    nop                     side 1  [7]     ; set output high and wait for high half cycle
+    jmp y-- preamble_bits   side 0  [7]     ; set output low and wait for low half cycle
+    
+    nop                     side 1  [2]     ; this is because on first entry we don't get 1 cycle from byte_end jmp
+
+send_byte:
+
+    ; Send packet
+    ; Send start bit
+    nop                     side 1  [4]     ; have to have extra nops as delay is limited to 3 bits because we are using optional side_set which takes 2 of the 5 delay bits
+    nop                     side 1  [7]     ; 1 of the cycles is either from before send_byte or the byte_end jmp
+    nop                     side 0  [7]     ; Last bit of delay is on the next pull instruction
+
+    ; pull next FIFO word ifEmpty
+    pull ifempty            side 0  [5]     ; if we have run out of bits in the OSR pull in the next word from the FIFO
+
+    ; keep byte count in isr as need both x and y for local counters
+    mov isr, x
+
+    ; setup bit counter
+    set y, 7
+
+    nop                     side 1
+byte_bits:
+    out x, 1                side 1  [5]
+    jmp !x byte_zero_high
+    jmp byte_end            side 0  [7]
+byte_zero_high:
+    nop                     side 1  [7]
+    nop                     side 0  [7]
+    nop                     side 0  [7]
+byte_end:
+    jmp y-- byte_bits       side 1
+
+    ; Decrement packet count in ISR
+    mov x, isr                              ; restore byte counter from isr into x for byte decrement
+    jmp x-- send_byte
+
+final_bit:
+    ; Send '1' bit
+    nop                     side 1  [3]     ; set output high and wait for high half cycle (one cycle is in byte_end jmp)
+    nop                     side 0  [7]     ; set output low and wait for low half cycle
+
+    ; extra half cycle to put gap between packets, with line high to continue powering
+    nop                     side 1  [7]
+    nop                     side 1  [7]
+
+.wrap
+
+% c-sdk {
+#include "hardware/clocks.h"
+
+static inline void dcc_program_init(PIO pio, uint sm, uint offset, uint pin, uint preamble) {
+
+    pio_gpio_init(pio, pin);
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    pio_sm_config c = dcc_program_get_default_config(offset);
+    sm_config_set_sideset_pins(&c, pin);
+    sm_config_set_out_shift(&c, false, false, 32);          // LSB first, no autopull
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
+
+    float div = clock_get_hz(clk_sys) / (8620.68966 * 16);   // This is frequency (8620.68966) in Hz for a 116uS square wave, times by 16 instructions per full wave cycle
+    sm_config_set_clkdiv(&c, div);
+
+    pio_sm_init(pio, sm, offset, &c);
+}
+%}
