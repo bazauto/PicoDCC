@@ -3,6 +3,11 @@
 
 #include <stdio.h>
 #include <pico/stdlib.h>
+#include <pico/util/queue.h>
+#include <string>
+#include <functional>
+
+#include "pico_dccexpacket.h"
 
 #ifndef COMMAND_BUFFER_SIZE
  #define COMMAND_BUFFER_SIZE 100
@@ -10,12 +15,11 @@
 
 enum pico_dccex_state
 {
-    IDLE = 0,
-    IN_PACKET = 1,
-    PACKET_WAITING = 2
+    DCCEX_IDLE = 0,
+    DCCEX_RECIVING = 1
 };
 
-class PicoDccExPacket
+class PicoDccEx
 {
 private:
     int maxSupportedCabs = 0;
@@ -24,25 +28,20 @@ private:
     int bufferLength = 0;
     char buffer[COMMAND_BUFFER_SIZE] = "";
 
-    char opcode = '\0';
-    int cab = 0;
-    int speed_funct = 0;
-    int direction_state = 0;
+    std::function<void(const PicoDccExPacket*)> packetCallback;
+
+    PicoDccExPacket *currentPacket;
 
 public:
-    PicoDccExPacket(int maxCab);
+    PicoDccEx(int maxCab);
+
+    void loop(queue_t *cmd_queue);
+
+    void setCallback(std::function<void(const PicoDccExPacket*)> callback);
 
     void reset();
-    void processInput(char chr);
-    void decodePacket();
 
     enum pico_dccex_state getProcessState() { return processState; }
-    char getOpcode() { return opcode; }
-    int getCab() { return cab; }
-    int getSpeed() { return speed_funct; }
-    int getFunct() { return speed_funct; }
-    int getDirection() { return direction_state; }
-    int getState() { return direction_state; }
 };
 
 #endif

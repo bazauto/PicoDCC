@@ -2,88 +2,65 @@
 
 #include "pico_dccex.h"
 
-PicoDccExPacket::PicoDccExPacket(int maxCab)
+PicoDccEx::PicoDccEx(int maxCab)
 {
     maxSupportedCabs = maxCab;
+
+    setup_default_uart();
+    uart_puts(uart0, "<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>\n");
 }
 
-void PicoDccExPacket::reset()
+void PicoDccEx::setCallback(std::function<void(const PicoDccExPacket *)> callback)
+{
+    packetCallback = callback;
+}
+
+void PicoDccEx::reset()
 {
     bufferLength = 0;
     memset(buffer, 0, COMMAND_BUFFER_SIZE);
-    processState = IDLE;
+    processState = DCCEX_IDLE;
 }
 
-void PicoDccExPacket::processInput(char chr)
+void PicoDccEx::loop(queue_t *cmd_queue)
 {
-    switch(processState) {
-        case(IDLE):
-            if (chr == '<') {
-                processState = IN_PACKET;
-            }
-            break;
-
-        case(IN_PACKET):
-            if (bufferLength >= COMMAND_BUFFER_SIZE) {
-                // out of space in the buffer ditch the packet and return to idle
-                reset();
-            } else {
-                if (chr == '>') {
-                    // End of the packet, decode the packate
-                    decodePacket();
-                    break;
-                }
-                buffer[bufferLength++] = chr;
-            }
-            break;
-    }
-};
-
-void PicoDccExPacket::decodePacket()
-{
-    // The packet to decode will be stored in the buffer and the output should go in currentMessage
-    opcode = buffer[0];
-
-    // Decode the rest of the pack if there are params
-    switch(opcode)
+    if (!uart_is_readable(uart0))
     {
-        // Track Power
-        case('0'):
-        case('1'):
-            processState = PACKET_WAITING;
-            break;
-
-        //Version info
-        case('s'):
-            // Hard code response for now
-            //printf("<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>");
-            uart_puts(uart0, "<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>");
-            reset();
-            break;
-
-        // Max supported cab
-        case('#'):
-            char s[10];
-            snprintf(s, sizeof(s), "<# %d>", maxSupportedCabs);
-            uart_puts(uart0, s);
-            reset();
-            break;
-
-        // Throttle Control and Functions have the same parameter layout
-        // <t cab speed direction> and <F cab funct state>
-        case('t'):
-        case('F'):
-            if (sscanf(buffer, "%*c %d %d %d", &cab, &speed_funct, &direction_state) == 3) {
-                processState = PACKET_WAITING;
-            } else {
-                reset();
-            }
-            break;
-
-        // Anything we don't understand / support we respond with the error response
-        default:
-            uart_puts(uart0, "<X>");
-            reset();
+        return;
     }
-};
 
+    char newChar = uart_getc(uart0);
+    switch (processState)
+    {
+    case (DCCEX_IDLE):
+        if (newChar == '<')
+        {
+            processState = DCCEX_RECIVING;
+        }
+        break;
+
+    case (DCCEX_RECIVING):
+        if (bufferLength >= COMMAND_BUFFER_SIZE)
+        {
+            // out of space in the buffer ditch the packet and return to idle
+            reset();
+        }
+        else
+        {
+            if (newChar == '>')
+            {
+                // End of the packet, decode the packate
+                currentPacket = new PicoDccExPacket((char *)&buffer);
+                if (currentPacket->isValid())
+                {
+                    // Add message to DCC queue
+
+                }
+                delete currentPacket;
+                break;
+            }
+            buffer[bufferLength++] = newChar;
+        }
+        break;
+    }
+}

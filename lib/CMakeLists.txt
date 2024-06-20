@@ -1,1 +1,4 @@
+add_subdirectory(./PicoDCCController)
+add_subdirectory(./PicoDCCTrack)
+add_subdirectory(./PicoDCCLoco)
 add_subdirectory(./PicoDCCEX)
