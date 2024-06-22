@@ -102,6 +102,11 @@ raw_dcc_cmd_t *PicoDccExPacket::getRawDccThrottleCmd()
     return this->raw_dcc_cmd;
 }
 
+raw_dcc_cmd_t *PicoDccExPacket::getRawDccFunctionCmd()
+{
+    return nullptr;
+}
+
 char *PicoDccExPacket::getDccExUpdate()
 {
     // If we have already constructed the string, simply return it.
