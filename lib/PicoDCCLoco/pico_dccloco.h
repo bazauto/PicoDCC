@@ -24,6 +24,8 @@ private:
 public:
     PicoDccLoco(int maxCab);
 
+    uint16_t getAddress() { return address; }
+
     void updateControl(bool forward, uint8_t speed);
     void updateFunct(uint8_t function, bool value);
 
@@ -36,8 +38,8 @@ public:
     void writeCVBytes(int8_t cvNumber, int8_t newByte);
     void writeCVBit(int8_t cvNumber, bool newBit);
 
-    raw_dcc_cmd_t getSpeedCommand();
-    raw_dcc_cmd_t getFunctCommand(uint8_t fnGroup);
+    raw_dcc_cmd_t getThrottleCommand();
+    raw_dcc_cmd_t getFunctionCommand(uint8_t fnGroup);
 };
 
 #endif

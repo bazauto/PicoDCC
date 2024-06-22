@@ -26,3 +26,13 @@ void PicoDccLoco::updateFunct(uint8_t function, bool value)
 {
     
 }
+
+raw_dcc_cmd_t PicoDccLoco::getThrottleCommand()
+{
+    return raw_dcc_cmd_t();
+}
+
+raw_dcc_cmd_t PicoDccLoco::getFunctionCommand(uint8_t fnGroup)
+{
+    return raw_dcc_cmd_t();
+}

@@ -6,18 +6,19 @@
 #include <pico/sem.h>
 #include <vector>
 #include "../PicoDCCEX/pico_dccex.h"
+#include "../PicoDCCLoco/pico_dccloco.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
 
 #define CMD_QUEUE_LENGTH 5
 #define MAX_LOCO 50
 #define INVALID_LOCO_ADDR 65535
 
-typedef struct
-{
-    uint16_t addr;
-    bool forward;
-    uint8_t speed;
-} loco_t;
+// typedef struct
+// {
+//     uint16_t addr;
+//     bool forward;
+//     uint8_t speed;
+// } loco_t;
 
 
 class PicoDccController
@@ -30,7 +31,7 @@ private:
     PicoDccEx *pico_dccex;
 
     queue_t cmd_queue;
-    std::vector<loco_t> locos;
+    std::vector<PicoDccLoco> locos;
     uint16_t last_loco_reminder;
     semaphore_t locos_lock;
 

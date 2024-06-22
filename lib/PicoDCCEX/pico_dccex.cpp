@@ -10,11 +10,6 @@ PicoDccEx::PicoDccEx(int maxCab)
     uart_puts(uart0, "<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>\n");
 }
 
-void PicoDccEx::setCallback(std::function<void(const PicoDccExPacket *)> callback)
-{
-    packetCallback = callback;
-}
-
 void PicoDccEx::reset()
 {
     bufferLength = 0;
@@ -49,18 +44,46 @@ void PicoDccEx::loop(queue_t *cmd_queue)
         {
             if (newChar == '>')
             {
-                // End of the packet, decode the packate
+                // End of the packet, decode the packet
                 currentPacket = new PicoDccExPacket((char *)&buffer);
                 if (currentPacket->isValid())
                 {
-                    // Add message to DCC queue
-
+                    processState = DCCEX_PACKET;
                 }
-                delete currentPacket;
+                else
+                {
+                    delete currentPacket;
+                    currentPacket = NULL;
+                }
+
                 break;
             }
             buffer[bufferLength++] = newChar;
         }
         break;
+    }
+
+    if (processState == DCCEX_PACKET)
+    {
+        if (currentPacket->isVersionCommand())
+        {
+            uart_puts(uart0, "<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>\n");
+        }
+        else if (currentPacket->isNumCabsCommand())
+        {
+            char s[10];
+            snprintf(s, sizeof(s), "<# %d>", maxSupportedCabs);
+            uart_puts(uart0, s);
+        }
+        else
+        {
+            queue_add_blocking(cmd_queue, currentPacket);
+        }
+
+        // Clear out the packet now we have processed it
+        delete currentPacket;
+        currentPacket = NULL;
+
+        processState = DCCEX_IDLE;
     }
 }

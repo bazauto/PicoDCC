@@ -16,7 +16,8 @@
 enum pico_dccex_state
 {
     DCCEX_IDLE = 0,
-    DCCEX_RECIVING = 1
+    DCCEX_RECIVING = 1,
+    DCCEX_PACKET = 2
 };
 
 class PicoDccEx
@@ -27,17 +28,13 @@ private:
     enum pico_dccex_state processState;
     int bufferLength = 0;
     char buffer[COMMAND_BUFFER_SIZE] = "";
-
-    std::function<void(const PicoDccExPacket*)> packetCallback;
-
     PicoDccExPacket *currentPacket;
+
 
 public:
     PicoDccEx(int maxCab);
 
     void loop(queue_t *cmd_queue);
-
-    void setCallback(std::function<void(const PicoDccExPacket*)> callback);
 
     void reset();
 

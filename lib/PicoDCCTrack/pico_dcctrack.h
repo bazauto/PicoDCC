@@ -68,9 +68,8 @@ public:
 
     void loop();
 
-    void processCmd(raw_dcc_cmd_t *cmd);
+    void processCommand(raw_dcc_cmd_t *cmd);
     void sendIdle();
-    void sendLocoSpeed(uint16_t addr, uint8_t speed, bool forward);
 
     // Power control
     void powerOn() { setPower(true); }

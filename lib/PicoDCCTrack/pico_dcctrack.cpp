@@ -89,7 +89,7 @@ void PicoDccTrack::loop() {
 
 }
 
-void PicoDccTrack::processCmd(raw_dcc_cmd_t *cmd)
+void PicoDccTrack::processCommand(raw_dcc_cmd_t *cmd)
 {
     // build the data and checksum to send to the PIO
     uint64_t cmd_data = (uint64_t)0;
@@ -114,12 +114,5 @@ void PicoDccTrack::sendIdle()
 {
     // This is the Idle packet
     raw_dcc_cmd_t idle_cmd = {is_prog, 0x03, { 0xFF, 0x00, 0xFF }};
-    processCmd(&idle_cmd);
-}
-
-void PicoDccTrack::sendLocoSpeed(uint16_t addr, uint8_t speed, bool forward)
-{
-    // Build the raw command 
-    raw_dcc_cmd_t idle_cmd = {is_prog, 0x03, { 0xFF, 0x00, 0xFF }};
-    processCmd(&idle_cmd);
+    processCommand(&idle_cmd);
 }

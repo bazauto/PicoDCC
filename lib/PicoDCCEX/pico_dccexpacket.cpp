@@ -12,9 +12,31 @@ PicoDccExPacket::PicoDccExPacket(char *buffer)
     // Decode the rest of the pack if there are params
     switch (opcode)
     {
-    // Track Power, Version and Max cabs don't have any parameters, just the opcode
+    // Track Power
     case ('0'):
     case ('1'):
+        valid_packet = true;
+
+        if (opcode == '1')
+            power_on = true;
+        else
+            power_on = false;
+            
+        if (strlen(buffer) == 1)
+            break;
+
+        char track[4];
+        if (sscanf(buffer, "%*c %c", &track) == 1)
+        {
+            if (track == "MAIN")
+                power_track = DCCEX_TRACK_MAIN;
+
+            if (track == "PROG")
+                power_track = DCCEX_TRACK_PROG;
+        }
+        break;
+
+    // Version and Num supported cabs
     case ('s'):
     case ('#'):
         valid_packet = true;
@@ -45,7 +67,7 @@ PicoDccExPacket::~PicoDccExPacket()
     }
 }
 
-raw_dcc_cmd_t *PicoDccExPacket::getRawDccSpeedCmd()
+raw_dcc_cmd_t *PicoDccExPacket::getRawDccThrottleCmd()
 {
     // Some validation which will cause a null response if it fails.
     if (opcode != 't' && opcode != 'F')
