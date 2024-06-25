@@ -40,6 +40,7 @@ public:
     bool isNumCabsCommand() { return opcode == '#'; }
     bool isThrottleCommand() { return opcode == 't'; }
     bool isFunctionCommand() { return opcode == 'F'; }
+    bool isEmergencyStopCommand() { return opcode == '!'; }
 
     bool getPowerOn() { return power_on; }
     pico_dccex_track_select getTrack() { return power_track; }

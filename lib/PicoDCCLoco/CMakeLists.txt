@@ -6,7 +6,7 @@ project(PicoDCCLoco
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-add_library(${PROJECT_NAME} pico_dccloco.cpp)
+add_library(${PROJECT_NAME} pico_dccloco.cpp pico_dcclocos.cpp)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
         pico_stdlib

@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
+set(PICO_CXX_ENABLE_EXCEPTIONS 1)
 
 if (NOT EXISTS $ENV{PICO_SDK_PATH})
 message(FATAL_ERROR "Pico Debug SDK Path not found, please set correct environment variable PICO_SDK_PATH")

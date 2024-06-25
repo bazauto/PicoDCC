@@ -22,6 +22,7 @@
     "files.associations": {
         "dcc_track_queue.h": "c",
         "stdlib.h": "c",
-        "dcc.pio.h": "c"
+        "dcc.pio.h": "c",
+        "*.tcc": "cpp"
     },
 }

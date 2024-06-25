@@ -8,11 +8,6 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     assert(main_track_s.adc_num != prog_track_s.adc_num);
     assert(prog_track_s.ctrl_pin != UNUSED_PIN);
 
-    // Reserve memory for our configured MAX
-    sem_init(&locos_lock, 0, 1);
-    locos.reserve(MAX_LOCO);
-    last_loco_reminder = INVALID_LOCO_ADDR;
-
     // Setup the queue that core 0 will use to send us commands
     queue_init(&cmd_queue, sizeof(raw_dcc_cmd_t), CMD_QUEUE_LENGTH);
 
@@ -25,6 +20,9 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
 
     // Setup DCCEX Packate processing
     pico_dccex = new PicoDccEx(MAX_LOCO);
+
+    // Setup our loco store
+    pico_locos = new PicoDccLocos();
 }
 
 void PicoDccController::dccexLoop()
@@ -35,91 +33,61 @@ void PicoDccController::dccexLoop()
 void PicoDccController::dccLoop()
 {
     // Process any incoming messages to be sent to the track
-    PicoDccExPacket *cmd;
-    bool gotCmd = queue_try_remove(&cmd_queue, cmd);
-
-    if (gotCmd)
+    PicoDccExPacket *packet;
+    raw_dcc_cmd_t cmd;
+    if (queue_try_remove(&cmd_queue, packet))
     {
-            if (cmd->isPowerCommand() && cmd->getTrack() == DCCEX_TRACK_ALL || cmd->getTrack() == DCCEX_TRACK_PROG)
-                prog_track->setPower(cmd->getPowerOn());
+        if (packet->isPowerCommand() && packet->getTrack() == DCCEX_TRACK_ALL || packet->getTrack() == DCCEX_TRACK_PROG)
+            prog_track->setPower(packet->getPowerOn());
+            // TODO: Add bit to trigger DCCEX to send update
 
-            if (cmd->isPowerCommand() && cmd->getTrack() == DCCEX_TRACK_ALL || cmd->getTrack() == DCCEX_TRACK_MAIN)
-                main_track->setPower(cmd->getPowerOn());
+        if (packet->isPowerCommand() && packet->getTrack() == DCCEX_TRACK_ALL || packet->getTrack() == DCCEX_TRACK_MAIN)
+            main_track->setPower(packet->getPowerOn());
+            // TODO: Add bit to trigger DCCEX to send update
 
-            if (cmd->isThrottleCommand())
+        if (packet->isEmergencyStopCommand())
+            emergecyStop();
+            // TODO: Add bit to trigger DCCEX to send update
+
+        if (packet->isThrottleCommand() || packet->isFunctionCommand())
+        {
+            bool sendUpdate = pico_locos->updateLoco(packet, cmd);
+
+            if (sendUpdate)
             {
-                main_track->processCommand(cmd->getRawDccThrottleCmd());
+                main_track->processCommand(&cmd);
+                // TODO: Add bit to trigger DCCEX to send update
             }
-
-            if (cmd->isFunctionCommand())
-            {
-                main_track->processCommand(cmd->getRawDccFunctionCmd());
-            }
+        }
     }
     else
     {
-        this->repeatLocoOrIdle();
+        bool foundLoco = pico_locos->getNextReminder(cmd);
+
+        if (foundLoco)
+            main_track->processCommand(&cmd);
+        else
+            main_track->sendIdle();
     }
 
     main_track->loop();
     prog_track->loop();
 }
 
-void PicoDccController::repeatLocoOrIdle()
+void PicoDccController::emergecyStop()
 {
-    sem_acquire_blocking(&locos_lock);
-    if (locos.empty())
-    {
-        sem_release(&locos_lock);
-        main_track->sendIdle();
-    }
-    else
-    {
-        // Pick the next loco and re-send its speed packet
-        bool foundLoco = false;
-        std::vector<PicoDccLoco>::iterator nextLoco = locos.end();
-        for (std::vector<PicoDccLoco>::iterator it = locos.begin(); it != locos.end();)
-        {
-            // This means the last loco was the last one to be sent
-            if (foundLoco)
-            {
-                nextLoco = it;
-                break;
-            }
+    // sem_acquire_blocking(&locos_lock);
+    // if (locos.empty())
+    // {
+    //     sem_release(&locos_lock);
+    //     return;
+    // }
 
-            // If this was the last sent, note it to switch to the next one in the loop
-            if (it->getAddress() == last_loco_reminder)
-                foundLoco = true;
-        }
-        // note the details from the loco so we can unlock before signalling to the track as this might block
-        raw_dcc_cmd_t cmd = nextLoco->getThrottleCommand();
-        sem_release(&locos_lock);
+    // for (std::vector<PicoDccLoco>::iterator it = locos.begin(); it != locos.end();)
+    // {
+    //     raw_dcc_cmd_t cmd = it->getEmergecyStopCommand();
+    //     main_track->processCommand(&cmd);
+    // }
 
-        main_track->processCommand(&cmd);
-    }
-}
-
-void PicoDccController::forgetLoco(uint16_t addr)
-{
-    sem_acquire_blocking(&locos_lock);
-
-    for (std::vector<PicoDccLoco>::iterator it = locos.begin(); it != locos.end();)
-    {
-        if (it->getAddress() == addr)
-        {
-            locos.erase(it);
-            break;
-        }
-    }
-
-    sem_release(&locos_lock);
-}
-
-void PicoDccController::forgetAllLocos()
-{
-    sem_acquire_blocking(&locos_lock);
-    last_loco_reminder = INVALID_LOCO_ADDR;
-    locos.clear();
-
-    sem_release(&locos_lock);
+    // sem_release(&locos_lock);
 }

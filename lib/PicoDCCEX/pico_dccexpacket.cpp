@@ -3,8 +3,8 @@
 PicoDccExPacket::PicoDccExPacket(char *buffer)
 {
     // Allocate memory for the generated outputs
-    this->dcc_update = (char*)malloc(sizeof(char) * 15);
-    this->raw_dcc_cmd = (raw_dcc_cmd_t*)malloc(sizeof(raw_dcc_cmd_t));
+    this->dcc_update = (char *)malloc(sizeof(char) * 15);
+    this->raw_dcc_cmd = (raw_dcc_cmd_t *)malloc(sizeof(raw_dcc_cmd_t));
 
     // The packet to decode will be stored in the buffer and the output should go in currentMessage
     opcode = buffer[0];
@@ -21,7 +21,7 @@ PicoDccExPacket::PicoDccExPacket(char *buffer)
             power_on = true;
         else
             power_on = false;
-            
+
         if (strlen(buffer) == 1)
             break;
 
@@ -50,6 +50,11 @@ PicoDccExPacket::PicoDccExPacket(char *buffer)
         {
             valid_packet = true;
         }
+        break;
+
+    // Emergency Stop
+    case ('!'):
+        valid_packet = true;
         break;
     }
 }
@@ -111,7 +116,8 @@ char *PicoDccExPacket::getDccExUpdate()
 {
     // If we have already constructed the string, simply return it.
     // We don't need to regenerate it as there is no means to alter the packet in this object.
-    if (this->dcc_update) {
+    if (this->dcc_update)
+    {
         return this->dcc_update;
     }
 
