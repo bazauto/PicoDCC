@@ -17,11 +17,21 @@ void PicoDccEx::reset()
     processState = DCCEX_IDLE;
 }
 
-void PicoDccEx::loop(queue_t *cmd_queue)
+void PicoDccEx::loop(queue_t *dcc_cmd_queue, queue_t *dccex_cmd_queue)
 {
     if (!uart_is_readable(uart0))
     {
         return;
+    }
+
+    PicoDccExPacket *packet;
+    if (queue_try_remove(dccex_cmd_queue, packet))
+    {
+        if (packet->isThrottleCommand() || packet->isFunctionCommand())
+            uart_puts(uart0, packet->getDccExCabUpdate());
+
+        if (packet->isPowerCommand())
+            uart_puts(uart0, packet->getDccExPowerUpdate());
     }
 
     char newChar = uart_getc(uart0);
@@ -77,7 +87,7 @@ void PicoDccEx::loop(queue_t *cmd_queue)
         }
         else
         {
-            queue_add_blocking(cmd_queue, currentPacket);
+            queue_add_blocking(dcc_cmd_queue, currentPacket);
         }
 
         // Clear out the packet now we have processed it

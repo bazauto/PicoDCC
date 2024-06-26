@@ -66,6 +66,20 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
     }
 }
 
+std::list<raw_dcc_cmd_t> PicoDccLocos::getEmergencyStopCommands()
+{
+    std::list<raw_dcc_cmd_t> stopCmds;
+    if (!locos.empty())
+    {
+        sem_acquire_blocking(&locos_lock);
+        for (std::vector<PicoDccLoco>::iterator it = locos.begin(); it != locos.end();)
+            stopCmds.push_back(it->getEmergecyStopCommand());
+        sem_release(&locos_lock);
+    }
+
+    return stopCmds;
+}
+
 bool PicoDccLocos::updateLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
 {
     return false;

@@ -3,7 +3,8 @@
 PicoDccExPacket::PicoDccExPacket(char *buffer)
 {
     // Allocate memory for the generated outputs
-    this->dcc_update = (char *)malloc(sizeof(char) * 15);
+    this->dccex_cab_update = (char *)malloc(sizeof(char) * 15);
+    this->dccex_power_update = (char *)malloc(sizeof(char) * 9);
     this->raw_dcc_cmd = (raw_dcc_cmd_t *)malloc(sizeof(raw_dcc_cmd_t));
 
     // The packet to decode will be stored in the buffer and the output should go in currentMessage
@@ -61,9 +62,9 @@ PicoDccExPacket::PicoDccExPacket(char *buffer)
 
 PicoDccExPacket::~PicoDccExPacket()
 {
-    if (this->dcc_update)
+    if (this->dccex_cab_update)
     {
-        free(this->dcc_update);
+        free(this->dccex_cab_update);
     }
 
     if (this->raw_dcc_cmd)
@@ -112,13 +113,13 @@ raw_dcc_cmd_t *PicoDccExPacket::getRawDccFunctionCmd()
     return nullptr;
 }
 
-char *PicoDccExPacket::getDccExUpdate()
+char *PicoDccExPacket::getDccExCabUpdate()
 {
     // If we have already constructed the string, simply return it.
     // We don't need to regenerate it as there is no means to alter the packet in this object.
-    if (this->dcc_update)
+    if (this->dccex_cab_update)
     {
-        return this->dcc_update;
+        return this->dccex_cab_update;
     }
 
     uint8_t speed128 = (this->getSpeed() & 0x7f);
@@ -131,6 +132,25 @@ char *PicoDccExPacket::getDccExUpdate()
 
     speed128 = speed128 | (this->getDirection() * 128);
 
-    snprintf(this->dcc_update, sizeof(this->dcc_update), "<l %d 0 %d 0>", this->getCab(), speed128);
-    return this->dcc_update;
+    snprintf(this->dccex_cab_update, sizeof(this->dccex_cab_update), "<l %d 0 %d 0>", this->getCab(), speed128);
+    return this->dccex_cab_update;
+}
+
+char *PicoDccExPacket::getDccExPowerUpdate()
+{
+    if (this->dccex_power_update)
+    {
+        return this->dccex_power_update;
+    }
+
+    if (this->getTrack() == DCCEX_TRACK_ALL)
+        snprintf(this->dccex_power_update, sizeof(this->dccex_power_update), "<p%d>", (this->power_on ? 1 : 0));
+
+    if (this->getTrack() == DCCEX_TRACK_MAIN)
+        snprintf(this->dccex_power_update, sizeof(this->dccex_power_update), "<p%d MAIN>", (this->power_on ? 1 : 0));
+
+    if (this->getTrack() == DCCEX_TRACK_PROG)
+        snprintf(this->dccex_power_update, sizeof(this->dccex_power_update), "<p%d PROG>", (this->power_on ? 1 : 0));
+
+    return this->dccex_power_update;
 }

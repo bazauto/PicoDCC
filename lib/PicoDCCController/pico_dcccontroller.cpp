@@ -8,8 +8,9 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     assert(main_track_s.adc_num != prog_track_s.adc_num);
     assert(prog_track_s.ctrl_pin != UNUSED_PIN);
 
-    // Setup the queue that core 0 will use to send us commands
-    queue_init(&cmd_queue, sizeof(raw_dcc_cmd_t), CMD_QUEUE_LENGTH);
+    // Setup the queues to tranfer actions between CPU cores
+    queue_init(&dcc_cmd_queue, sizeof(PicoDccExPacket), CMD_QUEUE_LENGTH);
+    queue_init(&dccex_cmd_queue, sizeof(PicoDccExPacket), CMD_QUEUE_LENGTH);
 
     // Setup the tracks
     main_track = new PicoDccTrack(false);
@@ -27,7 +28,7 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
 
 void PicoDccController::dccexLoop()
 {
-    pico_dccex->loop(&cmd_queue);
+    pico_dccex->loop(&dcc_cmd_queue, &dccex_cmd_queue);
 }
 
 void PicoDccController::dccLoop()
@@ -35,19 +36,29 @@ void PicoDccController::dccLoop()
     // Process any incoming messages to be sent to the track
     PicoDccExPacket *packet;
     raw_dcc_cmd_t cmd;
-    if (queue_try_remove(&cmd_queue, packet))
+    if (queue_try_remove(&dcc_cmd_queue, packet))
     {
-        if (packet->isPowerCommand() && packet->getTrack() == DCCEX_TRACK_ALL || packet->getTrack() == DCCEX_TRACK_PROG)
-            prog_track->setPower(packet->getPowerOn());
-            // TODO: Add bit to trigger DCCEX to send update
+        if (packet->isPowerCommand())
+        {
+            if (packet->getTrack() == DCCEX_TRACK_ALL || packet->getTrack() == DCCEX_TRACK_PROG)
+                prog_track->setPower(packet->getPowerOn());
 
-        if (packet->isPowerCommand() && packet->getTrack() == DCCEX_TRACK_ALL || packet->getTrack() == DCCEX_TRACK_MAIN)
-            main_track->setPower(packet->getPowerOn());
-            // TODO: Add bit to trigger DCCEX to send update
+            if (packet->getTrack() == DCCEX_TRACK_ALL || packet->getTrack() == DCCEX_TRACK_MAIN)
+                main_track->setPower(packet->getPowerOn());
+
+            queue_add_blocking(&dccex_cmd_queue, packet);
+        }
 
         if (packet->isEmergencyStopCommand())
-            emergecyStop();
+        {
+            std::list<raw_dcc_cmd_t> stopCmds = pico_locos->getEmergencyStopCommands();
+            for (std::list<raw_dcc_cmd_t>::iterator it = stopCmds.begin(); it != stopCmds.end();)
+            {
+                raw_dcc_cmd_t cmd = *it;
+                main_track->processCommand(&cmd);
+            }
             // TODO: Add bit to trigger DCCEX to send update
+        }
 
         if (packet->isThrottleCommand() || packet->isFunctionCommand())
         {
@@ -56,7 +67,7 @@ void PicoDccController::dccLoop()
             if (sendUpdate)
             {
                 main_track->processCommand(&cmd);
-                // TODO: Add bit to trigger DCCEX to send update
+                queue_add_blocking(&dccex_cmd_queue, packet);
             }
         }
     }
@@ -72,22 +83,4 @@ void PicoDccController::dccLoop()
 
     main_track->loop();
     prog_track->loop();
-}
-
-void PicoDccController::emergecyStop()
-{
-    // sem_acquire_blocking(&locos_lock);
-    // if (locos.empty())
-    // {
-    //     sem_release(&locos_lock);
-    //     return;
-    // }
-
-    // for (std::vector<PicoDccLoco>::iterator it = locos.begin(); it != locos.end();)
-    // {
-    //     raw_dcc_cmd_t cmd = it->getEmergecyStopCommand();
-    //     main_track->processCommand(&cmd);
-    // }
-
-    // sem_release(&locos_lock);
 }

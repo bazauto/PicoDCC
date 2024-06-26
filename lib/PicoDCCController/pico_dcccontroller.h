@@ -5,6 +5,7 @@
 #include <pico/util/queue.h>
 #include <pico/sem.h>
 #include <vector>
+#include <list>
 #include "../PicoDCCEX/pico_dccex.h"
 #include "../PicoDCCLoco/pico_dccloco.h"
 #include "../PicoDCCLoco/pico_dcclocos.h"
@@ -25,17 +26,14 @@ private:
 
     PicoDccLocos *pico_locos;
 
-    queue_t cmd_queue;
+    queue_t dcc_cmd_queue;
+    queue_t dccex_cmd_queue;
 
 public:
     PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s);
 
     void dccLoop();
     void dccexLoop();
-
-    void emergecyStop();
-
-    queue_t* getCommandQueue() { return &cmd_queue; }
 };
 
 #endif

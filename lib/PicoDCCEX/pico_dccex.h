@@ -34,7 +34,7 @@ private:
 public:
     PicoDccEx(int maxCab);
 
-    void loop(queue_t *cmd_queue);
+    void loop(queue_t *dcc_cmd_queue, queue_t *dccex_cmd_queue);
 
     void reset();
 

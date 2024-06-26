@@ -27,7 +27,8 @@ private:
     bool valid_packet = false;
 
     raw_dcc_cmd_t *raw_dcc_cmd;
-    char *dcc_update;
+    char *dccex_cab_update;
+    char *dccex_power_update;
 
 public:
     PicoDccExPacket(char *buffer);
@@ -54,7 +55,8 @@ public:
 
     raw_dcc_cmd_t *getRawDccThrottleCmd();
     raw_dcc_cmd_t *getRawDccFunctionCmd();
-    char *getDccExUpdate();
+    char *getDccExCabUpdate();
+    char *getDccExPowerUpdate();
 };
 
 #endif

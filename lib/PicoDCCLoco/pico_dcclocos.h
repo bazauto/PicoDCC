@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <vector>
+#include <list>
 #include <pico/stdlib.h>
 #include <pico/sem.h>
 
@@ -33,6 +34,7 @@ public:
     bool findLoco(uint16_t address, PicoDccLoco &loco);
     
     bool getNextReminder(raw_dcc_cmd_t &cmd);
+    std::list<raw_dcc_cmd_t> getEmergencyStopCommands();
 };
 
 #endif
