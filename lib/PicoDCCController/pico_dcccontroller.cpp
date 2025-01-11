@@ -34,11 +34,11 @@ void PicoDccController::dccexLoop()
 void PicoDccController::dccLoop()
 {
     // Process any incoming messages to be sent to the track
-    PicoDccExPacket *packet;
+    PicoDccExPacket packet;
     raw_dcc_cmd_t cmd;
-    if (queue_try_remove(&dcc_cmd_queue, packet))
+    if (queue_try_remove(&dcc_cmd_queue, &packet))
     {
-        if (packet->isPowerCommand())
+        if (packet.isPowerCommand())
         {
             if (packet->getTrack() == DCCEX_TRACK_ALL || packet->getTrack() == DCCEX_TRACK_PROG)
                 prog_track->setPower(packet->getPowerOn());
@@ -79,6 +79,11 @@ void PicoDccController::dccLoop()
             main_track->processCommand(&cmd);
         else
             main_track->sendIdle();
+    }
+
+    if (packet) {
+        delete packet;
+        packet = NULL;
     }
 
     main_track->loop();

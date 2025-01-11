@@ -1,5 +1,10 @@
 #include "pico_dccexpacket.h"
 
+PicoDccExPacket::PicoDccExPacket()
+{
+    valid_packet = false;
+}
+
 PicoDccExPacket::PicoDccExPacket(char *buffer)
 {
     // Allocate memory for the generated outputs
@@ -26,13 +31,13 @@ PicoDccExPacket::PicoDccExPacket(char *buffer)
         if (strlen(buffer) == 1)
             break;
 
-        char track[4];
-        if (sscanf(buffer, "%*c %c", &track) == 1)
+        char track[5];
+        if (sscanf(buffer, "%*c %4s", track) == 1)
         {
-            if (track == "MAIN")
+            if (strcmp(track, "MAIN") == 0)
                 power_track = DCCEX_TRACK_MAIN;
 
-            if (track == "PROG")
+            if (strcmp(track, "PROG") == 0)
                 power_track = DCCEX_TRACK_PROG;
         }
         break;

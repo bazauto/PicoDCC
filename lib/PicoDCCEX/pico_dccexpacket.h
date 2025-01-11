@@ -31,6 +31,7 @@ private:
     char *dccex_power_update;
 
 public:
+    PicoDccExPacket();
     PicoDccExPacket(char *buffer);
     ~PicoDccExPacket();
 

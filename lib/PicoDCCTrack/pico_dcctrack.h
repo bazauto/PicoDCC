@@ -7,6 +7,7 @@
 #define PICO_DCCTRACK_H
 
 #include <stdio.h>
+#include <cstdint>
 
 #define UNUSED_PIN 255
 #define BASE_ADC_PIN 26
@@ -21,6 +22,8 @@
 #define TRACK_POWER_ADC_CONVERT (TRACK_POWER_ADC_VREF / (TRACK_POWER_ADC_RANGE - 1))
 
 #define HIGHEST_SHORT_ADDR 127
+
+typedef unsigned int uint;
 
 typedef struct {
     uint8_t ctrl_pin = UNUSED_PIN;
