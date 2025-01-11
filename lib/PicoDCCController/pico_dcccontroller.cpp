@@ -33,23 +33,35 @@ void PicoDccController::dccexLoop()
 
 void PicoDccController::dccLoop()
 {
-    // Process any incoming messages to be sent to the track
-    PicoDccExPacket packet;
+    main_track->loop();
+    prog_track->loop();
+}
+
+void PicoDccController::processDccExFromJMRI()
+{
+    // Process any incoming message from JMRI queue to be sent to the track
+    pico_dccex_packet packetData;
     raw_dcc_cmd_t cmd;
-    if (queue_try_remove(&dcc_cmd_queue, &packet))
+    if (!queue_try_remove(&dcc_cmd_queue, &packetData))
     {
+        return;
+    }
+
+    PicoDccExPacket packet(packetData);
+    if (packet.isValid()) {
+        
         if (packet.isPowerCommand())
         {
-            if (packet->getTrack() == DCCEX_TRACK_ALL || packet->getTrack() == DCCEX_TRACK_PROG)
-                prog_track->setPower(packet->getPowerOn());
+            if (packet.getTrack() == DCCEX_TRACK_ALL || packet.getTrack() == DCCEX_TRACK_PROG)
+                prog_track->setPower(packet.getPowerOn());
 
-            if (packet->getTrack() == DCCEX_TRACK_ALL || packet->getTrack() == DCCEX_TRACK_MAIN)
-                main_track->setPower(packet->getPowerOn());
+            if (packet.getTrack() == DCCEX_TRACK_ALL || packet.getTrack() == DCCEX_TRACK_MAIN)
+                main_track->setPower(packet.getPowerOn());
 
-            queue_add_blocking(&dccex_cmd_queue, packet);
+            queue_add_blocking(&dccex_cmd_queue, packet.getPacketData());
         }
 
-        if (packet->isEmergencyStopCommand())
+        if (packet.isEmergencyStopCommand())
         {
             std::list<raw_dcc_cmd_t> stopCmds = pico_locos->getEmergencyStopCommands();
             for (std::list<raw_dcc_cmd_t>::iterator it = stopCmds.begin(); it != stopCmds.end();)
@@ -60,14 +72,12 @@ void PicoDccController::dccLoop()
             // TODO: Add bit to trigger DCCEX to send update
         }
 
-        if (packet->isThrottleCommand() || packet->isFunctionCommand())
+        if (packet.isThrottleCommand() || packet.isFunctionCommand())
         {
-            bool sendUpdate = pico_locos->updateLoco(packet, cmd);
-
-            if (sendUpdate)
+            if (pico_locos->updateLoco(&packet, cmd))
             {
                 main_track->processCommand(&cmd);
-                queue_add_blocking(&dccex_cmd_queue, packet);
+                queue_add_blocking(&dccex_cmd_queue, packet.getPacketData());
             }
         }
     }
@@ -80,12 +90,4 @@ void PicoDccController::dccLoop()
         else
             main_track->sendIdle();
     }
-
-    if (packet) {
-        delete packet;
-        packet = NULL;
-    }
-
-    main_track->loop();
-    prog_track->loop();
 }

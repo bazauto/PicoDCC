@@ -29,6 +29,8 @@ private:
     queue_t dcc_cmd_queue;
     queue_t dccex_cmd_queue;
 
+    void processDccExFromJMRI();
+
 public:
     PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s);
 

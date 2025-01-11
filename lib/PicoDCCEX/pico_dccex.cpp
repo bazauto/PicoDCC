@@ -13,7 +13,8 @@ PicoDccEx::PicoDccEx(int maxCab)
 
 void PicoDccEx::reset()
 {
-    if (currentPacket) {
+    if (currentPacket)
+    {
         delete currentPacket;
         currentPacket = NULL;
     }
@@ -23,23 +24,40 @@ void PicoDccEx::reset()
     processState = DCCEX_IDLE;
 }
 
-void PicoDccEx::loop(queue_t *dcc_cmd_queue, queue_t *dccex_cmd_queue)
+void PicoDccEx::processDccFromController(queue_t *dccex_cmd_queue)
 {
+
+    // Skip if we can't send to JRMI
+    if (!uart_is_writable(uart0))
+    {
+        return;
+    }
+
+    // Process any incoming messages form the controller to be sent to JMRI
+    pico_dccex_packet rawPacket;
+    if (queue_try_remove(dccex_cmd_queue, &rawPacket))
+    {
+        PicoDccExPacket packet(rawPacket);
+        if (packet.isValid())
+        {
+            if (packet.isThrottleCommand() || packet.isFunctionCommand())
+                uart_puts(uart0, packet.getDccExCabUpdate());
+
+            if (packet.isPowerCommand())
+                uart_puts(uart0, packet.getDccExPowerUpdate());
+        }
+    }
+}
+
+void PicoDccEx::processDccExFromJMRI(queue_t *dcc_cmd_queue)
+{
+
     if (!uart_is_readable(uart0))
     {
         return;
     }
 
-    PicoDccExPacket *packet;
-    if (queue_try_remove(dccex_cmd_queue, packet))
-    {
-        if (packet->isThrottleCommand() || packet->isFunctionCommand())
-            uart_puts(uart0, packet->getDccExCabUpdate());
-
-        if (packet->isPowerCommand())
-            uart_puts(uart0, packet->getDccExPowerUpdate());
-    }
-
+    // Process any incoming messages from JMRI
     char newChar = uart_getc(uart0);
     switch (processState)
     {
@@ -92,9 +110,16 @@ void PicoDccEx::loop(queue_t *dcc_cmd_queue, queue_t *dccex_cmd_queue)
         }
         else
         {
-            queue_add_blocking(dcc_cmd_queue, currentPacket);
+            queue_add_blocking(dcc_cmd_queue, currentPacket->getPacketData());
         }
 
         reset();
     }
+}
+
+void PicoDccEx::loop(queue_t *dcc_cmd_queue, queue_t *dccex_cmd_queue)
+{
+
+    processDccFromController(dccex_cmd_queue);
+    processDccExFromJMRI(dcc_cmd_queue);
 }

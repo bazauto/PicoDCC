@@ -38,6 +38,9 @@ public:
 
     void reset();
 
+    void processDccFromController(queue_t *dccex_cmd_queue);
+    void processDccExFromJMRI(queue_t *dcc_cmd_queue);
+
     enum pico_dccex_state getProcessState() { return processState; }
 };
 
