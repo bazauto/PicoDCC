@@ -26,6 +26,7 @@
 typedef unsigned int uint;
 
 typedef struct {
+    uint8_t signal_pin = UNUSED_PIN;
     uint8_t ctrl_pin = UNUSED_PIN;
     uint8_t adc_num = UNUSED_PIN;
 } track_settings_t;
@@ -50,6 +51,7 @@ private:
 
     void *pio;
 
+    uint8_t power_signal_pin = UNUSED_PIN;
     uint8_t power_ctrl_pin = UNUSED_PIN;
     uint8_t power_adc_pin = UNUSED_PIN;
     uint8_t power_adc_number;
@@ -62,6 +64,7 @@ public:
     PicoDccTrack(bool is_prog);
 
     // These must be called before init and never after
+    void setSignalCtrlPin(uint8_t pin);
     void setPowerCtrlPin(uint8_t pin);
     void setPowerAdcNumber(uint8_t adc);   // this is optional, if not set then no current reading is availbale
 

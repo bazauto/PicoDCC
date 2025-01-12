@@ -3,6 +3,8 @@
 PicoDccController::PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s)
 {
     // Some things that should never be
+    assert(main_track_s.signal_pin != prog_track_s.signal_pin);
+    assert(main_track_s.signal_pin != UNUSED_PIN);
     assert(main_track_s.ctrl_pin != prog_track_s.ctrl_pin);
     assert(main_track_s.ctrl_pin != UNUSED_PIN);
     assert(main_track_s.adc_num != prog_track_s.adc_num);
@@ -34,9 +36,22 @@ void PicoDccController::dccexLoop()
 void PicoDccController::dccLoop()
 {
     processDccExFromJMRI();
+    processReminders();
 
     main_track->loop();
     prog_track->loop();
+}
+
+void PicoDccController::processReminders()
+{
+    // Reminders are only sent to the main track so don't need to check for that
+    raw_dcc_cmd_t cmd = {};
+    bool foundLoco = pico_locos->getNextReminder(cmd);
+
+    if (foundLoco)
+        main_track->processCommand(&cmd);
+    else
+        main_track->sendIdle();
 }
 
 void PicoDccController::processDccExFromJMRI()
@@ -82,14 +97,5 @@ void PicoDccController::processDccExFromJMRI()
                 queue_add_blocking(&dccex_cmd_queue, packet.getPacketData());
             }
         }
-    }
-    else
-    {
-        bool foundLoco = pico_locos->getNextReminder(cmd);
-
-        if (foundLoco)
-            main_track->processCommand(&cmd);
-        else
-            main_track->sendIdle();
     }
 }

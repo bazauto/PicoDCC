@@ -10,6 +10,12 @@ PicoDccTrack::PicoDccTrack(bool is_prog_in) {
     is_prog = is_prog_in;
 }
 
+void PicoDccTrack::setSignalCtrlPin(uint8_t pin) {
+    assert(state == TRACK_UNINIT);
+
+    power_signal_pin = pin;
+}
+
 void PicoDccTrack::setPowerCtrlPin(uint8_t pin) {
     assert(state == TRACK_UNINIT);
 
@@ -24,8 +30,10 @@ void PicoDccTrack::setPowerAdcNumber(uint8_t adc) {
 }
 
 void PicoDccTrack::init(track_settings_t settings) {
+    assert(settings.signal_pin != UNUSED_PIN);
     assert(settings.ctrl_pin != UNUSED_PIN);
     
+    setSignalCtrlPin(settings.signal_pin);
     setPowerCtrlPin(settings.ctrl_pin);
     if (settings.adc_num != UNUSED_PIN)
         setPowerAdcNumber(settings.adc_num);
@@ -34,6 +42,7 @@ void PicoDccTrack::init(track_settings_t settings) {
 }
 
 void PicoDccTrack::init() {
+    assert(power_signal_pin != UNUSED_PIN);
     assert(power_ctrl_pin != UNUSED_PIN);
     assert(state == TRACK_UNINIT);
 
@@ -61,7 +70,7 @@ void PicoDccTrack::init() {
 	uint sm = pio_claim_unused_sm((PIO)pio, true);
     assert(sm != -1); // This should never happen
 
-	dcc_program_init((PIO)pio, sm, offset, 18, (is_prog ? DCC_PROG_PREAMBLE : DCC_MAIN_PREAMBLE));
+	dcc_program_init((PIO)pio, sm, offset, power_signal_pin, (is_prog ? DCC_PROG_PREAMBLE : DCC_MAIN_PREAMBLE));
     pio_sm_set_enabled((PIO)pio, sm, true);
 
     state = TRACK_IDLE;
