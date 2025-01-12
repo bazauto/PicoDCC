@@ -34,36 +34,31 @@ bool PicoDccLocos::findLoco(uint16_t address, PicoDccLoco &loco)
 
 bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
 {
-    if (locos.empty())
-    {
-        return false;
+    if (locos.empty()) {
+        return false; // No locos to remind
     }
-    else
-    {
-        sem_acquire_blocking(&locos_lock);
 
-        // Pick the next loco and re-send its speed packet
-        bool foundLoco = false;
-        std::vector<PicoDccLoco>::iterator nextLoco = locos.end();
-        for (std::vector<PicoDccLoco>::iterator it = locos.begin(); it != locos.end(); it++)
-        {
-            // This means the last loco was the last one to be sent
-            if (foundLoco)
-            {
-                nextLoco = it;
+    sem_acquire_blocking(&locos_lock);
+
+    // Find the index of the next loco
+    size_t nextIndex = 0;
+    if (last_loco_reminder != INVALID_LOCO_ADDR) { // If we have a last reminded loco
+        // Find the current index of last_loco_reminder
+        for (size_t i = 0; i < locos.size(); ++i) {
+            if (locos[i].getAddress() == last_loco_reminder) {
+                nextIndex = (i + 1) % locos.size(); // Move to the next index, looping back to 0 if necessary
                 break;
             }
-
-            // If this was the last sent, note it to switch to the next one in the loop
-            if (it->getAddress() == last_loco_reminder)
-                foundLoco = true;
         }
-        // note the details from the loco so we can unlock before signalling to the track as this might block
-        cmd = nextLoco->getThrottleCommand();
-        sem_release(&locos_lock);
-
-        return true;
     }
+
+    // Get the command for the next loco that will be sent to the track
+    cmd = locos[nextIndex].getThrottleCommand();
+    
+    sem_release(&locos_lock);
+
+    // Return a pointer to the next loco
+    return &locos[nextIndex];
 }
 
 std::list<raw_dcc_cmd_t> PicoDccLocos::getEmergencyStopCommands()
