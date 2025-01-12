@@ -9,8 +9,8 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     assert(prog_track_s.ctrl_pin != UNUSED_PIN);
 
     // Setup the queues to tranfer actions between CPU cores
-    queue_init(&dcc_cmd_queue, sizeof(PicoDccExPacket), CMD_QUEUE_LENGTH);
-    queue_init(&dccex_cmd_queue, sizeof(PicoDccExPacket), CMD_QUEUE_LENGTH);
+    queue_init(&dcc_cmd_queue, sizeof(pico_dccex_packet), CMD_QUEUE_LENGTH);
+    queue_init(&dccex_cmd_queue, sizeof(pico_dccex_packet), CMD_QUEUE_LENGTH);
 
     // Setup the tracks
     main_track = new PicoDccTrack(false);
@@ -33,6 +33,8 @@ void PicoDccController::dccexLoop()
 
 void PicoDccController::dccLoop()
 {
+    processDccExFromJMRI();
+
     main_track->loop();
     prog_track->loop();
 }
@@ -41,15 +43,15 @@ void PicoDccController::processDccExFromJMRI()
 {
     // Process any incoming message from JMRI queue to be sent to the track
     pico_dccex_packet packetData;
-    raw_dcc_cmd_t cmd;
+    raw_dcc_cmd_t cmd = {};
     if (!queue_try_remove(&dcc_cmd_queue, &packetData))
     {
         return;
     }
 
     PicoDccExPacket packet(packetData);
-    if (packet.isValid()) {
-        
+    if (packet.isValid()) 
+    {    
         if (packet.isPowerCommand())
         {
             if (packet.getTrack() == DCCEX_TRACK_ALL || packet.getTrack() == DCCEX_TRACK_PROG)

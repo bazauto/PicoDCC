@@ -14,6 +14,14 @@ enum pico_dccex_track_select
     DCCEX_TRACK_PROG = 2
 };
 
+typedef struct {
+    char text[16];
+} dccex_cab_update_t;
+
+typedef struct {
+    char text[10];
+} dccex_power_update_t;
+
 // This is the raw packet data that is transfered through the queues
 struct pico_dccex_packet
 {
@@ -33,11 +41,11 @@ private:
     bool valid_packet = false;
 
     raw_dcc_cmd_t *raw_dcc_cmd;
-    char *dccex_cab_update;
-    char *dccex_power_update;
+    dccex_cab_update_t *dccex_cab_update;
+    dccex_power_update_t *dccex_power_update;
 
     void initPacket();
-    bool validatePacket();
+    void validatePacket();
 
 public:
     PicoDccExPacket(char *buffer);
@@ -67,8 +75,8 @@ public:
 
     raw_dcc_cmd_t *getRawDccThrottleCmd();
     raw_dcc_cmd_t *getRawDccFunctionCmd();
-    char *getDccExCabUpdate();
-    char *getDccExPowerUpdate();
+    dccex_cab_update_t *getDccExCabUpdate();
+    dccex_power_update_t *getDccExPowerUpdate();
 };
 
 #endif

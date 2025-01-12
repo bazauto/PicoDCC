@@ -48,33 +48,44 @@ PicoDccExPacket::PicoDccExPacket(char *buffer)
 
 PicoDccExPacket::PicoDccExPacket(pico_dccex_packet packetData)
 {
-    packet = packetData;
     initPacket();
+    packet = packetData;
     validatePacket();
 }
 
 PicoDccExPacket::~PicoDccExPacket()
 {
-    if (this->dccex_cab_update)
+    if (dccex_cab_update)
     {
-        free(this->dccex_cab_update);
+        free(dccex_cab_update);
+        dccex_cab_update = nullptr;
     }
 
-    if (this->raw_dcc_cmd)
+    if (dccex_power_update)
     {
-        free(this->raw_dcc_cmd);
+        free(dccex_power_update);
+        dccex_power_update = nullptr;
+    }
+
+    if (raw_dcc_cmd)
+    {
+        free(raw_dcc_cmd);
+        raw_dcc_cmd = nullptr;
     }
 }
 
 void PicoDccExPacket::initPacket()
 {
     // Allocate memory for the generated outputs
-    this->dccex_cab_update = (char *)malloc(sizeof(char) * 15);
-    this->dccex_power_update = (char *)malloc(sizeof(char) * 9);
-    this->raw_dcc_cmd = (raw_dcc_cmd_t *)malloc(sizeof(raw_dcc_cmd_t));
+    dccex_cab_update = (dccex_cab_update_t *)malloc(sizeof(dccex_cab_update_t));
+    memset(dccex_cab_update, 0, sizeof(dccex_cab_update_t));
+    dccex_power_update = (dccex_power_update_t *)malloc(sizeof(dccex_power_update_t));
+    memset(dccex_power_update, 0, sizeof(dccex_power_update_t));
+    raw_dcc_cmd = (raw_dcc_cmd_t *)malloc(sizeof(raw_dcc_cmd_t));
+    memset(raw_dcc_cmd, 0, sizeof(raw_dcc_cmd));
 }
 
-bool PicoDccExPacket::validatePacket()
+void PicoDccExPacket::validatePacket()
 {
     valid_packet = false;
 
@@ -123,13 +134,6 @@ raw_dcc_cmd_t *PicoDccExPacket::getRawDccThrottleCmd()
         return NULL;
     }
 
-    // If we have already constructed the string, simply return it.
-    // We don't need to regenerate it as there is no means to alter the packet in this object.
-    if (raw_dcc_cmd)
-    {
-        return raw_dcc_cmd;
-    }
-
     // Build the raw DCC packet from the contents of the packet
     int addr = getCab();
     if (addr > HIGHEST_SHORT_ADDR)
@@ -151,15 +155,8 @@ raw_dcc_cmd_t *PicoDccExPacket::getRawDccFunctionCmd()
     return nullptr;
 }
 
-char *PicoDccExPacket::getDccExCabUpdate()
+dccex_cab_update_t *PicoDccExPacket::getDccExCabUpdate()
 {
-    // If we have already constructed the string, simply return it.
-    // We don't need to regenerate it as there is no means to alter the packet in this object.
-    if (dccex_cab_update)
-    {
-        return dccex_cab_update;
-    }
-
     uint8_t speed128 = (getSpeed() & 0x7f);
     int8_t responseSpeed = 0;
     if (speed128 == 1)
@@ -170,25 +167,20 @@ char *PicoDccExPacket::getDccExCabUpdate()
 
     speed128 = speed128 | (getDirection() * 128);
 
-    snprintf(dccex_cab_update, sizeof(dccex_cab_update), "<l %d 0 %d 0>", getCab(), speed128);
+    snprintf(dccex_cab_update->text, sizeof(dccex_cab_update->text), "<l %d 0 %d 0>", getCab(), speed128);
     return dccex_cab_update;
 }
 
-char *PicoDccExPacket::getDccExPowerUpdate()
+dccex_power_update_t *PicoDccExPacket::getDccExPowerUpdate()
 {
-    if (dccex_power_update)
-    {
-        return dccex_power_update;
-    }
-
     if (getTrack() == DCCEX_TRACK_ALL)
-        snprintf(dccex_power_update, sizeof(dccex_power_update), "<p%d>", (packet.power_on ? 1 : 0));
+        snprintf(dccex_power_update->text, sizeof(dccex_power_update->text), "<p%d>", (packet.power_on ? 1 : 0));
 
     if (getTrack() == DCCEX_TRACK_MAIN)
-        snprintf(dccex_power_update, sizeof(dccex_power_update), "<p%d MAIN>", (packet.power_on ? 1 : 0));
+        snprintf(dccex_power_update->text, sizeof(dccex_power_update->text), "<p%d MAIN>", (packet.power_on ? 1 : 0));
 
     if (getTrack() == DCCEX_TRACK_PROG)
-        snprintf(dccex_power_update, sizeof(dccex_power_update), "<p%d PROG>", (packet.power_on ? 1 : 0));
+        snprintf(dccex_power_update->text, sizeof(dccex_power_update->text), "<p%d PROG>", (packet.power_on ? 1 : 0));
 
     return dccex_power_update;
 }

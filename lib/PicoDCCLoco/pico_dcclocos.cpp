@@ -82,7 +82,7 @@ std::list<raw_dcc_cmd_t> PicoDccLocos::getEmergencyStopCommands()
 
 bool PicoDccLocos::updateLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
 {
-    return false;
+    return true;
 }
 
 void PicoDccLocos::forgetLoco(uint16_t address)
