@@ -7,7 +7,7 @@
 PicoDccLocos::PicoDccLocos()
 {
     // Reserve memory for our configured MAX
-    sem_init(&locos_lock, 0, 1);
+    sem_init(&locos_lock, 1, 1);
     locos.reserve(MAX_LOCO);
     last_loco_reminder = INVALID_LOCO_ADDR;
 }
@@ -45,7 +45,7 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
         // Pick the next loco and re-send its speed packet
         bool foundLoco = false;
         std::vector<PicoDccLoco>::iterator nextLoco = locos.end();
-        for (std::vector<PicoDccLoco>::iterator it = locos.begin(); it != locos.end();)
+        for (std::vector<PicoDccLoco>::iterator it = locos.begin(); it != locos.end(); it++)
         {
             // This means the last loco was the last one to be sent
             if (foundLoco)
@@ -86,6 +86,12 @@ bool PicoDccLocos::updateLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
     if (findLoco(packet->getCab(), *loco))
     {
         loco->update(packet);
+        return true;
+    }
+    else
+    {
+        loco = new PicoDccLoco(packet);
+        locos.push_back(*loco);
         return true;
     }
 

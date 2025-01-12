@@ -62,18 +62,18 @@ raw_dcc_cmd_t PicoDccLoco::getEmergecyStopCommand()
 raw_dcc_cmd_t PicoDccLoco::getThrottleCommand()
 {
     raw_dcc_cmd_t cmd{0x0, {}};
-    if (this->address > HIGHEST_SHORT_ADDR)
+    if (address > HIGHEST_SHORT_ADDR)
     {
-        cmd.data[cmd.length++] = (this->address >> 8) | 0xc0;
+        cmd.data[cmd.length++] = (address >> 8) | 0xc0;
     }
-    cmd.data[cmd.length++] = this->address & 0xff;
+    cmd.data[cmd.length++] = address & 0xff;
 
-    uint8_t speed128 = (this->speed & 0x7f);
+    uint8_t speed128 = (speed & 0x7f);
     uint8_t speed28 = (speed128 * 10 + 36) / 46;
     uint8_t code28 = ((speed28 + 3) / 2) | ((speed28 & 1) ? 0 : 16);
-    cmd.data[cmd.length++] = 64 | code28 | ((this->forward ? 1 : 0) * 32);
+    cmd.data[cmd.length++] = 64 | code28 | ((forward ? 1 : 0) * 32);
 
-    return raw_dcc_cmd_t();
+    return cmd;
 }
 
 raw_dcc_cmd_t PicoDccLoco::getFunctionCommand(uint8_t fnGroup)
