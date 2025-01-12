@@ -20,9 +20,11 @@
     "cortex-debug.openocdPath": "/usr/local/bin/openocd",
     "cortex-debug.gdbPath": "gdb-multiarch",
     "files.associations": {
+        "*.h": "cpp",
         "dcc_track_queue.h": "c",
         "stdlib.h": "c",
         "dcc.pio.h": "c",
-        "*.tcc": "cpp"
+        "*.tcc": "cpp",
+        "stdexcept": "cpp"
     },
 }

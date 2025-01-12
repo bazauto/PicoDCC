@@ -85,8 +85,10 @@ bool PicoDccLocos::updateLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
     }
     else
     {
-        loco = new PicoDccLoco(packet);
-        locos.push_back(*loco);
+        PicoDccLoco newLoco(packet);
+        sem_acquire_blocking(&locos_lock);
+        locos.push_back(newLoco);
+        sem_release(&locos_lock);
         return true;
     }
 

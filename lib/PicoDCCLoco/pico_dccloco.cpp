@@ -11,7 +11,20 @@ PicoDccLoco::PicoDccLoco(PicoDccExPacket *packet)
         throw std::invalid_argument("Only throttle or function commands can be used to create a loco.");
     }
 
-    PicoDccLoco((uint16_t)packet->getCab(), (uint8_t)packet->getSpeed(), (packet->getDirection() == 1));
+    if (packet->getCab() < 0 || packet->getCab() > 65535)
+    {
+        throw std::invalid_argument("Loco address outside allowed range.");
+    }
+
+    if (packet->getSpeed() < 0 || packet->getSpeed() > 255)
+    {
+        throw std::invalid_argument("Loco speed outside allowed range.");
+    }
+
+    //PicoDccLoco((uint16_t)packet->getCab(), (uint8_t)packet->getSpeed(), (packet->getDirection() == 1));
+    this->address = (uint16_t)packet->getCab();
+    this->speed = (uint8_t)packet->getSpeed();
+    this->forward = (packet->getDirection() == 1);
 }
 
 PicoDccLoco::PicoDccLoco(uint16_t address)
