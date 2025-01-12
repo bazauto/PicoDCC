@@ -12,29 +12,28 @@ PicoDccLocos::PicoDccLocos()
     last_loco_reminder = INVALID_LOCO_ADDR;
 }
 
-bool PicoDccLocos::findLoco(uint16_t address, PicoDccLoco &loco)
+PicoDccLoco *PicoDccLocos::findLoco(uint16_t address)
 {
+    PicoDccLoco *loco = nullptr;
+
     sem_acquire_blocking(&locos_lock);
-
-    auto it = std::find_if(locos.begin(),
-                           locos.end(),
-                           [address](PicoDccLoco &obj)
-                           { return obj.getAddress() == address; });
-
-    bool found = false;
-    if (it != locos.end())
+    for (size_t i = 0; i < locos.size(); ++i)
     {
-        loco = *it;
-        found = true;
+        if (locos[i].getAddress() == last_loco_reminder)
+        {
+            loco = &locos[i];
+            break;
+        }
     }
     sem_release(&locos_lock);
 
-    return found;
+    return loco;
 }
 
 bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
 {
-    if (locos.empty()) {
+    if (locos.empty())
+    {
         return false; // No locos to remind
     }
 
@@ -42,10 +41,13 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
 
     // Find the index of the next loco
     size_t nextIndex = 0;
-    if (last_loco_reminder != INVALID_LOCO_ADDR) { // If we have a last reminded loco
+    if (last_loco_reminder != INVALID_LOCO_ADDR)
+    { // If we have a last reminded loco
         // Find the current index of last_loco_reminder
-        for (size_t i = 0; i < locos.size(); ++i) {
-            if (locos[i].getAddress() == last_loco_reminder) {
+        for (size_t i = 0; i < locos.size(); ++i)
+        {
+            if (locos[i].getAddress() == last_loco_reminder)
+            {
                 nextIndex = (i + 1) % locos.size(); // Move to the next index, looping back to 0 if necessary
                 break;
             }
@@ -54,7 +56,7 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
 
     // Get the command for the next loco that will be sent to the track
     cmd = locos[nextIndex].getThrottleCommand();
-    
+
     sem_release(&locos_lock);
 
     // Return a pointer to the next loco
@@ -77,18 +79,19 @@ std::list<raw_dcc_cmd_t> PicoDccLocos::getEmergencyStopCommands()
 
 bool PicoDccLocos::updateLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
 {
-    PicoDccLoco *loco;
-    if (findLoco(packet->getCab(), *loco))
-    {
-        loco->update(packet);
-        return true;
-    }
-    else
+    PicoDccLoco *loco = findLoco(packet->getCab());
+
+    if (loco  == nullptr)
     {
         PicoDccLoco newLoco(packet);
         sem_acquire_blocking(&locos_lock);
         locos.push_back(newLoco);
         sem_release(&locos_lock);
+        return true;
+    }
+    else
+    {
+        loco->update(packet);
         return true;
     }
 

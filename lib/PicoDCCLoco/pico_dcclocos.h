@@ -31,7 +31,7 @@ public:
     void forgetLoco(uint16_t address);
     void forgetAllLocos();
 
-    bool findLoco(uint16_t address, PicoDccLoco &loco);
+    PicoDccLoco *findLoco(uint16_t address);
     
     bool getNextReminder(raw_dcc_cmd_t &cmd);
     std::list<raw_dcc_cmd_t> getEmergencyStopCommands();
