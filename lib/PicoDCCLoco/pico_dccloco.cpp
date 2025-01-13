@@ -21,22 +21,20 @@ PicoDccLoco::PicoDccLoco(PicoDccExPacket *packet)
         throw std::invalid_argument("Loco speed outside allowed range.");
     }
 
-    //PicoDccLoco((uint16_t)packet->getCab(), (uint8_t)packet->getSpeed(), (packet->getDirection() == 1));
+    // Initiallising locally to allow the above validation ahead of initialisation
     this->address = (uint16_t)packet->getCab();
     this->speed = (uint8_t)packet->getSpeed();
     this->forward = (packet->getDirection() == 1);
 }
 
 PicoDccLoco::PicoDccLoco(uint16_t address)
+    : PicoDccLoco(address, (uint8_t)0, true)
 {
-    PicoDccLoco(address, (uint8_t)0, true);
 }
 
 PicoDccLoco::PicoDccLoco(uint16_t address, uint8_t speed, bool forward)
+    : address(address), speed(speed), forward(forward)
 {
-    this->address = address;
-    this->speed = speed;
-    this->forward = forward;
 }
 
 void PicoDccLoco::update(PicoDccExPacket *packet)
