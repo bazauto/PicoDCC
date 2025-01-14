@@ -58,7 +58,6 @@ void PicoDccController::processDccExFromJMRI()
 {
     // Process any incoming message from JMRI queue to be sent to the track
     pico_dccex_packet packetData;
-    raw_dcc_cmd_t cmd = {};
     if (!queue_try_remove(&dcc_cmd_queue, &packetData))
     {
         return;
@@ -91,11 +90,22 @@ void PicoDccController::processDccExFromJMRI()
 
         if (packet.isThrottleCommand() || packet.isFunctionCommand())
         {
-            if (pico_locos->updateLoco(&packet, cmd))
+            raw_dcc_cmd_t cmd = { false, 0 };
+            PicoDccLoco *loco = pico_locos->findLoco(packet.getCab());
+
+            if (loco == nullptr)
             {
-                main_track->processCommand(&cmd);
-                queue_add_blocking(&dccex_cmd_queue, packet.getPacketData());
+                pico_locos->addLoco(&packet, cmd);
             }
+            else
+            {
+                pico_locos->updateLoco(loco->getAddress(), &packet, cmd);
+            }
+            
+            if (cmd.length > 0)
+                main_track->processCommand(&cmd);
+
+            queue_add_blocking(&dccex_cmd_queue, packet.getPacketData());
         }
     }
 }

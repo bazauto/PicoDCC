@@ -16,10 +16,12 @@ PicoDccLoco *PicoDccLocos::findLoco(uint16_t address)
 {
     PicoDccLoco *loco = nullptr;
 
+    size_t vectorSize = locos.size();
+
     sem_acquire_blocking(&locos_lock);
     for (size_t i = 0; i < locos.size(); ++i)
     {
-        if (locos[i].getAddress() == last_loco_reminder)
+        if (locos[i].getAddress() == address)
         {
             loco = &locos[i];
             break;
@@ -77,25 +79,33 @@ std::list<raw_dcc_cmd_t> PicoDccLocos::getEmergencyStopCommands()
     return stopCmds;
 }
 
-bool PicoDccLocos::updateLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
+void PicoDccLocos::addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
 {
-    PicoDccLoco *loco = findLoco(packet->getCab());
+    PicoDccLoco newLoco(packet);
+    
+    sem_acquire_blocking(&locos_lock);
 
-    if (loco  == nullptr)
+    locos.push_back(newLoco);
+    cmd = newLoco.getThrottleCommand();
+
+    sem_release(&locos_lock);
+}
+
+void PicoDccLocos::updateLoco(uint16_t address, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
+{
+    sem_acquire_blocking(&locos_lock);
+
+    for (size_t i = 0; i < locos.size(); ++i)
     {
-        PicoDccLoco newLoco(packet);
-        sem_acquire_blocking(&locos_lock);
-        locos.push_back(newLoco);
-        sem_release(&locos_lock);
-        return true;
-    }
-    else
-    {
-        loco->update(packet);
-        return true;
+        if (locos[i].getAddress() == address)
+        {
+            locos[i].update(packet);
+            cmd = locos[i].getThrottleCommand();
+            break;
+        }
     }
 
-    return false;
+    sem_release(&locos_lock);
 }
 
 void PicoDccLocos::forgetLoco(uint16_t address)

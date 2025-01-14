@@ -40,7 +40,7 @@ PicoDccLoco::PicoDccLoco(uint16_t address, uint8_t speed, bool forward)
 void PicoDccLoco::update(PicoDccExPacket *packet)
 {
     // A loco can only exist from a throttle or function command
-    if (packet->isThrottleCommand() && packet->isFunctionCommand())
+    if (packet->isThrottleCommand() || packet->isFunctionCommand())
     {
         updateControl((packet->getDirection() == 1), (uint8_t)packet->getSpeed());
     }
@@ -48,9 +48,6 @@ void PicoDccLoco::update(PicoDccExPacket *packet)
 
 void PicoDccLoco::updateControl(bool forward, uint8_t speed)
 {
-    if (speed > 127)
-        return;
-
     if (this->forward != forward || this->speed != speed)
     {
         // Notify

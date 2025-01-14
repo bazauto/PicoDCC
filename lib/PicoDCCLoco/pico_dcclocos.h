@@ -24,9 +24,8 @@ private:
 public:
     PicoDccLocos();
 
-    void addLoco();
-
-    bool updateLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
+    void addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
+    void updateLoco(uint16_t address, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
     
     void forgetLoco(uint16_t address);
     void forgetAllLocos();
