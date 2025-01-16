@@ -3,6 +3,8 @@
 #include "pico/util/queue.h"
 #include "hardware/gpio.h"
 #include "hardware/adc.h"
+#include "hardware/flash.h"
+#include "hardware/sync.h"
 #include "pico/multicore.h"
 
 #include "../lib/PicoDCCEX/pico_dccex.h"
@@ -16,6 +18,7 @@
 #define TRACK_PROG_POWER_CTRL_PIN 21
 #define TRACK_PROG_POWER_ADC_NUM 1
 
+#define FLASH_TARGET_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE) // Last sector
 
 // Our controller instance
 static PicoDccController pico_controller(
@@ -25,6 +28,9 @@ static PicoDccController pico_controller(
 
 static void main_core1()
 {
+	// This thread will pause during our Flash write operation
+	multicore_lockout_victim_init();
+
 	while(true)
 	{
 		pico_controller.dccLoop();

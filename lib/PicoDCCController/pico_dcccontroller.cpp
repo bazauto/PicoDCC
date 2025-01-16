@@ -15,17 +15,14 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     queue_init(&dccex_cmd_queue, sizeof(pico_dccex_packet), CMD_QUEUE_LENGTH);
 
     // Setup the tracks
-    main_track = new PicoDccTrack(false);
-    main_track->init(main_track_s);
-
-    prog_track = new PicoDccTrack(true);
-    prog_track->init(prog_track_s);
+    main_track = new PicoDccTrack(false, main_track_s);
+    prog_track = new PicoDccTrack(true, prog_track_s);
 
     // Setup DCCEX Packate processing
     pico_dccex = new PicoDccEx(MAX_LOCO);
 
     // Setup our loco store
-    pico_locos = new PicoDccLocos();
+    pico_locos = new PicoDccLocos(&dccex_cmd_queue);
 }
 
 void PicoDccController::dccexLoop()
@@ -49,7 +46,7 @@ void PicoDccController::processReminders()
     bool foundLoco = pico_locos->getNextReminder(cmd);
 
     if (foundLoco)
-        main_track->processCommand(&cmd);
+        main_track->queueCommand(&cmd);
     else
         main_track->sendIdle();
 }
@@ -83,9 +80,8 @@ void PicoDccController::processDccExFromJMRI()
             for (std::list<raw_dcc_cmd_t>::iterator it = stopCmds.begin(); it != stopCmds.end();)
             {
                 raw_dcc_cmd_t cmd = *it;
-                main_track->processCommand(&cmd);
+                main_track->queueCommand(&cmd);
             }
-            // TODO: Add bit to trigger DCCEX to send update
         }
 
         if (packet.isThrottleCommand() || packet.isFunctionCommand())
@@ -103,9 +99,12 @@ void PicoDccController::processDccExFromJMRI()
             }
             
             if (cmd.length > 0)
-                main_track->processCommand(&cmd);
+                main_track->queueCommand(&cmd);
+        }
 
-            queue_add_blocking(&dccex_cmd_queue, packet.getPacketData());
+        if (packet.isAccesoryCommand())
+        {
+            main_track->queueCommand(packet.getRawDccAccessoryCmd());
         }
     }
 }

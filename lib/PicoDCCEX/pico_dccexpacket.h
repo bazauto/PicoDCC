@@ -26,9 +26,9 @@ typedef struct {
 struct pico_dccex_packet
 {
     char opcode;
-    int cab;
-    int speed_funct;
-    int direction_state;
+    int addr;               // Cab or accessory address
+    int param1;             // Speed, function or accessory subaddress
+    int param2;             // Direction, function state or accessory activate
     bool power_on;
     pico_dccex_track_select power_track;
 };
@@ -45,6 +45,7 @@ private:
     dccex_power_update_t *dccex_power_update;
 
     void initPacket();
+    void decodePacket(char *buffer);
     void validatePacket();
 
 public:
@@ -62,19 +63,24 @@ public:
     bool isThrottleCommand() { return packet.opcode == 't'; }
     bool isFunctionCommand() { return packet.opcode == 'F'; }
     bool isEmergencyStopCommand() { return packet.opcode == '!'; }
+    bool isAccesoryCommand() { return packet.opcode == 'a'; }
 
     bool getPowerOn() { return packet.power_on; }
     pico_dccex_track_select getTrack() { return packet.power_track; }
 
     char getOpcode() { return packet.opcode; }
-    int getCab() { return packet.cab; }
-    int getSpeed() { return packet.speed_funct; }
-    int getFunct() { return packet.speed_funct; }
-    int getDirection() { return packet.direction_state; }
-    int getState() { return packet.direction_state; }
+    int getCab() { return packet.addr; }
+    int getSpeed() { return packet.param1; }
+    int getFunct() { return packet.param1; }
+    int getDirection() { return packet.param2; }
+    int getState() { return packet.param2; }
+    int getAccessoryAddr() { return packet.addr; }
+    int getAccessorySubAddr() { return packet.param1; }
+    int getAccessoryActivate() { return packet.param2; }
 
     raw_dcc_cmd_t *getRawDccThrottleCmd();
     raw_dcc_cmd_t *getRawDccFunctionCmd();
+    raw_dcc_cmd_t *getRawDccAccessoryCmd();
     dccex_cab_update_t *getDccExCabUpdate();
     dccex_power_update_t *getDccExPowerUpdate();
 };

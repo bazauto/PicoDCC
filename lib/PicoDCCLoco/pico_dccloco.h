@@ -22,7 +22,8 @@ private:
     uint8_t groupFlags;
     uint32_t functions;
 
-    
+    // This is the command that will be sent to the track when needed.  It is initially zero length to avoid it being used.
+    raw_dcc_cmd_t cmd{ true, 0x0, {}};
 
 public:
     PicoDccLoco(PicoDccExPacket *packet);
@@ -40,7 +41,7 @@ public:
     uint16_t getAddress() { return address; }
 
     void update(PicoDccExPacket *packet);
-    void updateControl(bool forward, uint8_t speed);
+    void updateControl(bool _forward, uint8_t _speed);
     void updateFunct(uint8_t function, bool value);
 
     bool verifyCV(int8_t cvNumber, int8_t expectedByte);

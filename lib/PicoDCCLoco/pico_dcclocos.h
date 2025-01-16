@@ -6,6 +6,7 @@
 #include <list>
 #include <pico/stdlib.h>
 #include <pico/sem.h>
+#include <pico/util/queue.h>
 
 #include "../PicoDCCLoco/pico_dccloco.h"
 #include "../PicoDCCEX/pico_dccexpacket.h"
@@ -21,8 +22,11 @@ private:
     uint16_t last_loco_reminder;
     semaphore_t locos_lock;
 
+    // This holds a pointer to the queue for sending notifications back to DCCEX
+    queue_t *dccex_cmd_queue;
+
 public:
-    PicoDccLocos();
+    PicoDccLocos(queue_t *_dccex_cmd_queue);
 
     void addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
     void updateLoco(uint16_t address, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);

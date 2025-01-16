@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <cstdint>
+#include <pico/util/queue.h>
 
 #define UNUSED_PIN 255
 #define BASE_ADC_PIN 26
@@ -23,6 +24,8 @@
 
 #define HIGHEST_SHORT_ADDR 127
 
+#define CMD_QUEUE_LENGTH 5
+
 typedef unsigned int uint;
 
 typedef struct {
@@ -34,20 +37,17 @@ typedef struct {
 typedef struct
 {
     bool is_prog;
-    uint8_t length;
+    uint8_t length = 0;
     uint8_t data[DCC_MAX_DATA_BYTES];
+    uint64_t cmd_data = 0;
+    uint8_t repeats = 0;
 } raw_dcc_cmd_t;
-
-enum TRACK_STATE : uint {
-    TRACK_UNINIT,
-    TRACK_IDLE
-};
 
 class PicoDccTrack {
 
 private:
     bool is_prog;
-    TRACK_STATE state = TRACK_UNINIT;
+    queue_t cmd_queue;
 
     void *pio;
 
@@ -61,20 +61,12 @@ private:
     uint current_cnt = 0;
 
 public:
-    PicoDccTrack(bool is_prog);
-
-    // These must be called before init and never after
-    void setSignalCtrlPin(uint8_t pin);
-    void setPowerCtrlPin(uint8_t pin);
-    void setPowerAdcNumber(uint8_t adc);   // this is optional, if not set then no current reading is availbale
-
-    // Setup the PINs and current ADC
-    void init();
-    void init(track_settings_t settings);
+    PicoDccTrack(bool is_prog, track_settings_t settings);
 
     void loop();
 
-    void processCommand(raw_dcc_cmd_t *cmd);
+    void queueCommand(raw_dcc_cmd_t *cmd);
+    void sendCommand(raw_dcc_cmd_t *cmd);
     void sendIdle();
 
     // Power control

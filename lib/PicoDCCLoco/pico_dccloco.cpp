@@ -46,15 +46,28 @@ void PicoDccLoco::update(PicoDccExPacket *packet)
     }
 }
 
-void PicoDccLoco::updateControl(bool forward, uint8_t speed)
+void PicoDccLoco::updateControl(bool _forward, uint8_t _speed)
 {
-    if (this->forward != forward || this->speed != speed)
+    if (forward != _forward || speed != _speed)
     {
-        // Notify
-    }
+        forward = _forward;
+        speed = _speed;
 
-    this->forward = forward;
-    this->speed = speed;
+        // Create the DCC command that will be sent to the track when needed
+        if (address > HIGHEST_SHORT_ADDR)
+        {
+            cmd.data[cmd.length++] = (address >> 8) | 0xc0;
+        }
+        cmd.data[cmd.length++] = address & 0xff;
+
+        uint8_t speed128 = (speed & 0x7f);
+        uint8_t speed28 = (speed128 * 10 + 36) / 46;
+        uint8_t code28 = ((speed28 + 3) / 2) | ((speed28 & 1) ? 0 : 16);
+        cmd.data[cmd.length++] = 64 | code28 | ((forward ? 1 : 0) * 32);
+
+        // Notify
+
+    }
 }
 
 void PicoDccLoco::updateFunct(uint8_t function, bool value)
@@ -69,18 +82,6 @@ raw_dcc_cmd_t PicoDccLoco::getEmergecyStopCommand()
 
 raw_dcc_cmd_t PicoDccLoco::getThrottleCommand()
 {
-    raw_dcc_cmd_t cmd{0x0, {}};
-    if (address > HIGHEST_SHORT_ADDR)
-    {
-        cmd.data[cmd.length++] = (address >> 8) | 0xc0;
-    }
-    cmd.data[cmd.length++] = address & 0xff;
-
-    uint8_t speed128 = (speed & 0x7f);
-    uint8_t speed28 = (speed128 * 10 + 36) / 46;
-    uint8_t code28 = ((speed28 + 3) / 2) | ((speed28 & 1) ? 0 : 16);
-    cmd.data[cmd.length++] = 64 | code28 | ((forward ? 1 : 0) * 32);
-
     return cmd;
 }
 
