@@ -44,7 +44,11 @@ void PicoDccExPacket::initPacket()
     strcpy(dccex_power_update->text, "");
 
     raw_dcc_cmd = (raw_dcc_cmd_t *)malloc(sizeof(raw_dcc_cmd_t));
+    raw_dcc_cmd->is_prog = false;
     raw_dcc_cmd->length = 0;
+    raw_dcc_cmd->cmd_data = 0;
+    raw_dcc_cmd->repeats = 0;
+    memset(raw_dcc_cmd->data, 0, 6);
 }
 
 void PicoDccExPacket::decodePacket(char *buffer)
@@ -80,17 +84,17 @@ void PicoDccExPacket::decodePacket(char *buffer)
     // Accessory Decoder
     case ('a'):
         // <a addr subaddr activate>
-        if (sscanf(buffer, "%*c %d %d %d", &packet.addr, &packet.param1, &packet.param2) == 1)
+        if (sscanf(buffer, "%*c %d %d %d", &packet.addr, &packet.param1, &packet.param2) == 3)
         {
             break;
         }
 
         // <a linear_addr activate>
-        if (sscanf(buffer, "%*c %d %d", &packet.addr, &packet.param2) == 1)
+        if (sscanf(buffer, "%*c %d %d", &packet.addr, &packet.param2) == 2)
         {
             break;
         }
-
+        
         packet.addr = -1; // Invalid accessory
         break;
 
@@ -197,9 +201,10 @@ raw_dcc_cmd_t *PicoDccExPacket::getRawDccAccessoryCmd()
         // 1AAACPPG
         // Second byte is the 2 MSB bits of the address, the subaddress, the activate bit
         raw_dcc_cmd->data[raw_dcc_cmd->length] = 0x80;                                      // Control bit
-        raw_dcc_cmd->data[raw_dcc_cmd->length] |= (getAccessoryAddr() >> 2) & 0xF0;         // 2 MSB bits of the address
-        raw_dcc_cmd->data[raw_dcc_cmd->length] |= (getAccessoryActivate() & 0x01) << 3;   // Activate bit
-        raw_dcc_cmd->data[raw_dcc_cmd->length] |= (getAccessorySubAddr() & 0x03) << 1;      // Subaddress / Port
+        raw_dcc_cmd->data[raw_dcc_cmd->length] |= (getAccessoryAddr() >> 2) & 0xF0;         // 2 MSB bits of the address (XAA)
+        raw_dcc_cmd->data[raw_dcc_cmd->length] |= 1 << 3;                                   // Activate bit (C)
+        raw_dcc_cmd->data[raw_dcc_cmd->length] |= (getAccessorySubAddr() & 0x03) << 1;      // Subaddress / Port (PP)
+        raw_dcc_cmd->data[raw_dcc_cmd->length] |= (getAccessoryActivate() & 0x01);          // Gate bit (G)
         raw_dcc_cmd->length++;
         
         // Repeat the command 3 times when sent to the track

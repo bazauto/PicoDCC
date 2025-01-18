@@ -71,15 +71,15 @@ void PicoDccTrack::loop()
     }
 
     // Process any incoming messages to be sent to the track
-    raw_dcc_cmd_t *cmd;
+    raw_dcc_cmd_t cmd;
     if (queue_try_remove(&cmd_queue, &cmd))
     {
-        sendCommand(cmd);
+        sendCommand(&cmd);
 
-        if (cmd->repeats > 0)
+        if (cmd.repeats > 0)
         {
-            cmd->repeats--;
-            queue_add_blocking(&cmd_queue, cmd);
+            cmd.repeats--;
+            queue_add_blocking(&cmd_queue, &cmd);
         }
     }
 }
@@ -108,7 +108,7 @@ void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
     }
 
     pio_sm_put_blocking((PIO)pio, 0, (cmd->cmd_data >> 32) & 0xFFFFFFFF);
-    if (cmd->length + 1 > 2)
+    if (cmd->length > 1)
     {
         pio_sm_put_blocking((PIO)pio, 0, cmd->cmd_data & 0xFFFFFFFF);
     }
