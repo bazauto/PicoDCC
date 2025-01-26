@@ -32,6 +32,7 @@ typedef struct {
     uint8_t signal_pin = UNUSED_PIN;
     uint8_t ctrl_pin = UNUSED_PIN;
     uint8_t adc_num = UNUSED_PIN;
+    uint8_t short_pin = UNUSED_PIN;
 } track_settings_t;
 
 typedef struct
@@ -51,10 +52,11 @@ private:
 
     void *pio;
 
-    uint8_t power_signal_pin = UNUSED_PIN;
+    uint8_t signal_pin = UNUSED_PIN;
     uint8_t power_ctrl_pin = UNUSED_PIN;
     uint8_t power_adc_pin = UNUSED_PIN;
     uint8_t power_adc_number;
+    uint8_t short_led_pin = UNUSED_PIN;
 
     float average_current_reading = 0.0;
     uint current_sum = 0;

@@ -9,12 +9,19 @@
 PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings)
 {
     is_prog = is_prog_in;
-    power_signal_pin = settings.signal_pin;
+    signal_pin = settings.signal_pin;
     power_ctrl_pin = settings.ctrl_pin;
     if (settings.adc_num != UNUSED_PIN)
     {
         power_adc_number = settings.adc_num;
         power_adc_pin = BASE_ADC_PIN + settings.adc_num;
+    }
+    if (settings.short_pin != UNUSED_PIN)
+    {
+        short_led_pin = settings.short_pin;
+        gpio_init(short_led_pin);
+        gpio_set_dir(short_led_pin, GPIO_OUT);
+        gpio_put(short_led_pin, 0);
     }
 
     // This is the queue of commands to be sent to the track
@@ -44,18 +51,36 @@ PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings)
     uint sm = pio_claim_unused_sm((PIO)pio, true);
     assert(sm != -1); // This should never happen
 
-    dcc_program_init((PIO)pio, sm, offset, power_signal_pin, (is_prog ? DCC_PROG_PREAMBLE : DCC_MAIN_PREAMBLE));
+    dcc_program_init((PIO)pio, sm, offset, signal_pin, (is_prog ? DCC_PROG_PREAMBLE : DCC_MAIN_PREAMBLE));
     pio_sm_set_enabled((PIO)pio, sm, true);
 }
 
 void PicoDccTrack::setPower(bool power_on)
 {
     gpio_put(power_ctrl_pin, power_on);
+
+    if (power_on && short_led_pin != UNUSED_PIN)
+    {
+        // If we have a short LED then turn it off
+        gpio_put(short_led_pin, 0);
+    }
 }
 
 void PicoDccTrack::loop()
 {
     // Process current reading
+    uint reading = adc_read();
+    if (reading > (TRACK_POWER_ADC_RANGE / 100 * 70))   // 70% 
+    {
+        // If the current is too high then we need to stop the track
+        setPower(false);
+
+        if (short_led_pin != UNUSED_PIN)
+        {
+            // If we have a short LED then turn it on
+            gpio_put(short_led_pin, 1);
+        }
+    }
     if (canReadCurrent())
     {
         if (current_cnt++ >= TRACK_POWER_CURRENT_SAMPLES)
@@ -66,7 +91,7 @@ void PicoDccTrack::loop()
         }
         else
         {
-            current_sum += adc_read();
+            current_sum += reading;
         }
     }
 

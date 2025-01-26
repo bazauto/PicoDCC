@@ -25,11 +25,13 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     pico_locos = new PicoDccLocos(&dccex_cmd_queue);
 }
 
+// This is the Core 0 loop
 void PicoDccController::dccexLoop()
 {
     pico_dccex->loop(&dcc_cmd_queue, &dccex_cmd_queue);
 }
 
+// This is the Core 1 loop
 void PicoDccController::dccLoop()
 {
     processDccExFromJMRI();
