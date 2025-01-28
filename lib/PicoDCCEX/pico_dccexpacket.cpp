@@ -2,53 +2,14 @@
 
 PicoDccExPacket::PicoDccExPacket(char *buffer)
 {
-    initPacket();
     decodePacket(buffer);
     validatePacket();
 }
 
 PicoDccExPacket::PicoDccExPacket(pico_dccex_packet packetData)
 {
-    initPacket();
     packet = packetData;
     validatePacket();
-}
-
-PicoDccExPacket::~PicoDccExPacket()
-{
-    if (dccex_cab_update)
-    {
-        free(dccex_cab_update);
-        dccex_cab_update = nullptr;
-    }
-
-    if (dccex_power_update)
-    {
-        free(dccex_power_update);
-        dccex_power_update = nullptr;
-    }
-
-    if (raw_dcc_cmd)
-    {
-        free(raw_dcc_cmd);
-        raw_dcc_cmd = nullptr;
-    }
-}
-
-void PicoDccExPacket::initPacket()
-{
-    dccex_cab_update = (dccex_cab_update_t *)malloc(sizeof(dccex_cab_update_t));
-    strcpy(dccex_cab_update->text, "");
-
-    dccex_power_update = (dccex_power_update_t *)malloc(sizeof(dccex_power_update_t));
-    strcpy(dccex_power_update->text, "");
-
-    raw_dcc_cmd = (raw_dcc_cmd_t *)malloc(sizeof(raw_dcc_cmd_t));
-    raw_dcc_cmd->is_prog = false;
-    raw_dcc_cmd->length = 0;
-    raw_dcc_cmd->cmd_data = 0;
-    raw_dcc_cmd->repeats = 0;
-    memset(raw_dcc_cmd->data, 0, 6);
 }
 
 void PicoDccExPacket::decodePacket(char *buffer)
@@ -62,11 +23,8 @@ void PicoDccExPacket::decodePacket(char *buffer)
     // Track Power
     case ('0'):
     case ('1'):
-        if (packet.opcode == '1')
-            packet.power_on = true;
-        else
-            packet.power_on = false;
-
+        packet.power_on = (packet.opcode == '1');
+        
         if (strlen(buffer) == 1)
             break;
 
@@ -151,71 +109,34 @@ void PicoDccExPacket::validatePacket()
     }
 }
 
-raw_dcc_cmd_t *PicoDccExPacket::getRawDccThrottleCmd()
-{
-    // Some validation which will cause a null response if it fails.
-    if (packet.opcode != 't' && packet.opcode != 'F')
-    {
-        return NULL;
-    }
-    if (!valid_packet)
-    {
-        return NULL;
-    }
-
-    // Only need to build the command once, if it has already been built then return it
-    if (raw_dcc_cmd->length == 0)
-    {
-        // Build the raw DCC packet from the contents of the packet
-        int addr = getCab();
-        if (addr > HIGHEST_SHORT_ADDR)
-        {
-            raw_dcc_cmd->data[raw_dcc_cmd->length++] = (addr >> 8) | 0xc0;
-        }
-        raw_dcc_cmd->data[raw_dcc_cmd->length++] = addr & 0xff;
-
-        uint8_t speed128 = (getSpeed() & 0x7f);
-        uint8_t speed28 = (speed128 * 10 + 36) / 46;
-        uint8_t code28 = ((speed28 + 3) / 2) | ((speed28 & 1) ? 0 : 16);
-        raw_dcc_cmd->data[raw_dcc_cmd->length++] = 64 | code28 | (getDirection() * 32);
-    }
-
-    return raw_dcc_cmd;
-}
-
-raw_dcc_cmd_t *PicoDccExPacket::getRawDccFunctionCmd()
-{
-    return nullptr;
-}
-
 raw_dcc_cmd_t *PicoDccExPacket::getRawDccAccessoryCmd()
 {
     // Only need to build the command once, if it has already been built then return it
-    if (raw_dcc_cmd->length == 0)
+    if (raw_dcc_cmd.length == 0)
     {
         // 10AAAAAA
         // First byte is just a control bit and the 6 LSB bits of the address
-        raw_dcc_cmd->data[raw_dcc_cmd->length] = 0x80 | (getAccessoryAddr() & 0x3f);
-        raw_dcc_cmd->length++;
+        raw_dcc_cmd.data[raw_dcc_cmd.length] = 0x80 | (getAccessoryAddr() & 0x3f);
+        raw_dcc_cmd.length++;
 
         // 1AAACPPG
         // Second byte is the 2 MSB bits of the address, the subaddress, the activate bit
-        raw_dcc_cmd->data[raw_dcc_cmd->length] = 0x80;                                      // Control bit
-        raw_dcc_cmd->data[raw_dcc_cmd->length] |= (getAccessoryAddr() >> 2) & 0xF0;         // 2 MSB bits of the address (XAA)
-        raw_dcc_cmd->data[raw_dcc_cmd->length] |= 1 << 3;                                   // Activate bit (C)
-        raw_dcc_cmd->data[raw_dcc_cmd->length] |= (getAccessorySubAddr() & 0x03) << 1;      // Subaddress / Port (PP)
-        raw_dcc_cmd->data[raw_dcc_cmd->length] |= (getAccessoryActivate() & 0x01);          // Gate bit (G)
-        raw_dcc_cmd->length++;
+        raw_dcc_cmd.data[raw_dcc_cmd.length] = 0x80;                                      // Control bit
+        raw_dcc_cmd.data[raw_dcc_cmd.length] |= (getAccessoryAddr() >> 2) & 0xF0;         // 2 MSB bits of the address (XAA)
+        raw_dcc_cmd.data[raw_dcc_cmd.length] |= 1 << 3;                                   // Activate bit (C)
+        raw_dcc_cmd.data[raw_dcc_cmd.length] |= (getAccessorySubAddr() & 0x03) << 1;      // Subaddress / Port (PP)
+        raw_dcc_cmd.data[raw_dcc_cmd.length] |= (getAccessoryActivate() & 0x01);          // Gate bit (G)
+        raw_dcc_cmd.length++;
         
         // Repeat the command 3 times when sent to the track
-        raw_dcc_cmd->repeats = 3;
+        raw_dcc_cmd.repeats = 3;
     }
-    return raw_dcc_cmd;
+    return &raw_dcc_cmd;
 }
 
-dccex_cab_update_t *PicoDccExPacket::getDccExCabUpdate()
+char *PicoDccExPacket::getDccExCabUpdate()
 {
-    if (strlen(dccex_cab_update->text) != 0)
+    if (strlen(dccex_cab_update) != 0)
     {
         return dccex_cab_update;
     }
@@ -230,26 +151,26 @@ dccex_cab_update_t *PicoDccExPacket::getDccExCabUpdate()
 
     speed128 = speed128 | (getDirection() * 128);
 
-    snprintf(dccex_cab_update->text, sizeof(dccex_cab_update->text), "<l %d 0 %d 0>", getCab(), speed128);
+    snprintf(dccex_cab_update, sizeof(dccex_cab_update), "<l %d 0 %d 0>", getCab(), speed128);
 
     return dccex_cab_update;
 }
 
-dccex_power_update_t *PicoDccExPacket::getDccExPowerUpdate()
+char *PicoDccExPacket::getDccExPowerUpdate()
 {
-    if (strlen(dccex_power_update->text) != 0)
+    if (strlen(dccex_power_update) != 0)
     {
         return dccex_power_update;
     }
 
     if (getTrack() == DCCEX_TRACK_ALL)
-        snprintf(dccex_power_update->text, sizeof(dccex_power_update->text), "<p%d>", (packet.power_on ? 1 : 0));
+        snprintf(dccex_power_update, sizeof(dccex_power_update), "<p%d>", (packet.power_on ? 1 : 0));
 
     if (getTrack() == DCCEX_TRACK_MAIN)
-        snprintf(dccex_power_update->text, sizeof(dccex_power_update->text), "<p%d MAIN>", (packet.power_on ? 1 : 0));
+        snprintf(dccex_power_update, sizeof(dccex_power_update), "<p%d MAIN>", (packet.power_on ? 1 : 0));
 
     if (getTrack() == DCCEX_TRACK_PROG)
-        snprintf(dccex_power_update->text, sizeof(dccex_power_update->text), "<p%d PROG>", (packet.power_on ? 1 : 0));
+        snprintf(dccex_power_update, sizeof(dccex_power_update), "<p%d PROG>", (packet.power_on ? 1 : 0));
 
     return dccex_power_update;
 }

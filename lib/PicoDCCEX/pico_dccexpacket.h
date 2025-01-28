@@ -14,14 +14,6 @@ enum pico_dccex_track_select
     DCCEX_TRACK_PROG = 2
 };
 
-typedef struct {
-    char text[16];
-} dccex_cab_update_t;
-
-typedef struct {
-    char text[10];
-} dccex_power_update_t;
-
 // This is the raw packet data that is transfered through the queues
 struct pico_dccex_packet
 {
@@ -40,18 +32,16 @@ private:
 
     bool valid_packet = false;
 
-    raw_dcc_cmd_t *raw_dcc_cmd;
-    dccex_cab_update_t *dccex_cab_update;
-    dccex_power_update_t *dccex_power_update;
+    raw_dcc_cmd_t raw_dcc_cmd = {false, 0, {0}, 0, 0};
+    char dccex_cab_update[16] = "";
+    char dccex_power_update[10] = "";
 
-    void initPacket();
     void decodePacket(char *buffer);
     void validatePacket();
 
 public:
     PicoDccExPacket(char *buffer);
     PicoDccExPacket(pico_dccex_packet packetData);
-    ~PicoDccExPacket();
 
     pico_dccex_packet *getPacketData() { return &packet; }
 
@@ -78,11 +68,9 @@ public:
     int getAccessorySubAddr() { return packet.param1; }
     int getAccessoryActivate() { return packet.param2; }
 
-    raw_dcc_cmd_t *getRawDccThrottleCmd();
-    raw_dcc_cmd_t *getRawDccFunctionCmd();
     raw_dcc_cmd_t *getRawDccAccessoryCmd();
-    dccex_cab_update_t *getDccExCabUpdate();
-    dccex_power_update_t *getDccExPowerUpdate();
+    char *getDccExCabUpdate();
+    char *getDccExPowerUpdate();
 };
 
 #endif

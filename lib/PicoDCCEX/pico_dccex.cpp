@@ -41,10 +41,10 @@ void PicoDccEx::processDccFromController(queue_t *dccex_cmd_queue)
         if (packet.isValid())
         {
             if (packet.isThrottleCommand() || packet.isFunctionCommand())
-                uart_puts(uart0, packet.getDccExCabUpdate()->text);
+                uart_puts(uart0, packet.getDccExCabUpdate());
 
             if (packet.isPowerCommand())
-                uart_puts(uart0, packet.getDccExPowerUpdate()->text);
+                uart_puts(uart0, packet.getDccExPowerUpdate());
         }
     }
 }
