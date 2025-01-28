@@ -110,7 +110,12 @@ void PicoDccEx::processDccExFromJMRI(queue_t *dcc_cmd_queue)
         }
         else
         {
-            queue_add_blocking(dcc_cmd_queue, currentPacket->getPacketData());
+            printf("Adding command to queue");
+            if (!queue_try_add(dcc_cmd_queue, currentPacket->getPacketData()))
+            {
+                uart_puts(uart0, "<X>");
+            }
+            printf("Added command to queue");
         }
 
         reset();

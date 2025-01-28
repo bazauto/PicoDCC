@@ -31,7 +31,7 @@ public:
     PicoDccLoco(uint16_t address, uint8_t speed, bool forward);
 
     // Copy constructor
-    PicoDccLoco(const PicoDccLoco &other) : address(other.address), speed(other.speed), forward(other.forward) {}
+    PicoDccLoco(const PicoDccLoco &other) : address(other.address), speed(other.speed), forward(other.forward), cmd(other.cmd) {}
 
     // Comparision operator for easy of comparing objects
     bool operator==(const PicoDccLoco &other) const {
@@ -40,8 +40,8 @@ public:
 
     uint16_t getAddress() { return address; }
 
-    void update(PicoDccExPacket *packet);
-    void updateControl(bool _forward, uint8_t _speed);
+    bool update(PicoDccExPacket *packet);
+    bool updateControl(bool _forward, uint8_t _speed);
     void updateFunct(uint8_t function, bool value);
 
     bool verifyCV(int8_t cvNumber, int8_t expectedByte);

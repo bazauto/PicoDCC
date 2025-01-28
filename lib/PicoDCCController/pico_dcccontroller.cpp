@@ -34,8 +34,11 @@ void PicoDccController::dccexLoop()
 // This is the Core 1 loop
 void PicoDccController::dccLoop()
 {
-    processDccExFromJMRI();
-    processReminders();
+    // If we processed a command from JMRI then skip the reminders this loop
+    if (processDccExFromJMRI())
+    {
+        processReminders();
+    }
 
     main_track->loop();
     prog_track->loop();
@@ -53,13 +56,14 @@ void PicoDccController::processReminders()
         main_track->sendIdle();
 }
 
-void PicoDccController::processDccExFromJMRI()
+bool PicoDccController::processDccExFromJMRI()
 {
     // Process any incoming message from JMRI queue to be sent to the track
     pico_dccex_packet packetData;
     if (!queue_try_remove(&dcc_cmd_queue, &packetData))
     {
-        return;
+        // We want reminders to be processed
+        return true;
     }
 
     PicoDccExPacket packet(packetData);
@@ -97,7 +101,7 @@ void PicoDccController::processDccExFromJMRI()
             }
             else
             {
-                pico_locos->updateLoco(loco->getAddress(), &packet, cmd);
+                pico_locos->updateLoco(loco, &packet, cmd);
             }
             
             if (cmd.length > 0)
@@ -109,4 +113,6 @@ void PicoDccController::processDccExFromJMRI()
             main_track->queueCommand(packet.getRawDccAccessoryCmd());
         }
     }
+
+    return false;
 }

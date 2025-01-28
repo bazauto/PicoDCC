@@ -29,7 +29,7 @@ private:
     queue_t dcc_cmd_queue;
     queue_t dccex_cmd_queue;
 
-    void processDccExFromJMRI();
+    bool processDccExFromJMRI();
     void processReminders();
 
 public:

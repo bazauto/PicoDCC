@@ -29,7 +29,7 @@ public:
     PicoDccLocos(queue_t *_dccex_cmd_queue);
 
     void addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
-    void updateLoco(uint16_t address, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
+    void updateLoco(PicoDccLoco *loco, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
     
     void forgetLoco(uint16_t address);
     void forgetAllLocos();

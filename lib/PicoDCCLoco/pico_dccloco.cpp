@@ -23,8 +23,11 @@ PicoDccLoco::PicoDccLoco(PicoDccExPacket *packet)
 
     // Initiallising locally to allow the above validation ahead of initialisation
     this->address = (uint16_t)packet->getCab();
-    this->speed = (uint8_t)packet->getSpeed();
-    this->forward = (packet->getDirection() == 1);
+    
+    if (packet->isThrottleCommand() || packet->isFunctionCommand())
+    {
+        updateControl((packet->getDirection() == 1), (uint8_t)packet->getSpeed());
+    }
 }
 
 PicoDccLoco::PicoDccLoco(uint16_t address)
@@ -37,16 +40,20 @@ PicoDccLoco::PicoDccLoco(uint16_t address, uint8_t speed, bool forward)
 {
 }
 
-void PicoDccLoco::update(PicoDccExPacket *packet)
+bool PicoDccLoco::update(PicoDccExPacket *packet)
 {
     // A loco can only exist from a throttle or function command
     if (packet->isThrottleCommand() || packet->isFunctionCommand())
     {
-        updateControl((packet->getDirection() == 1), (uint8_t)packet->getSpeed());
+        bool direction = packet->getDirection() == 1;
+        uint8_t speed = packet->getSpeed();
+        return updateControl(direction, speed);
     }
+
+    return false;
 }
 
-void PicoDccLoco::updateControl(bool _forward, uint8_t _speed)
+bool PicoDccLoco::updateControl(bool _forward, uint8_t _speed)
 {
     if (forward != _forward || speed != _speed)
     {
@@ -54,6 +61,7 @@ void PicoDccLoco::updateControl(bool _forward, uint8_t _speed)
         speed = _speed;
 
         // Create the DCC command that will be sent to the track when needed
+        cmd.length = 0;
         if (address > HIGHEST_SHORT_ADDR)
         {
             cmd.data[cmd.length++] = (address >> 8) | 0xc0;
@@ -65,9 +73,10 @@ void PicoDccLoco::updateControl(bool _forward, uint8_t _speed)
         uint8_t code28 = ((speed28 + 3) / 2) | ((speed28 & 1) ? 0 : 16);
         cmd.data[cmd.length++] = 64 | code28 | ((forward ? 1 : 0) * 32);
 
-        // Notify
-
+        return true;
     }
+
+    return false;
 }
 
 void PicoDccLoco::updateFunct(uint8_t function, bool value)

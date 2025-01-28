@@ -58,6 +58,7 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
 
     // Get the command for the next loco that will be sent to the track
     cmd = locos[nextIndex].getThrottleCommand();
+    last_loco_reminder = locos[nextIndex].getAddress();
 
     sem_release(&locos_lock);
 
@@ -101,23 +102,13 @@ void PicoDccLocos::addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
     queue_add_blocking(dccex_cmd_queue, packet->getPacketData());
 }
 
-void PicoDccLocos::updateLoco(uint16_t address, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
+void PicoDccLocos::updateLoco(PicoDccLoco *loco, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
 {
-    sem_acquire_blocking(&locos_lock);
-
-    for (size_t i = 0; i < locos.size(); ++i)
+    if (loco->update(packet))
     {
-        if (locos[i].getAddress() == address)
-        {
-            locos[i].update(packet);
-            cmd = locos[i].getThrottleCommand();
-            break;
-        }
+        queue_add_blocking(dccex_cmd_queue, packet->getPacketData());
     }
-
-    sem_release(&locos_lock);
-
-    queue_add_blocking(dccex_cmd_queue, packet->getPacketData());
+    cmd = loco->getThrottleCommand();
 }
 
 void PicoDccLocos::forgetLoco(uint16_t address)
