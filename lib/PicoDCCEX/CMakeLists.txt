@@ -8,7 +8,17 @@ set(CMAKE_CXX_STANDARD 17)
 
 add_library(${PROJECT_NAME} pico_dccex.cpp pico_dccexpacket.cpp)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE
-        pico_stdlib
-        pico_sync
-)
+if(TEST_BUILD)
+
+  # pass -D TEST_BUILD when compiling
+  target_compile_definitions(${PROJECT_NAME} PUBLIC -D TEST_BUILD)
+  target_link_libraries(${PROJECT_NAME} mocks)
+
+else()
+
+  target_link_libraries(${PROJECT_NAME} PRIVATE
+          pico_stdlib
+          pico_sync
+  )
+
+endif(TEST_BUILD)

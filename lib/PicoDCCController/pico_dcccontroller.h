@@ -2,8 +2,12 @@
 #define PICO_DCCCONTROLLER_H
 
 #include <stdio.h>
+#ifdef TEST_BUILD
+#include "../../test/mocks.h"
+#else
 #include <pico/util/queue.h>
 #include <pico/sem.h>
+#endif
 #include <vector>
 #include <list>
 #include "../PicoDCCEX/pico_dccex.h"

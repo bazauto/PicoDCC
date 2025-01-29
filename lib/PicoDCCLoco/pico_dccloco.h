@@ -2,7 +2,11 @@
 #define PICO_DCCLOCO_H
 
 #include <stdio.h>
+#ifdef TEST_BUILD
+#include "../../test/mocks.h"
+#else
 #include <pico/stdlib.h>
+#endif
 
 #include "../PicoDCCEX/pico_dccexpacket.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
@@ -23,7 +27,7 @@ private:
     uint32_t functions;
 
     // This is the command that will be sent to the track when needed.  It is initially zero length to avoid it being used.
-    raw_dcc_cmd_t cmd{ true, 0x0, {}};
+    raw_dcc_cmd_t cmd;
 
 public:
     PicoDccLoco(PicoDccExPacket *packet);

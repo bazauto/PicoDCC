@@ -1,4 +1,10 @@
-#include <string.h>
+#ifdef TEST_BUILD
+#include "../../test/mocks.h"
+#else
+#include <pico/stdlib.h>
+#endif
+#include <string>
+#include <functional>
 
 #include "pico_dccex.h"
 

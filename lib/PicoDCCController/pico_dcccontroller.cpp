@@ -92,7 +92,7 @@ bool PicoDccController::processDccExFromJMRI()
 
         if (packet.isThrottleCommand() || packet.isFunctionCommand())
         {
-            raw_dcc_cmd_t cmd = { false, 0 };
+            raw_dcc_cmd_t cmd;
             PicoDccLoco *loco = pico_locos->findLoco(packet.getCab());
 
             if (loco == nullptr)

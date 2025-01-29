@@ -4,9 +4,13 @@
 #include <stdio.h>
 #include <vector>
 #include <list>
+#ifdef TEST_BUILD
+#include "../../test/mocks.h"
+#else
 #include <pico/stdlib.h>
 #include <pico/sem.h>
 #include <pico/util/queue.h>
+#endif
 
 #include "../PicoDCCLoco/pico_dccloco.h"
 #include "../PicoDCCEX/pico_dccexpacket.h"

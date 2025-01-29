@@ -2,10 +2,11 @@
 #define PICO_DCCEX_H
 
 #include <stdio.h>
-#include <pico/stdlib.h>
+#ifdef TEST_BUILD
+#include "../../test/mocks.h"
+#else
 #include <pico/util/queue.h>
-#include <string>
-#include <functional>
+#endif
 
 #include "pico_dccexpacket.h"
 
@@ -27,7 +28,7 @@ private:
 
     enum pico_dccex_state processState;
     int bufferLength = 0;
-    char buffer[COMMAND_BUFFER_SIZE] = "";
+    char buffer[COMMAND_BUFFER_SIZE];
     PicoDccExPacket *currentPacket;
 
 

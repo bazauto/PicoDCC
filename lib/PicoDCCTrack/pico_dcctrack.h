@@ -8,7 +8,11 @@
 
 #include <stdio.h>
 #include <cstdint>
+#ifdef TEST_BUILD
+#include "../../test/mocks.h"
+#else
 #include <pico/util/queue.h>
+#endif
 
 #define UNUSED_PIN 255
 #define BASE_ADC_PIN 26
@@ -35,7 +39,7 @@ typedef struct {
     uint8_t short_pin = UNUSED_PIN;
 } track_settings_t;
 
-typedef struct
+typedef struct 
 {
     bool is_prog;
     uint8_t length = 0;

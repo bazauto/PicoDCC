@@ -1,10 +1,15 @@
 #include "pico_dcctrack.h"
 
+#ifdef TEST_BUILD
+#include "../../test/mocks.h"
+#else
 #include <hardware/gpio.h>
 #include <hardware/adc.h>
 #include <hardware/pio.h>
 
 #include "dcc.pio.h"
+#endif
+
 
 PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings)
 {
@@ -142,6 +147,10 @@ void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
 void PicoDccTrack::sendIdle()
 {
     // This is the Idle packet
-    raw_dcc_cmd_t idle_cmd = {is_prog, 0x03, {0xFF, 0x00, 0xFF}};
+    raw_dcc_cmd_t idle_cmd;
+    idle_cmd.is_prog = is_prog;
+    idle_cmd.length = 0x03;
+    idle_cmd.cmd_data = (0xFF, 0x00, 0xFF);
+    idle_cmd.repeats = 0;
     sendCommand(&idle_cmd);
 }
