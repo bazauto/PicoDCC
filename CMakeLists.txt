@@ -6,13 +6,17 @@ set(TEST_BUILD ON CACHE BOOL "Build for testing")
 
 if(TEST_BUILD)
 
+  list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmocka)
+
   project(PicoDCCTest
     VERSION 1.0
     DESCRIPTION "RP2040 Raspberry Pico DCC Command Station - Tests"
     LANGUAGES C CXX
   )
 
-  enable_testing()
+  find_package(cmocka 1.1.0 REQUIRED)
+  include(AddCMockaTest)
+
   add_subdirectory(./lib)
   add_subdirectory(./test)
 

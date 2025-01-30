@@ -48,6 +48,7 @@ void PicoDccExPacket::decodePacket(char *buffer)
         }
 
         // <a linear_addr activate>
+        packet.param1 = 0; // Reset to avoid getting value from above
         if (sscanf(buffer, "%*c %d %d", &packet.addr, &packet.param2) == 2)
         {
             break;

@@ -31,8 +31,8 @@ private:
     bool valid_packet = false;
 
     raw_dcc_cmd_t raw_dcc_cmd;
-    char dccex_cab_update[16];
-    char dccex_power_update[10];
+    char dccex_cab_update[16] = {'\0'};
+    char dccex_power_update[10] = {'\0'};
 
     void decodePacket(char *buffer);
     void validatePacket();

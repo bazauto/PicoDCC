@@ -1,0 +1,322 @@
+#include <stdarg.h>
+#include <stddef.h>
+#include <setjmp.h>
+#include <stdint.h>
+#include <stdio.h>
+
+extern "C" {
+#include <cmocka.h>
+}
+
+#include "../lib/PicoDCCEX/pico_dccexpacket.h"
+
+void test_invalid_packet(void **state)
+{
+  char buffer[10] = "x 123";
+  PicoDccExPacket packet(buffer);
+  assert_false(packet.isValid());
+}
+
+void test_ver_packet(void **state)
+{
+  char buffer[10] = "s";
+  PicoDccExPacket packet(buffer);
+  assert_true(packet.isValid());
+
+  assert_int_equal((int)packet.getOpcode(), (int)'s');
+}
+void test_num_cabs_packet(void **state)
+{
+  char buffer[10] = "#";
+  PicoDccExPacket packet(buffer);
+  assert_true(packet.isValid());
+
+  assert_int_equal((int)packet.getOpcode(), (int)'#');
+}
+
+void test_power_off_packet(void **state)
+{
+  char buffer[10] = "0";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_true(packet.isPowerCommand());
+  assert_false(packet.isVersionCommand());
+  assert_false(packet.isNumCabsCommand());
+  assert_false(packet.isThrottleCommand());
+  assert_false(packet.isFunctionCommand());
+  assert_false(packet.isEmergencyStopCommand());
+  assert_false(packet.isAccesoryCommand());
+  
+  assert_int_equal((int)packet.getOpcode(), (int)'0');
+
+  pico_dccex_track_select track = packet.getTrack();
+  assert_int_equal((int)track, (int)DCCEX_TRACK_ALL);
+
+  assert_false(packet.getPowerOn());
+
+  const char *cmd = packet.getDccExPowerUpdate();
+  assert_string_equal(cmd, "<p0>");
+}
+void test_power_on_packet(void **state)
+{
+  char buffer[10] = "1";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_true(packet.isPowerCommand());
+  assert_false(packet.isVersionCommand());
+  assert_false(packet.isNumCabsCommand());
+  assert_false(packet.isThrottleCommand());
+  assert_false(packet.isFunctionCommand());
+  assert_false(packet.isEmergencyStopCommand());
+  assert_false(packet.isAccesoryCommand());
+  
+  assert_int_equal((int)packet.getOpcode(), (int)'1');
+
+  pico_dccex_track_select track = packet.getTrack();
+  assert_int_equal((int)track, (int)DCCEX_TRACK_ALL);
+
+  assert_true(packet.getPowerOn());
+
+  const char *cmd = packet.getDccExPowerUpdate();
+  assert_string_equal(cmd, "<p1>");
+}
+void test_power_off_main_packet(void **state)
+{
+  char buffer[10] = "0 MAIN";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_true(packet.isPowerCommand());
+  assert_false(packet.isVersionCommand());
+  assert_false(packet.isNumCabsCommand());
+  assert_false(packet.isThrottleCommand());
+  assert_false(packet.isFunctionCommand());
+  assert_false(packet.isEmergencyStopCommand());
+  assert_false(packet.isAccesoryCommand());
+  
+  assert_int_equal((int)packet.getOpcode(), (int)'0');
+
+  pico_dccex_track_select track = packet.getTrack();
+  assert_int_equal((int)track, (int)DCCEX_TRACK_MAIN);
+
+  assert_false(packet.getPowerOn());
+
+  const char *cmd = packet.getDccExPowerUpdate();
+  assert_string_equal(cmd, "<p0 MAIN>");
+}
+void test_power_on_main_packet(void **state)
+{
+  char buffer[10] = "1 MAIN";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_true(packet.isPowerCommand());
+  assert_false(packet.isVersionCommand());
+  assert_false(packet.isNumCabsCommand());
+  assert_false(packet.isThrottleCommand());
+  assert_false(packet.isFunctionCommand());
+  assert_false(packet.isEmergencyStopCommand());
+  assert_false(packet.isAccesoryCommand());
+  
+  assert_int_equal((int)packet.getOpcode(), (int)'1');
+
+  pico_dccex_track_select track = packet.getTrack();
+  assert_int_equal((int)track, (int)DCCEX_TRACK_MAIN);
+
+  assert_true(packet.getPowerOn());
+
+  const char *cmd = packet.getDccExPowerUpdate();
+  assert_string_equal(cmd, "<p1 MAIN>");
+}
+void test_power_off_prog_packet(void **state)
+{
+  char buffer[10] = "0 PROG";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_true(packet.isPowerCommand());
+  assert_false(packet.isVersionCommand());
+  assert_false(packet.isNumCabsCommand());
+  assert_false(packet.isThrottleCommand());
+  assert_false(packet.isFunctionCommand());
+  assert_false(packet.isEmergencyStopCommand());
+  assert_false(packet.isAccesoryCommand());
+  
+  assert_int_equal((int)packet.getOpcode(), (int)'0');
+
+  pico_dccex_track_select track = packet.getTrack();
+  assert_int_equal((int)track, (int)DCCEX_TRACK_PROG);
+
+  assert_false(packet.getPowerOn());
+
+  const char *cmd = packet.getDccExPowerUpdate();
+  assert_string_equal(cmd, "<p0 PROG>");
+}
+void test_power_on_prog_packet(void **state)
+{
+  char buffer[10] = "1 PROG";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_true(packet.isPowerCommand());
+  assert_false(packet.isVersionCommand());
+  assert_false(packet.isNumCabsCommand());
+  assert_false(packet.isThrottleCommand());
+  assert_false(packet.isFunctionCommand());
+  assert_false(packet.isEmergencyStopCommand());
+  assert_false(packet.isAccesoryCommand());
+  
+  assert_int_equal((int)packet.getOpcode(), (int)'1');
+
+  pico_dccex_track_select track = packet.getTrack();
+  assert_int_equal((int)track, (int)DCCEX_TRACK_PROG);
+
+  assert_true(packet.getPowerOn());
+
+  const char *cmd = packet.getDccExPowerUpdate();
+  assert_string_equal(cmd, "<p1 PROG>");
+}
+
+void test_acc_1_packet(void **state)
+{
+  char buffer[10] = "a 101 3 1";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_false(packet.isPowerCommand());
+  assert_false(packet.isVersionCommand());
+  assert_false(packet.isNumCabsCommand());
+  assert_false(packet.isThrottleCommand());
+  assert_false(packet.isFunctionCommand());
+  assert_false(packet.isEmergencyStopCommand());
+  assert_true(packet.isAccesoryCommand());
+  
+  assert_int_equal((int)packet.getOpcode(), (int)'a');
+  assert_int_equal(packet.getAccessoryAddr(), 101);
+  assert_int_equal(packet.getAccessorySubAddr(), 3);
+  assert_int_equal(packet.getAccessoryActivate(), 1);
+  
+  raw_dcc_cmd_t *cmd = packet.getRawDccAccessoryCmd();
+  assert_int_equal(cmd->length, 2);
+  assert_int_equal(cmd->data[0], 165);  // 0101 0101
+  assert_int_equal(cmd->data[1], 159);  // 1001 1111
+  assert_int_equal(cmd->repeats, 3);
+}
+void test_acc_2_packet(void **state)
+{
+  char buffer[10] = "a 101 1";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_false(packet.isPowerCommand());
+  assert_false(packet.isVersionCommand());
+  assert_false(packet.isNumCabsCommand());
+  assert_false(packet.isThrottleCommand());
+  assert_false(packet.isFunctionCommand());
+  assert_false(packet.isEmergencyStopCommand());
+  assert_true(packet.isAccesoryCommand());
+  
+  assert_int_equal((int)packet.getOpcode(), (int)'a');
+  assert_int_equal(packet.getAccessoryAddr(), 101);
+  assert_int_equal(packet.getAccessorySubAddr(), 0);
+  assert_int_equal(packet.getAccessoryActivate(), 1);
+  
+  raw_dcc_cmd_t *cmd = packet.getRawDccAccessoryCmd();
+  assert_int_equal(cmd->length, 2);
+  assert_int_equal(cmd->data[0], 165);  // 0101 0101
+  assert_int_equal(cmd->data[1], 153);  // 1001 1001
+  assert_int_equal(cmd->repeats, 3);
+}
+
+void test_throttle_packet(void **state)
+{
+  char buffer[11] = "t 101 25 0";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_false(packet.isPowerCommand());
+  assert_false(packet.isVersionCommand());
+  assert_false(packet.isNumCabsCommand());
+  assert_true(packet.isThrottleCommand());
+  assert_false(packet.isFunctionCommand());
+  assert_false(packet.isEmergencyStopCommand());
+  assert_false(packet.isAccesoryCommand());
+  
+  assert_int_equal((int)packet.getOpcode(), (int)'t');
+  assert_int_equal(packet.getCab(), 101);
+  assert_int_equal(packet.getSpeed(), 25);
+  assert_int_equal(packet.getDirection(), 0);
+  
+  const char *cmd = packet.getDccExCabUpdate();
+  assert_string_equal(cmd, "<l 101 0 24 0>");
+}
+void test_function_packet(void **state)
+{
+  char buffer[11] = "F 101 25 0";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_false(packet.isPowerCommand());
+  assert_false(packet.isVersionCommand());
+  assert_false(packet.isNumCabsCommand());
+  assert_false(packet.isThrottleCommand());
+  assert_true(packet.isFunctionCommand());
+  assert_false(packet.isEmergencyStopCommand());
+  assert_false(packet.isAccesoryCommand());
+  
+  assert_int_equal((int)packet.getOpcode(), (int)'F');
+  assert_int_equal(packet.getCab(), 101);
+  assert_int_equal(packet.getSpeed(), 25);
+  assert_int_equal(packet.getDirection(), 0);
+  
+  const char *cmd = packet.getDccExCabUpdate();
+  assert_string_equal(cmd, "<l 101 0 24 0>");
+}
+void test_estop_packet(void **state)
+{
+  char buffer[10] = "!";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_false(packet.isPowerCommand());
+  assert_false(packet.isVersionCommand());
+  assert_false(packet.isNumCabsCommand());
+  assert_false(packet.isThrottleCommand());
+  assert_false(packet.isFunctionCommand());
+  assert_true(packet.isEmergencyStopCommand());
+  assert_false(packet.isAccesoryCommand());
+  
+  assert_int_equal((int)packet.getOpcode(), (int)'!');
+  assert_int_equal(packet.getCab(), 0);
+  assert_int_equal(packet.getSpeed(), 0);
+  assert_int_equal(packet.getDirection(), 0);
+}
+
+
+int main(int argc, char *argv[])
+{
+  printf("Runing Tests\n");
+
+  void *state;
+
+  const struct CMUnitTest tests[] = {
+      cmocka_unit_test(test_invalid_packet),
+      cmocka_unit_test(test_ver_packet),
+      cmocka_unit_test(test_num_cabs_packet),
+      cmocka_unit_test(test_power_off_packet),
+      cmocka_unit_test(test_power_on_packet),
+      cmocka_unit_test(test_power_off_main_packet),
+      cmocka_unit_test(test_power_on_main_packet),
+      cmocka_unit_test(test_power_off_prog_packet),
+      cmocka_unit_test(test_power_on_prog_packet),
+      cmocka_unit_test(test_acc_1_packet),
+      cmocka_unit_test(test_acc_2_packet),
+      cmocka_unit_test(test_throttle_packet),
+      cmocka_unit_test(test_function_packet),
+      cmocka_unit_test(test_estop_packet)
+  };
+
+  return cmocka_run_group_tests(tests, NULL, NULL);
+}
