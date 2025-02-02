@@ -37,7 +37,7 @@ public:
     // Copy constructor
     PicoDccLoco(const PicoDccLoco &other) : address(other.address), speed(other.speed), forward(other.forward), cmd(other.cmd) {}
 
-    // Comparision operator for easy of comparing objects
+    // Comparision operator for ease of comparing objects
     bool operator==(const PicoDccLoco &other) const {
         return address == other.address;
     }
@@ -60,6 +60,9 @@ public:
     raw_dcc_cmd_t getEmergecyStopCommand();
     raw_dcc_cmd_t getThrottleCommand();
     raw_dcc_cmd_t getFunctionCommand(uint8_t fnGroup);
+
+private:
+    void generateThrottleCommand();
 };
 
 #endif
