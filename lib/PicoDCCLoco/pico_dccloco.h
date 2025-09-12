@@ -6,10 +6,14 @@
 #include "../../test/mocks.h"
 #else
 #include <pico/stdlib.h>
+#include <pico/sem.h>
+#include <pico/util/queue.h>
 #endif
 
 #include "../PicoDCCEX/pico_dccexpacket.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
+
+#define INVALID_LOCO_ADDR 65535
 
 class PicoDccLoco
 {
@@ -60,6 +64,8 @@ public:
     raw_dcc_cmd_t getEmergecyStopCommand();
     raw_dcc_cmd_t getThrottleCommand();
     raw_dcc_cmd_t getFunctionCommand(uint8_t fnGroup);
+
+    bool isValid() const;
 
 private:
     void generateThrottleCommand();

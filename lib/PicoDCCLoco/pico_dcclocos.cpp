@@ -56,14 +56,21 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
         }
     }
 
+    // Check if the loco is valid before returning it
+    if (!locos[nextIndex].isValid()) {
+        // Remove invalid loco from the collection
+        locos.erase(locos.begin() + nextIndex);
+        sem_release(&locos_lock);
+        return false;
+    }
+
     // Get the command for the next loco that will be sent to the track
     cmd = locos[nextIndex].getThrottleCommand();
     last_loco_reminder = locos[nextIndex].getAddress();
 
     sem_release(&locos_lock);
 
-    // Return a pointer to the next loco
-    return &locos[nextIndex];
+    return true;
 }
 
 std::list<raw_dcc_cmd_t> PicoDccLocos::getEmergencyStopCommands()

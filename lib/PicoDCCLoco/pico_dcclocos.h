@@ -5,7 +5,10 @@
 #include <vector>
 #include <list>
 #ifdef TEST_BUILD
+extern "C"
+{
 #include "../../test/mocks.h"
+}
 #else
 #include <pico/stdlib.h>
 #include <pico/sem.h>
@@ -31,6 +34,8 @@ private:
 
 public:
     PicoDccLocos(queue_t *_dccex_cmd_queue);
+
+    int getLocoCount() { return locos.size(); }
 
     void addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
     void updateLoco(PicoDccLoco *loco, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);

@@ -1,4 +1,6 @@
+extern "C" {
 #include "mocks.h"
+}
 
 void queue_init(queue_t *queue, size_t item_size, size_t max_items) {}
 bool queue_add_blocking(queue_t *queue, const void *item) { return true; }
@@ -9,6 +11,15 @@ void adc_init() {}
 void adc_gpio_init(uint8_t gpio) {}
 void adc_select_input(uint8_t adc_num) {}
 uint adc_read() { return 0; }
+
+int uart0_data;
+void* uart0 = &uart0_data;
+
+void setup_default_uart() {}
+void uart_puts(void *uart, const char *str) {}
+char uart_getc(void *uart) { return 'a'; }
+bool uart_is_writable(void *uart) { return true; }
+bool uart_is_readable(void *uart) { return true; }
 
 PIO::PIO() {}
 PIO::PIO(void *) {}
@@ -30,15 +41,6 @@ void dcc_program_init(PIO pio, uint sm, uint offset, uint signal_pin, uint pream
 void gpio_put(uint8_t gpio, bool value) {}
 void gpio_set_dir(uint8_t gpio, bool out) {}
 void gpio_init(uint8_t gpio) {}
-
-int uart0_data;
-void* uart0 = &uart0_data;
-
-void uart_puts(void *uart, const char *str) {}
-char uart_getc(void *uart) { return 'a'; }
-bool uart_is_writable(void *uart) { return true; }
-bool uart_is_readable(void *uart) { return true; }
-void setup_default_uart() {}
 
 void sem_init(semaphore_t *sem, int count, int) {}
 void sem_acquire(semaphore_t *sem) {}

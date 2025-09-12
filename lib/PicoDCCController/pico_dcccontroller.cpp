@@ -34,8 +34,8 @@ void PicoDccController::dccexLoop()
 // This is the Core 1 loop
 void PicoDccController::dccLoop()
 {
-    // If we processed a command from JMRI then skip the reminders this loop
-    if (processDccExFromJMRI())
+    // If we didn't processed a command from JMRI then load the next reminder this loop
+    if (!processDccExFromJMRI())
     {
         processReminders();
     }
@@ -63,7 +63,7 @@ bool PicoDccController::processDccExFromJMRI()
     if (!queue_try_remove(&dcc_cmd_queue, &packetData))
     {
         // We want reminders to be processed
-        return true;
+        return false;
     }
 
     PicoDccExPacket packet(packetData);
@@ -114,5 +114,5 @@ bool PicoDccController::processDccExFromJMRI()
         }
     }
 
-    return false;
+    return true;
 }

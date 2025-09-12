@@ -1,5 +1,8 @@
 #ifdef TEST_BUILD
+extern "C"
+{
 #include "../../test/mocks.h"
+}
 #else
 #include <pico/stdlib.h>
 #endif

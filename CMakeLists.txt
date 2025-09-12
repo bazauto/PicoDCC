@@ -2,29 +2,31 @@ cmake_minimum_required(VERSION 3.13)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-set(TEST_BUILD ON CACHE BOOL "Build for testing")
-set(WITH_COVERAGE ON CACHE BOOL "Include Test Coverage")
+set(TEST_BUILD OFF CACHE BOOL "Build for testing")
+set(WITH_COVERAGE OFF CACHE BOOL "Include Test Coverage")
 
 if(TEST_BUILD)
+
+  enable_language(C)
+  enable_language(CXX)
+
+  include_directories(
+    ${CMAKE_SOURCE_DIR}/test/mocks
+    ${CMAKE_SOURCE_DIR}/lib
+    ${CMAKE_SOURCE_DIR}/src
+  )
 
   # Coverage
   if (WITH_COVERAGE)
     list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
-    ENABLE_LANGUAGE(CXX)
     include(CodeCoverage)
 
     append_coverage_compiler_flags()
 
-    # set(GCOVR_ADDITIONAL_ARGS --xml-pretty --exclude-unreachable-branches --print-summary)
-    # setup_target_for_coverage_gcovr_xml(
-    #       NAME coverage_xml
-    #       EXECUTABLE ctest -L coverage
-    #       DEPENDENCIES PicoDCCTest)
-
     setup_target_for_coverage_lcov(
         NAME "coverage"
         EXECUTABLE ctest -j10 -C Debug -T test --output-on-failure -R ^pico_dcc.*_tests$
-        #BASE_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        BASE_DIRECTORY "${PROJECT_SOURCE_DIR}"
         LCOV_ARGS --ignore-errors graph
         )
 
@@ -33,7 +35,7 @@ if(TEST_BUILD)
     setup_target_for_coverage_gcovr_xml(
         NAME "coverage_xml"
         EXECUTABLE ctest -j10 -C Debug -T test --output-on-failure -R ^pico_dcc.*_tests$
-        #BASE_DIRECTORY "${PROJECT_SOURCE_DIR}"
+        BASE_DIRECTORY "${PROJECT_SOURCE_DIR}"
         LCOV_ARGS --ignore-errors graph
         )
   endif (WITH_COVERAGE)
@@ -46,6 +48,7 @@ if(TEST_BUILD)
     LANGUAGES C CXX
   )
 
+  # Ensure cmocka is installed and linked for the test build
   find_package(cmocka 1.1.0 REQUIRED)
   include(AddCMockaTest)
 

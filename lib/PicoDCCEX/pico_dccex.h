@@ -43,6 +43,7 @@ public:
     void processDccExFromJMRI(queue_t *dcc_cmd_queue);
 
     enum pico_dccex_state getProcessState() { return processState; }
+    int getMaxSupportedCabs() { return maxSupportedCabs; }
 };
 
 #endif

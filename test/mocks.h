@@ -31,6 +31,15 @@ void adc_gpio_init(uint8_t gpio);
 void adc_select_input(uint8_t adc_num);
 uint adc_read();
 
+extern int uart0_data;
+extern void* uart0;
+
+void setup_default_uart();
+void uart_puts(void *uart, const char *str);
+char uart_getc(void *uart);
+bool uart_is_writable(void *uart);
+bool uart_is_readable(void *uart);
+
 class PIO 
 {
 private:
@@ -59,15 +68,6 @@ void dcc_program_init(PIO pio, uint sm, uint offset, uint signal_pin, uint pream
 void gpio_put(uint8_t gpio, bool value);
 void gpio_set_dir(uint8_t gpio, bool out);
 void gpio_init(uint8_t gpio);
-
-extern int uart0_data;
-extern void* uart0;
-
-void uart_puts(void *uart, const char *str);
-char uart_getc(void *uart);
-bool uart_is_writable(void *uart);
-bool uart_is_readable(void *uart);
-void setup_default_uart();
 
 typedef struct
 {

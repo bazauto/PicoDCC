@@ -106,3 +106,7 @@ raw_dcc_cmd_t PicoDccLoco::getFunctionCommand(uint8_t fnGroup)
 {
     return raw_dcc_cmd_t();
 }
+
+bool PicoDccLoco::isValid() const {
+    return address != INVALID_LOCO_ADDR;
+}

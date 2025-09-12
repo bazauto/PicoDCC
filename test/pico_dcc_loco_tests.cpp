@@ -24,6 +24,29 @@ void test_create_from_packet(void **state)
   assert_int_equal(cmd.data[0], 3);
   assert_int_equal(cmd.data[1], 81);
 }
+void test_create_from_address(void **state)
+{
+  PicoDccLoco loco(3);
+
+  assert_int_equal(loco.getAddress(), 3);
+
+  raw_dcc_cmd_t cmd = loco.getThrottleCommand();
+  assert_int_equal(cmd.length, 2);
+  assert_int_equal(cmd.data[0], 3);
+  assert_int_equal(cmd.data[1], 113);
+}
+void test_create_from_address_speed_direction(void **state)
+{
+  PicoDccLoco loco(3, 128, false);
+
+  assert_int_equal(loco.getAddress(), 3);
+
+  raw_dcc_cmd_t cmd = loco.getThrottleCommand();
+  assert_int_equal(cmd.length, 2);
+  assert_int_equal(cmd.data[0], 3);
+  assert_int_equal(cmd.data[1], 81);
+}
+
 void test_invalid_packet_opcode(void **state)
 {
   const char *buffer = "s";
@@ -75,34 +98,46 @@ void test_invalid_packet_highspeed(void **state)
   }
 }
 
-void test_create_from_address(void **state)
+void test_update_control(void **state)
+{
+  PicoDccLoco loco(3, 128, true);
+  bool updated = loco.updateControl(false, 64);
+
+  assert_true(updated);
+  raw_dcc_cmd_t cmd = loco.getThrottleCommand();
+  assert_int_equal(cmd.length, 2);
+  assert_int_equal(cmd.data[0], 3);
+  assert_int_equal(cmd.data[1], 88);
+}
+
+void test_update_function(void **state)
 {
   PicoDccLoco loco(3);
+  loco.updateFunct(1, true);
 
-  assert_int_equal(loco.getAddress(), 3);
-
-  raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.length, 2);
-  assert_int_equal(cmd.data[0], 3);
-  assert_int_equal(cmd.data[1], 113);
+  raw_dcc_cmd_t cmd = loco.getFunctionCommand(1);
+  // Add assertions based on expected function command
 }
-void test_create_from_address_speed_direction(void **state)
+
+void test_emergency_stop_command(void **state)
 {
-  PicoDccLoco loco(3, 128, false);
+  PicoDccLoco loco(3);
+  raw_dcc_cmd_t cmd = loco.getEmergecyStopCommand();
 
-  assert_int_equal(loco.getAddress(), 3);
-
-  raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.length, 2);
-  assert_int_equal(cmd.data[0], 3);
-  assert_int_equal(cmd.data[1], 81);
+  // Add assertions based on expected emergency stop command
 }
 
+void test_function_command(void **state)
+{
+  PicoDccLoco loco(3);
+  raw_dcc_cmd_t cmd = loco.getFunctionCommand(1);
 
+  // Add assertions based on expected function command for group 1
+}
 
 int main(int argc, char *argv[])
 {
-  printf("Runing Tests\n");
+  printf("Running Tests\n");
 
   void *state;
 
@@ -114,7 +149,11 @@ int main(int argc, char *argv[])
       cmocka_unit_test(test_invalid_packet_lowspeed),
       cmocka_unit_test(test_invalid_packet_highspeed),
       cmocka_unit_test(test_create_from_address),
-      cmocka_unit_test(test_create_from_address_speed_direction)
+      cmocka_unit_test(test_create_from_address_speed_direction),
+      cmocka_unit_test(test_update_control),
+      cmocka_unit_test(test_update_function),
+      cmocka_unit_test(test_emergency_stop_command),
+      cmocka_unit_test(test_function_command)
   };
 
   return cmocka_run_group_tests(tests, NULL, NULL);
