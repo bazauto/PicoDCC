@@ -23,12 +23,7 @@ private:
     uint8_t speed;
     bool forward;
 
-    bool support123Speeds = false;  // We don't yet but including the flag for when we do
 
-    // Some cached values to avoid recalculation to send reminders
-    uint8_t speedCode;
-    uint8_t groupFlags;
-    uint32_t functions;
 
     // This is the command that will be sent to the track when needed.  It is initially zero length to avoid it being used.
     raw_dcc_cmd_t cmd;
@@ -61,7 +56,6 @@ public:
     void writeCVBytes(int8_t cvNumber, int8_t newByte);
     void writeCVBit(int8_t cvNumber, bool newBit);
 
-    raw_dcc_cmd_t getEmergecyStopCommand();
     raw_dcc_cmd_t getThrottleCommand();
     raw_dcc_cmd_t getFunctionCommand(uint8_t fnGroup);
 

@@ -4,9 +4,19 @@
 #include <stdint.h>
 #include <stdio.h>
 
+// Workaround for MSVC inline macro issue
+#ifdef _MSC_VER
+#pragma push_macro("inline")
+#undef inline
+#endif
+
 extern "C" {
 #include <cmocka.h>
 }
+
+#ifdef _MSC_VER
+#pragma pop_macro("inline")
+#endif
 
 #include "../lib/PicoDCCEX/pico_dccexpacket.h"
 

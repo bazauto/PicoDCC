@@ -1,10 +1,9 @@
 #include <string.h>
 #include <stdexcept>
-#include <algorithm>
 
 #include "pico_dcclocos.h"
 
-PicoDccLocos::PicoDccLocos(queue_t *_dccex_cmd_queue) : dccex_cmd_queue(_dccex_cmd_queue)
+PicoDccLocos::PicoDccLocos()
 {
     // Reserve memory for our configured MAX
     sem_init(&locos_lock, 1, 1);
@@ -15,8 +14,6 @@ PicoDccLocos::PicoDccLocos(queue_t *_dccex_cmd_queue) : dccex_cmd_queue(_dccex_c
 PicoDccLoco *PicoDccLocos::findLoco(uint16_t address)
 {
     PicoDccLoco *loco = nullptr;
-
-    size_t vectorSize = locos.size();
 
     sem_acquire_blocking(&locos_lock);
     for (size_t i = 0; i < locos.size(); ++i)
@@ -73,28 +70,6 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
     return true;
 }
 
-std::list<raw_dcc_cmd_t> PicoDccLocos::getEmergencyStopCommands()
-{
-    std::list<raw_dcc_cmd_t> stopCmds;
-    if (!locos.empty())
-    {
-        sem_acquire_blocking(&locos_lock);
-
-        for (PicoDccLoco& loco : locos)
-        {
-            stopCmds.push_back(loco.getEmergecyStopCommand());
-
-            // Notify that this loco has been processed
-            pico_dccex_packet packet = {'t', loco.getAddress(), 0, 0, false, DCCEX_TRACK_ALL};
-            queue_add_blocking(dccex_cmd_queue, &packet );
-        }
-
-        sem_release(&locos_lock);
-    }
-
-    return stopCmds;
-}
-
 void PicoDccLocos::addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
 {
     PicoDccLoco newLoco(packet);
@@ -105,18 +80,9 @@ void PicoDccLocos::addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
     cmd = newLoco.getThrottleCommand();
 
     sem_release(&locos_lock);
-
-    queue_add_blocking(dccex_cmd_queue, packet->getPacketData());
 }
 
-void PicoDccLocos::updateLoco(PicoDccLoco *loco, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
-{
-    if (loco->update(packet))
-    {
-        queue_add_blocking(dccex_cmd_queue, packet->getPacketData());
-    }
-    cmd = loco->getThrottleCommand();
-}
+
 
 void PicoDccLocos::forgetLoco(uint16_t address)
 {

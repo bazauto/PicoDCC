@@ -29,18 +29,14 @@ private:
     enum pico_dccex_state processState;
     int bufferLength = 0;
     char buffer[COMMAND_BUFFER_SIZE];
-    PicoDccExPacket *currentPacket;
+    PicoDccExPacket *currentPacket = nullptr;
 
 
 public:
     PicoDccEx(int maxCab);
 
-    void loop(queue_t *dcc_cmd_queue, queue_t *dccex_cmd_queue);
-
+    bool processCommand(pico_dccex_packet* packet);
     void reset();
-
-    void processDccFromController(queue_t *dccex_cmd_queue);
-    void processDccExFromJMRI(queue_t *dcc_cmd_queue);
 
     enum pico_dccex_state getProcessState() { return processState; }
     int getMaxSupportedCabs() { return maxSupportedCabs; }

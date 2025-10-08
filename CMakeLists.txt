@@ -3,7 +3,6 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 set(TEST_BUILD OFF CACHE BOOL "Build for testing")
-set(WITH_COVERAGE OFF CACHE BOOL "Include Test Coverage")
 
 if(TEST_BUILD)
 
@@ -15,30 +14,6 @@ if(TEST_BUILD)
     ${CMAKE_SOURCE_DIR}/lib
     ${CMAKE_SOURCE_DIR}/src
   )
-
-  # Coverage
-  if (WITH_COVERAGE)
-    list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
-    include(CodeCoverage)
-
-    append_coverage_compiler_flags()
-
-    setup_target_for_coverage_lcov(
-        NAME "coverage"
-        EXECUTABLE ctest -j10 -C Debug -T test --output-on-failure -R ^pico_dcc.*_tests$
-        BASE_DIRECTORY "${PROJECT_SOURCE_DIR}"
-        LCOV_ARGS --ignore-errors graph
-        )
-
-    set(GCOVR_ADDITIONAL_ARGS --xml-pretty --exclude-unreachable-branches --print-summary)
-
-    setup_target_for_coverage_gcovr_xml(
-        NAME "coverage_xml"
-        EXECUTABLE ctest -j10 -C Debug -T test --output-on-failure -R ^pico_dcc.*_tests$
-        BASE_DIRECTORY "${PROJECT_SOURCE_DIR}"
-        LCOV_ARGS --ignore-errors graph
-        )
-  endif (WITH_COVERAGE)
 
   list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmocka)
 

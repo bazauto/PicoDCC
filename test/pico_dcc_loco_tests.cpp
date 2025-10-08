@@ -119,13 +119,7 @@ void test_update_function(void **state)
   // Add assertions based on expected function command
 }
 
-void test_emergency_stop_command(void **state)
-{
-  PicoDccLoco loco(3);
-  raw_dcc_cmd_t cmd = loco.getEmergecyStopCommand();
-
-  // Add assertions based on expected emergency stop command
-}
+// Emergency stop test removed - emergency stop is now handled as broadcast command in controller
 
 void test_function_command(void **state)
 {
@@ -152,7 +146,6 @@ int main(int argc, char *argv[])
       cmocka_unit_test(test_create_from_address_speed_direction),
       cmocka_unit_test(test_update_control),
       cmocka_unit_test(test_update_function),
-      cmocka_unit_test(test_emergency_stop_command),
       cmocka_unit_test(test_function_command)
   };
 

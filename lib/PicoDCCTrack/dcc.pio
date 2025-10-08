@@ -10,7 +10,7 @@
     pull block
 
     ; First byte is number of Preamble bits that should be sent (allows same code for main and prog)
-    out y, 8                              ; setup preamble bit count
+    out y, 8                                ; setup preamble bit count
 
     ; Second byte is number of bytes in packet (inc. Error byte that is pre calculated in CPU)
     ; Shift first byte from OSR in to ISR to use as a byte counter

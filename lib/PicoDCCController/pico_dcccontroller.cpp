@@ -1,6 +1,15 @@
+#include <algorithm>
+#include <queue>
+#include "../PicoDCCTrack/pico_dcctrack.h"
 #include "pico_dcccontroller.h"
 
-PicoDccController::PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s)
+#ifdef TEST_BUILD
+#include "../../test/mocks.h"
+#else
+#include <pico/stdio.h>
+#endif
+
+PicoDccController::PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s, uint8_t timing_led_pin)
 {
     // Some things that should never be
     assert(main_track_s.signal_pin != prog_track_s.signal_pin);
@@ -10,109 +19,182 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     assert(main_track_s.adc_num != prog_track_s.adc_num);
     assert(prog_track_s.ctrl_pin != UNUSED_PIN);
 
-    // Setup the queues to tranfer actions between CPU cores
-    queue_init(&dcc_cmd_queue, sizeof(pico_dccex_packet), CMD_QUEUE_LENGTH);
-    queue_init(&dccex_cmd_queue, sizeof(pico_dccex_packet), CMD_QUEUE_LENGTH);
+    // Setup the queue to transfer track commands from Core 0 to Core 1
+    queue_init(&track_cmd_queue, sizeof(raw_dcc_cmd_t), CMD_QUEUE_LENGTH);
 
     // Setup the tracks
     main_track = new PicoDccTrack(false, main_track_s);
     prog_track = new PicoDccTrack(true, prog_track_s);
 
+    // Setup timing error LED
+    timing_error_led_pin = timing_led_pin;
+    gpio_init(timing_error_led_pin);
+    gpio_set_dir(timing_error_led_pin, GPIO_OUT);
+    gpio_put(timing_error_led_pin, 0); // Start with LED off
+
     // Setup DCCEX Packate processing
     pico_dccex = new PicoDccEx(MAX_LOCO);
 
     // Setup our loco store
-    pico_locos = new PicoDccLocos(&dccex_cmd_queue);
+    pico_locos = new PicoDccLocos();
 }
 
 // This is the Core 0 loop
 void PicoDccController::dccexLoop()
 {
-    pico_dccex->loop(&dcc_cmd_queue, &dccex_cmd_queue);
+    pico_dccex_packet packetData;
+    bool hasCommand = pico_dccex->processCommand(&packetData);
+
+    if (hasCommand)
+    {
+        PicoDccExPacket packet(packetData);
+        if (packet.isValid())
+        {
+            raw_dcc_cmd_t cmd = {};
+            
+            if (packet.isPowerCommand())
+            {
+                if (packet.getTrack() == DCCEX_TRACK_ALL || packet.getTrack() == DCCEX_TRACK_PROG)
+                    prog_track->setPower(packet.getPowerOn());
+
+                if (packet.getTrack() == DCCEX_TRACK_ALL || packet.getTrack() == DCCEX_TRACK_MAIN)
+                    main_track->setPower(packet.getPowerOn());
+                
+                // Send power status acknowledgment
+#ifdef TEST_BUILD
+                uart_puts(uart0, packet.getDccExPowerUpdate());
+#else
+                printf("%s", packet.getDccExPowerUpdate());
+#endif
+            }
+
+            if (packet.isEmergencyStopCommand())
+            {
+                // Emergency stop is a broadcast command - send once and clear everything
+                cmd.is_prog = false;  // Emergency stop goes to main track
+                cmd.length = 2;
+                cmd.data[0] = 0x00;   // Broadcast address
+                cmd.data[1] = 0x41;   // Emergency stop instruction
+                cmd.repeats = 0;      // Send once only
+                
+                // Clear the main command queue to stop all pending commands
+                while (!main_cmd_queue.empty()) {
+                    main_cmd_queue.pop();
+                }
+                
+                // Clear the hardware queue
+                raw_dcc_cmd_t dummy;
+                while (queue_try_remove(&track_cmd_queue, &dummy)) {
+                    // Remove all queued commands
+                }
+                
+                // Send the emergency stop command immediately
+                main_cmd_queue.push(cmd);
+                
+                // Clear all locos to prevent further reminders
+                pico_locos->forgetAllLocos();
+                
+                // Send emergency stop acknowledgment
+#ifdef TEST_BUILD
+                uart_puts(uart0, "<O>");
+#else
+                printf("<O>");
+#endif
+            }
+
+            if (packet.isThrottleCommand() || packet.isFunctionCommand())
+            {
+                PicoDccLoco *loco = pico_locos->findLoco(packet.getCab());
+
+                if (loco == nullptr)
+                {
+                    pico_locos->addLoco(&packet, cmd);
+                }
+                else
+                {
+                    cmd = loco->getThrottleCommand();
+                }
+                
+                if (cmd.length > 0) // Only queue if we have a valid command
+                {
+                    main_cmd_queue.push(cmd);
+                }
+                
+                // Send locomotive status acknowledgment
+                // Send throttle/function status acknowledgment
+#ifdef TEST_BUILD
+                uart_puts(uart0, packet.getDccExCabUpdate());
+#else
+                printf("%s", packet.getDccExCabUpdate());
+#endif
+            }
+
+            if (packet.isAccesoryCommand())
+            {
+                cmd = *packet.getRawDccAccessoryCmd();
+                main_cmd_queue.push(cmd);
+                
+                // Send accessory acknowledgment
+#ifdef TEST_BUILD
+                uart_puts(uart0, "<O>");
+#else
+                printf("<O>");
+#endif
+            }
+
+        }
+    }
+    else
+    {
+        // Process reminders when no commands are waiting
+        raw_dcc_cmd_t cmd = {};
+        if (pico_locos->getNextReminder(cmd))
+        {
+            main_cmd_queue.push(cmd);
+        }
+    }
+
+    // Repeat/interleaving logic: process one command per loop
+    if (!main_cmd_queue.empty()) {
+        raw_dcc_cmd_t cmd = main_cmd_queue.front();
+        main_cmd_queue.pop();
+        queue_add_blocking(&track_cmd_queue, &cmd);
+        if (cmd.repeats > 0) {
+            cmd.repeats--;
+            main_cmd_queue.push(cmd);
+        }
+    }
 }
 
 // This is the Core 1 loop
 void PicoDccController::dccLoop()
 {
-    // If we didn't processed a command from JMRI then load the next reminder this loop
-    if (!processDccExFromJMRI())
+    static uint32_t last_command_check = 0;
+    uint32_t current_time = to_ms_since_boot(get_absolute_time());
+    
+    // Check command timing if it's been more than 10ms
+    if (current_time - last_command_check >= 10)
     {
-        processReminders();
+        uint32_t main_gap = current_time - main_track->getLastCommandTime();
+        
+        // If we have a dangerous gap in commands (> 100ms)
+        if (main_gap >= 100)
+        {
+            // Emergency safety measures
+            main_track->setPower(false); // Cut power to main track
+            prog_track->setPower(false); // Cut power to prog track
+            gpio_put(timing_error_led_pin, 1); // Turn on error LED
+        }
+        else
+        {
+            gpio_put(timing_error_led_pin, 0); // Turn off error LED if timing is good
+        }
+        
+        last_command_check = current_time;
     }
 
+    // Command dequeue/send is now handled in main_track->loop().
     main_track->loop();
     prog_track->loop();
 }
 
-void PicoDccController::processReminders()
-{
-    // Reminders are only sent to the main track so don't need to check for that
-    raw_dcc_cmd_t cmd = {};
-    bool foundLoco = pico_locos->getNextReminder(cmd);
-
-    if (foundLoco)
-        main_track->queueCommand(&cmd);
-    else
-        main_track->sendIdle();
-}
-
-bool PicoDccController::processDccExFromJMRI()
-{
-    // Process any incoming message from JMRI queue to be sent to the track
-    pico_dccex_packet packetData;
-    if (!queue_try_remove(&dcc_cmd_queue, &packetData))
-    {
-        // We want reminders to be processed
-        return false;
-    }
-
-    PicoDccExPacket packet(packetData);
-    if (packet.isValid()) 
-    {    
-        if (packet.isPowerCommand())
-        {
-            if (packet.getTrack() == DCCEX_TRACK_ALL || packet.getTrack() == DCCEX_TRACK_PROG)
-                prog_track->setPower(packet.getPowerOn());
-
-            if (packet.getTrack() == DCCEX_TRACK_ALL || packet.getTrack() == DCCEX_TRACK_MAIN)
-                main_track->setPower(packet.getPowerOn());
-
-            queue_add_blocking(&dccex_cmd_queue, packet.getPacketData());
-        }
-
-        if (packet.isEmergencyStopCommand())
-        {
-            std::list<raw_dcc_cmd_t> stopCmds = pico_locos->getEmergencyStopCommands();
-            for (std::list<raw_dcc_cmd_t>::iterator it = stopCmds.begin(); it != stopCmds.end();)
-            {
-                raw_dcc_cmd_t cmd = *it;
-                main_track->queueCommand(&cmd);
-            }
-        }
-
-        if (packet.isThrottleCommand() || packet.isFunctionCommand())
-        {
-            raw_dcc_cmd_t cmd;
-            PicoDccLoco *loco = pico_locos->findLoco(packet.getCab());
-
-            if (loco == nullptr)
-            {
-                pico_locos->addLoco(&packet, cmd);
-            }
-            else
-            {
-                pico_locos->updateLoco(loco, &packet, cmd);
-            }
-            
-            if (cmd.length > 0)
-                main_track->queueCommand(&cmd);
-        }
-
-        if (packet.isAccesoryCommand())
-        {
-            main_track->queueCommand(packet.getRawDccAccessoryCmd());
-        }
-    }
-
-    return true;
-}

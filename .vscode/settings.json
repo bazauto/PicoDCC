@@ -29,6 +29,8 @@
         "array": "cpp",
         "string": "cpp",
         "string_view": "cpp",
-        "ranges": "cpp"
+        "ranges": "cpp",
+        "mutex": "cpp",
+        "queue": "cpp"
     },
 }

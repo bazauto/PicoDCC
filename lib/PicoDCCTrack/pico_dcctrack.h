@@ -8,16 +8,20 @@
 
 #include <stdio.h>
 #include <cstdint>
+
+#include "../dcc_types.h"
+
 #ifdef TEST_BUILD
 #include "../../test/mocks.h"
 #else
+#include <pico/stdlib.h>
 #include <pico/util/queue.h>
+#include <pico/time.h>
 #endif
 
 #define UNUSED_PIN 255
 #define BASE_ADC_PIN 26
 
-#define DCC_MAX_DATA_BYTES 6    // This is the max specified in the MNRA spec.  5 + CRC.
 #define DCC_MAIN_PREAMBLE 14
 #define DCC_PROG_PREAMBLE 20
 
@@ -39,15 +43,6 @@ typedef struct {
     uint8_t short_pin = UNUSED_PIN;
 } track_settings_t;
 
-typedef struct 
-{
-    bool is_prog;
-    uint8_t length = 0;
-    uint8_t data[DCC_MAX_DATA_BYTES];
-    uint64_t cmd_data = 0;
-    uint8_t repeats = 0;
-} raw_dcc_cmd_t;
-
 class PicoDccTrack {
 
 private:
@@ -65,6 +60,7 @@ private:
     float average_current_reading = 0.0;
     uint current_sum = 0;
     uint current_cnt = 0;
+    bool power_on = false;
 
 public:
     PicoDccTrack(bool is_prog, track_settings_t settings);
@@ -78,17 +74,27 @@ public:
     // Power control
     void powerOn() { setPower(true); }
     void powerOff() { setPower(false); }
-    void setPower(bool power_on);
+    void setPower(bool on);
 
     float getAverageCurrent() { return average_current_reading; }
 
     bool getIsProg() { return is_prog; }
+    bool getPower() { return power_on; }
 
     uint8_t getPowerCtrlPin() {  return power_ctrl_pin; }
     uint8_t getPowerAdcPin() {  return power_adc_pin; }
     uint8_t getPowerAdcNumber() {  return power_adc_number; }
 
     bool canReadCurrent() { return power_adc_pin != UNUSED_PIN; }
+
+    // Safety monitoring
+    uint32_t getLastCommandTime() { return last_command_time; }
+    uint32_t getMaxCommandGap() { return max_command_gap; }
+    void resetMaxCommandGap() { max_command_gap = 0; }
+
+private:
+    uint32_t last_command_time = 0;   // Time of last command sent
+    uint32_t max_command_gap = 0;     // Maximum gap between commands
 };
 
 #endif

@@ -23,7 +23,7 @@ PicoDccLoco::PicoDccLoco(PicoDccExPacket *packet)
 
     // Initiallising locally to allow the above validation ahead of initialisation
     this->address = (uint16_t)packet->getCab();
-    
+
     if (packet->isThrottleCommand() || packet->isFunctionCommand())
     {
         this->forward = packet->getDirection() == 1;
@@ -91,11 +91,7 @@ void PicoDccLoco::updateFunct(uint8_t function, bool value)
 {
 }
 
-raw_dcc_cmd_t PicoDccLoco::getEmergecyStopCommand()
-{
 
-    return raw_dcc_cmd_t();
-}
 
 raw_dcc_cmd_t PicoDccLoco::getThrottleCommand()
 {
@@ -107,6 +103,7 @@ raw_dcc_cmd_t PicoDccLoco::getFunctionCommand(uint8_t fnGroup)
     return raw_dcc_cmd_t();
 }
 
-bool PicoDccLoco::isValid() const {
+bool PicoDccLoco::isValid() const
+{
     return address != INVALID_LOCO_ADDR;
 }

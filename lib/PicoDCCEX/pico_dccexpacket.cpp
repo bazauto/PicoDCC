@@ -2,13 +2,24 @@
 
 PicoDccExPacket::PicoDccExPacket(char *buffer)
 {
+    // Initialize raw_dcc_cmd to zero
+    memset(&raw_dcc_cmd, 0, sizeof(raw_dcc_cmd));
+    
     decodePacket(buffer);
     validatePacket();
 }
 
-PicoDccExPacket::PicoDccExPacket(pico_dccex_packet packetData)
-{
+PicoDccExPacket::PicoDccExPacket(pico_dccex_packet packetData) {
+    // Initialize raw_dcc_cmd to zero
+    memset(&raw_dcc_cmd, 0, sizeof(raw_dcc_cmd));
+
+    // Validate memory alignment
+    if (&packetData == nullptr) {
+        return;
+    }
+
     packet = packetData;
+
     validatePacket();
 }
 
@@ -70,17 +81,21 @@ void PicoDccExPacket::decodePacket(char *buffer)
             packet.addr = -1; // Invalid cab
         }
         break;
+
+    // Emergency Stop
+    case ('!'):
+        // No parameters
+        break;
     }
 }
 
-void PicoDccExPacket::validatePacket()
-{
+void PicoDccExPacket::validatePacket() {
+
     valid_packet = false;
 
     // Here we validate that the packet is supported by this controller
     // And if so it has the required data to perform the operation
-    switch (packet.opcode)
-    {
+    switch (packet.opcode) {
     // Track Power
     case ('0'):
     case ('1'):
@@ -97,15 +112,17 @@ void PicoDccExPacket::validatePacket()
     case ('t'):
     case ('F'):
     case ('a'):
-        if (packet.addr != -1)
-        {
+        if (packet.addr != -1) {
             valid_packet = true;
-        }
+        } 
         break;
 
     // Emergency Stop
     case ('!'):
         valid_packet = true;
+        break;
+
+    default:
         break;
     }
 }
@@ -121,9 +138,9 @@ raw_dcc_cmd_t *PicoDccExPacket::getRawDccAccessoryCmd()
         raw_dcc_cmd.length++;
 
         // 1AAACPPG
-        // Second byte is the 2 MSB bits of the address, the subaddress, the activate bit
+        // Second byte is the upper 3 bits of the address, the activate bit, subaddress, and gate bit
         raw_dcc_cmd.data[raw_dcc_cmd.length] = 0x80;                                      // Control bit
-        raw_dcc_cmd.data[raw_dcc_cmd.length] |= (getAccessoryAddr() >> 2) & 0xF0;         // 2 MSB bits of the address (XAA)
+        raw_dcc_cmd.data[raw_dcc_cmd.length] |= ((getAccessoryAddr() >> 6) & 0x07) << 4;  // Upper 3 bits of address (AAA)
         raw_dcc_cmd.data[raw_dcc_cmd.length] |= 1 << 3;                                   // Activate bit (C)
         raw_dcc_cmd.data[raw_dcc_cmd.length] |= (getAccessorySubAddr() & 0x03) << 1;      // Subaddress / Port (PP)
         raw_dcc_cmd.data[raw_dcc_cmd.length] |= (getAccessoryActivate() & 0x01);          // Gate bit (G)
