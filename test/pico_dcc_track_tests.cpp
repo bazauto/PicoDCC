@@ -260,8 +260,8 @@ static void test_current_monitoring_normal(void **state)
     track.powerOn();
     assert_true(track.getPower());
     
-    // Set normal current reading (below 70% threshold)
-    mock_adc_reading = 1000; // Well below 70% of 4096
+    // Set normal current reading (below 90% threshold)
+    mock_adc_reading = 1000; // Well below 90% of 4096
     
     // Call loop - should not trigger short circuit protection
     track.loop();
@@ -286,8 +286,8 @@ static void test_current_monitoring_short_circuit(void **state)
     track.powerOn();
     assert_true(track.getPower());
     
-    // Set high current reading (above 70% threshold)
-    mock_adc_reading = 3000; // Above 70% of 4096 (2867)
+    // Set high current reading (above 90% threshold)
+    mock_adc_reading = 3800; // Above 90% of 4096 (3686)
     
     // Call loop - should trigger short circuit protection
     track.loop();
@@ -444,7 +444,7 @@ static void test_current_monitoring_improvement(void **state)
     track_with_adc.powerOn();
     
     // High current should trigger overcurrent protection
-    mock_adc_reading = 3000;
+    mock_adc_reading = 3800; // Above 90% of 4096 (3686)
     track_with_adc.loop();
     assert_false(track_with_adc.getPower()); // Power should be cut
     assert_true(gpio_states[16]); // Short LED should be on
