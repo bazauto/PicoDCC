@@ -82,7 +82,7 @@ void PicoDccTrack::loop()
         uint reading = adc_read();
         
         // Check for overcurrent condition (short circuit protection)
-        if (reading > (TRACK_POWER_ADC_RANGE / 100 * 70))   // 70% 
+        if (reading > (TRACK_POWER_ADC_RANGE / 100 * 90))   // 90% 
         {
             // If the current is too high then we need to stop the track
             setPower(false);
