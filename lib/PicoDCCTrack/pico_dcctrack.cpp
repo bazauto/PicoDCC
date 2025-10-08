@@ -70,7 +70,7 @@ void PicoDccTrack::loop()
 {
     // Process current reading
     uint reading = adc_read();
-    if (reading > (TRACK_POWER_ADC_RANGE / 100 * 70))   // 70% 
+    if (reading > (TRACK_POWER_ADC_RANGE / 100 * 90))   // 90% 
     {
         // If the current is too high then we need to stop the track
         setPower(false);
@@ -101,11 +101,11 @@ void PicoDccTrack::loop()
     {
         sendCommand(&cmd);
 
-        if (cmd.repeats > 0)
-        {
-            cmd.repeats--;
-            queue_add_blocking(&cmd_queue, &cmd);
-        }
+        // if (cmd.repeats > 0)
+        // {
+        //     cmd.repeats--;
+        //     queue_add_blocking(&cmd_queue, &cmd);
+        // }
     }
 }
 
