@@ -4,9 +4,13 @@
 #include <stdio.h>
 #include <vector>
 #include <list>
+#ifdef TEST_BUILD
+#include "../../test/mocks.h"
+#else
 #include <pico/stdlib.h>
 #include <pico/sem.h>
 #include <pico/util/queue.h>
+#endif
 
 #include "../PicoDCCLoco/pico_dccloco.h"
 #include "../PicoDCCEX/pico_dccexpacket.h"
@@ -22,14 +26,13 @@ private:
     uint16_t last_loco_reminder;
     semaphore_t locos_lock;
 
-    // This holds a pointer to the queue for sending notifications back to DCCEX
-    queue_t *dccex_cmd_queue;
 
 public:
-    PicoDccLocos(queue_t *_dccex_cmd_queue);
+    PicoDccLocos();
+
+    int getLocoCount() { return locos.size(); }
 
     void addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
-    void updateLoco(PicoDccLoco *loco, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
     
     void forgetLoco(uint16_t address);
     void forgetAllLocos();
@@ -37,7 +40,6 @@ public:
     PicoDccLoco *findLoco(uint16_t address);
     
     bool getNextReminder(raw_dcc_cmd_t &cmd);
-    std::list<raw_dcc_cmd_t> getEmergencyStopCommands();
 };
 
 #endif

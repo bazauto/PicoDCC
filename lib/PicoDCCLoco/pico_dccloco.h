@@ -2,10 +2,18 @@
 #define PICO_DCCLOCO_H
 
 #include <stdio.h>
+#ifdef TEST_BUILD
+#include "../../test/mocks.h"
+#else
 #include <pico/stdlib.h>
+#include <pico/sem.h>
+#include <pico/util/queue.h>
+#endif
 
 #include "../PicoDCCEX/pico_dccexpacket.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
+
+#define INVALID_LOCO_ADDR 65535
 
 class PicoDccLoco
 {
@@ -15,15 +23,10 @@ private:
     uint8_t speed;
     bool forward;
 
-    bool support123Speeds = false;  // We don't yet but including the flag for when we do
 
-    // Some cached values to avoid recalculation to send reminders
-    uint8_t speedCode;
-    uint8_t groupFlags;
-    uint32_t functions;
 
     // This is the command that will be sent to the track when needed.  It is initially zero length to avoid it being used.
-    raw_dcc_cmd_t cmd{ true, 0x0, {}};
+    raw_dcc_cmd_t cmd;
 
 public:
     PicoDccLoco(PicoDccExPacket *packet);
@@ -33,7 +36,7 @@ public:
     // Copy constructor
     PicoDccLoco(const PicoDccLoco &other) : address(other.address), speed(other.speed), forward(other.forward), cmd(other.cmd) {}
 
-    // Comparision operator for easy of comparing objects
+    // Comparision operator for ease of comparing objects
     bool operator==(const PicoDccLoco &other) const {
         return address == other.address;
     }
@@ -53,9 +56,13 @@ public:
     void writeCVBytes(int8_t cvNumber, int8_t newByte);
     void writeCVBit(int8_t cvNumber, bool newBit);
 
-    raw_dcc_cmd_t getEmergecyStopCommand();
     raw_dcc_cmd_t getThrottleCommand();
     raw_dcc_cmd_t getFunctionCommand(uint8_t fnGroup);
+
+    bool isValid() const;
+
+private:
+    void generateThrottleCommand();
 };
 
 #endif

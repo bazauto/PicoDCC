@@ -25,6 +25,12 @@
         "stdlib.h": "c",
         "dcc.pio.h": "c",
         "*.tcc": "cpp",
-        "stdexcept": "cpp"
+        "stdexcept": "cpp",
+        "array": "cpp",
+        "string": "cpp",
+        "string_view": "cpp",
+        "ranges": "cpp",
+        "mutex": "cpp",
+        "queue": "cpp"
     },
 }

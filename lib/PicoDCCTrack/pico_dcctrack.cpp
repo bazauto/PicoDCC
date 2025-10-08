@@ -1,10 +1,16 @@
 #include "pico_dcctrack.h"
 
+#ifdef TEST_BUILD
+#include "../../test/mocks.h"
+#include <vector>
+#else
 #include <hardware/gpio.h>
 #include <hardware/adc.h>
 #include <hardware/pio.h>
 
 #include "dcc.pio.h"
+#endif
+
 
 PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings)
 {
@@ -55,34 +61,40 @@ PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings)
     pio_sm_set_enabled((PIO)pio, sm, true);
 }
 
-void PicoDccTrack::setPower(bool power_on)
+void PicoDccTrack::setPower(bool on)
 {
-    gpio_put(power_ctrl_pin, power_on);
+    power_on = on;
+    gpio_put(power_ctrl_pin, on);
 
-    if (power_on && short_led_pin != UNUSED_PIN)
+    if (on && short_led_pin != UNUSED_PIN)
     {
         // If we have a short LED then turn it off
         gpio_put(short_led_pin, 0);
     }
+
 }
 
 void PicoDccTrack::loop()
 {
-    // Process current reading
-    uint reading = adc_read();
-    if (reading > (TRACK_POWER_ADC_RANGE / 100 * 90))   // 90% 
-    {
-        // If the current is too high then we need to stop the track
-        setPower(false);
-
-        if (short_led_pin != UNUSED_PIN)
-        {
-            // If we have a short LED then turn it on
-            gpio_put(short_led_pin, 1);
-        }
-    }
+    // Process current monitoring only if available
     if (canReadCurrent())
     {
+        uint reading = adc_read();
+        
+        // Check for overcurrent condition (short circuit protection)
+        if (reading > (TRACK_POWER_ADC_RANGE / 100 * 90))   // 90% 
+        {
+            // If the current is too high then we need to stop the track
+            setPower(false);
+
+            if (short_led_pin != UNUSED_PIN)
+            {
+                // If we have a short LED then turn it on
+                gpio_put(short_led_pin, 1);
+            }
+        }
+        
+        // Update current averaging
         if (current_cnt++ >= TRACK_POWER_CURRENT_SAMPLES)
         {
             average_current_reading = current_sum / current_cnt;
@@ -96,16 +108,19 @@ void PicoDccTrack::loop()
     }
 
     // Process any incoming messages to be sent to the track
+    // NOTE: Repeat logic is handled on Core 0 (the caller of queueCommand),
+    // not here. This allows urgent commands (e.g., emergency stop) to preempt
+    // repeats and enables interleaving of packets for multiple locos.
     raw_dcc_cmd_t cmd;
     if (queue_try_remove(&cmd_queue, &cmd))
     {
         sendCommand(&cmd);
-
-        // if (cmd.repeats > 0)
-        // {
-        //     cmd.repeats--;
-        //     queue_add_blocking(&cmd_queue, &cmd);
-        // }
+        // No repeat logic here; see above note.
+    }
+    else
+    {
+        // If no command is available, send idle packet
+        sendIdle();
     }
 }
 
@@ -116,6 +131,7 @@ void PicoDccTrack::queueCommand(raw_dcc_cmd_t *cmd)
 
 void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
 {
+    last_command_time = to_ms_since_boot(get_absolute_time());
     if (cmd->cmd_data == 0)
     {
         // build the data and checksum to send to the PIO
@@ -142,6 +158,13 @@ void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
 void PicoDccTrack::sendIdle()
 {
     // This is the Idle packet
-    raw_dcc_cmd_t idle_cmd = {is_prog, 0x03, {0xFF, 0x00, 0xFF}};
+    raw_dcc_cmd_t idle_cmd;
+    idle_cmd.is_prog = is_prog;
+    idle_cmd.length = 3;
+    idle_cmd.data[0] = 0xFF;  // Idle packet starts with 0xFF
+    idle_cmd.data[1] = 0x00;  // No data
+    idle_cmd.data[2] = 0xFF;  // Error detection byte
+    idle_cmd.cmd_data = 0;    // Will be computed in sendCommand
+    idle_cmd.repeats = 0;
     sendCommand(&idle_cmd);
 }
