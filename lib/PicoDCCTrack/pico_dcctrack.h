@@ -36,7 +36,7 @@
 
 typedef unsigned int uint;
 
-typedef struct {
+typedef struct track_settings {
     uint8_t signal_pin = UNUSED_PIN;
     uint8_t ctrl_pin = UNUSED_PIN;
     uint8_t adc_num = UNUSED_PIN;

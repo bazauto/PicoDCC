@@ -309,8 +309,6 @@ int main(int argc, char *argv[])
 {
   printf("Runing Tests\n");
 
-  void *state;
-
   const struct CMUnitTest tests[] = {
       cmocka_unit_test(test_invalid_packet),
       cmocka_unit_test(test_ver_packet),

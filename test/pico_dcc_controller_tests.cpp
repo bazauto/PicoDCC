@@ -155,7 +155,7 @@ static void test_emergency_stop(void **state)
     queued_commands.clear();
 
     // Print number of locos in the collection for debugging
-    printf("Loco count before emergency stop: %d\n", controller.getLocoCount());
+    printf("Loco count before emergency stop: %zd\n", controller.getLocoCount());
     fflush(stdout);
 
     // Send emergency stop command
@@ -166,7 +166,7 @@ static void test_emergency_stop(void **state)
     controller.dccLoop();
 
     // Check that locos collection was cleared after emergency stop
-    printf("Loco count after emergency stop: %d\n", controller.getLocoCount());
+    printf("Loco count after emergency stop: %zd\n", controller.getLocoCount());
     assert_true(controller.getLocoCount() == 0);
 
     // Check that a single emergency stop broadcast packet was sent

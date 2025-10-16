@@ -108,7 +108,7 @@ void PicoDccTrack::loop()
         // Update current averaging
         if (current_cnt++ >= TRACK_POWER_CURRENT_SAMPLES)
         {
-            average_current_reading = current_sum / current_cnt;
+            average_current_reading = (float)current_sum / current_cnt;
             current_cnt = 0;
             current_sum = 0;
         }

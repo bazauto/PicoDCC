@@ -133,8 +133,6 @@ int main(int argc, char *argv[])
 {
   printf("Running Tests\n");
 
-  void *state;
-
   const struct CMUnitTest tests[] = {
       cmocka_unit_test(test_create_from_packet),
       cmocka_unit_test(test_invalid_packet_opcode),

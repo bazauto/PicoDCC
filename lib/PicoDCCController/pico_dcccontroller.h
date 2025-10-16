@@ -60,7 +60,7 @@ public:
     bool isTrackPowerOn(bool isProg) { return isProg ? prog_track->getPower() : main_track->getPower(); }
     PicoDccEx* getDccEx() { return pico_dccex; }
     PicoDccTrack* getTrack(bool isProg) { return isProg ? prog_track : main_track; }
-    int getLocoCount() { return pico_locos->getLocoCount(); }
+    size_t getLocoCount() { return pico_locos->getLocoCount(); }
     PicoDccLocos* getLocos() { return pico_locos; }
 #endif
 };

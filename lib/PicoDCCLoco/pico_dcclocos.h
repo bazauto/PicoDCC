@@ -30,7 +30,7 @@ private:
 public:
     PicoDccLocos();
 
-    int getLocoCount() { return locos.size(); }
+    size_t getLocoCount() { return locos.size(); }
 
     void addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
     

@@ -27,6 +27,11 @@ if(TEST_BUILD)
   find_package(cmocka 1.1.0 REQUIRED)
   include(AddCMockaTest)
 
+  # Suppress MSVC warnings for cross-platform compatibility
+  if(MSVC)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+  endif()
+
   add_subdirectory(./lib)
   add_subdirectory(./test)
 

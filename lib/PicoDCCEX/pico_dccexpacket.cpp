@@ -1,4 +1,5 @@
 #include "pico_dccexpacket.h"
+#include "../pico_diagnostic.h"
 
 PicoDccExPacket::PicoDccExPacket(char *buffer)
 {
@@ -55,14 +56,33 @@ void PicoDccExPacket::decodePacket(char *buffer)
         // <a addr subaddr activate>
         if (sscanf(buffer, "%*c %d %d %d", &packet.addr, &packet.param1, &packet.param2) == 3)
         {
-            break;
+            // Validate accessory address range (1-2044 per DCC standard)
+            if (packet.addr >= 1 && packet.addr <= 2044 && 
+                packet.param1 >= 0 && packet.param1 <= 7 &&
+                (packet.param2 == 0 || packet.param2 == 1))
+            {
+                break;
+            }
+            else
+            {
+                LOG_WARNING(COMPONENT_DCCEX, "Invalid 3-param accessory command");
+            }
         }
 
         // <a linear_addr activate>
         packet.param1 = 0; // Reset to avoid getting value from above
         if (sscanf(buffer, "%*c %d %d", &packet.addr, &packet.param2) == 2)
         {
-            break;
+            // Validate linear accessory address and activation state
+            if (packet.addr >= 1 && packet.addr <= 2044 &&
+                (packet.param2 == 0 || packet.param2 == 1))
+            {
+                break;
+            }
+            else
+            {
+                LOG_WARNING(COMPONENT_DCCEX, "Invalid 2-param accessory command");
+            }
         }
         
         packet.addr = -1; // Invalid accessory
@@ -76,10 +96,23 @@ void PicoDccExPacket::decodePacket(char *buffer)
     // <t cab speed direction> and <F cab funct state>
     case ('t'):
     case ('F'):
-        if (sscanf(buffer, "%*c %d %d %d", &packet.addr, &packet.param1, &packet.param2) != 3)
+        if (sscanf(buffer, "%*c %d %d %d", &packet.addr, &packet.param1, &packet.param2) == 3)
         {
-            packet.addr = -1; // Invalid cab
+            // Validate locomotive address (1-10293 per DCC standard)
+            // Speed: 0-126 for throttle, function number for F command
+            // Direction: 0 or 1 for throttle, function state for F command
+            if (packet.addr >= 1 && packet.addr <= 10293 &&
+                packet.param1 >= 0 && packet.param1 <= 255 && // Allow wider range for functions
+                (packet.param2 == 0 || packet.param2 == 1))
+            {
+                break; // Valid parameters
+            }
+            else
+            {
+                LOG_WARNING(COMPONENT_DCCEX, "Invalid locomotive/function command parameters");
+            }
         }
+        packet.addr = -1; // Invalid cab
         break;
 
     // Emergency Stop
