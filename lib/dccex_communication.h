@@ -10,10 +10,10 @@
 
 #ifdef TEST_BUILD
 #include "../test/mocks.h"
-#define DCCEX_RESPONSE(msg) uart_puts(uart0, msg)
 #else
-#include <pico/stdio.h>
-#define DCCEX_RESPONSE(msg) printf("%s", msg)
+#include <hardware/uart.h>
 #endif
+
+#define DCCEX_RESPONSE(msg) uart_puts(uart0, msg)
 
 #endif // PICO_DCC_DCCEX_COMMUNICATION_H
