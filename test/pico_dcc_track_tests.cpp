@@ -465,6 +465,146 @@ static void test_current_monitoring_improvement(void **state)
     assert_true(track_no_adc.getPower()); // Power should remain on
 }
 
+// Test PIO Health Monitoring - Option 3: Transmission Counters
+static void test_pio_transmission_monitoring(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = UNUSED_PIN;
+    settings.short_pin = UNUSED_PIN;
+
+    PicoDccTrack track(false, settings);
+
+    // Initially should be healthy
+    assert_true(track.isPIOHealthy());
+    assert_int_equal(track.getCommandsQueued(), 0);
+    assert_int_equal(track.getCommandsSent(), 0);
+    
+    // Queue some commands and verify counters
+    raw_dcc_cmd_t cmd = {0};
+    cmd.length = 2;
+    cmd.data[0] = 0x03;
+    cmd.data[1] = 0x60;
+    
+    track.queueCommand(&cmd);
+    assert_int_equal(track.getCommandsQueued(), 1);
+    assert_int_equal(track.getCommandsSent(), 0);
+    
+    // Process commands through loop
+    track.loop();
+    assert_int_equal(track.getCommandsSent(), 1);
+    assert_true(track.isPIOHealthy());
+}
+
+// Test PIO Health - Transmission Stall Detection
+static void test_pio_transmission_stall(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = UNUSED_PIN;
+    settings.short_pin = UNUSED_PIN;
+
+    PicoDccTrack track(false, settings);
+    
+    // Queue commands but simulate PIO not processing them
+    raw_dcc_cmd_t cmd = {0};
+    cmd.length = 2;
+    cmd.data[0] = 0x03;
+    cmd.data[1] = 0x60;
+    
+    track.queueCommand(&cmd);
+    track.queueCommand(&cmd);
+    assert_int_equal(track.getCommandsQueued(), 2);
+    
+    // Advance time to simulate stall (commands queued but not sent for >100ms)
+    mock_time_ms += 150; // 150ms gap
+    
+    // Check health - should detect stall since commands are queued but not processed
+    assert_false(track.isPIOHealthy());
+}
+
+// Test PIO Health - Idle Packet Generation
+static void test_pio_idle_packet_tracking(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = UNUSED_PIN;
+    settings.short_pin = UNUSED_PIN;
+
+    PicoDccTrack track(false, settings);
+    
+    // Process loop with no commands - should generate idle packets
+    track.loop();
+    track.loop();
+    track.loop();
+    
+    assert_int_equal(track.getIdlePacketsSent(), 3);
+    assert_true(track.isPIOHealthy());
+    
+    // Verify idle packets are being tracked for health monitoring
+    assert_int_equal(track.getCommandsQueued(), 0);
+    assert_int_equal(track.getCommandsSent(), 0);
+}
+
+// Test PIO Health - Complete Transmission Failure
+static void test_pio_transmission_failure(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = UNUSED_PIN;
+    settings.short_pin = UNUSED_PIN;
+
+    PicoDccTrack track(false, settings);
+    
+    // Establish baseline activity
+    track.loop(); // Generate idle packet
+    uint32_t initial_idle_count = track.getIdlePacketsSent();
+    
+    // Advance time significantly with no new transmissions (simulate PIO dead)
+    mock_time_ms += 200; // 200ms
+    
+    // Multiple health checks with no transmission progress
+    track.checkPIOHealth(); // First check (50ms)
+    mock_time_ms += 50;
+    track.checkPIOHealth(); // Second check (100ms) 
+    mock_time_ms += 50;
+    track.checkPIOHealth(); // Third check (150ms) - should detect failure
+    mock_time_ms += 50;
+    track.checkPIOHealth(); // Fourth check (200ms) - definitely failed
+    
+    // Should detect complete transmission failure
+    assert_false(track.isPIOHealthy());
+}
+
+// Test PIO Health Status Reporting
+static void test_pio_health_status(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = UNUSED_PIN;
+    settings.short_pin = UNUSED_PIN;
+
+    PicoDccTrack track(false, settings);
+    
+    // Initially healthy
+    assert_true(track.getPIOHealthStatus());
+    
+    // Process normal operation
+    track.loop(); // Generate idle
+    track.loop(); // Generate idle
+    assert_true(track.getPIOHealthStatus());
+    
+    // Verify health counters are accessible
+    assert_int_equal(track.getCommandsQueued(), 0);
+    assert_int_equal(track.getCommandsSent(), 0);
+    assert_int_equal(track.getIdlePacketsSent(), 2);
+}
+
 int main(void)
 {
     const struct CMUnitTest tests[] = {
@@ -484,6 +624,11 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_command_data_building, setup, teardown),
         cmocka_unit_test_setup_teardown(test_current_averaging, setup, teardown),
         cmocka_unit_test_setup_teardown(test_current_monitoring_improvement, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_pio_transmission_monitoring, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_pio_transmission_stall, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_pio_idle_packet_tracking, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_pio_transmission_failure, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_pio_health_status, setup, teardown),
     };
 
     printf("Running Track Tests\n");

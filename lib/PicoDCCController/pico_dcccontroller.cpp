@@ -183,14 +183,30 @@ void PicoDccController::dccLoop()
     {
         uint32_t main_gap = current_time - main_track->getLastCommandTime();
         
-        // If we have a dangerous gap in commands (> 100ms)
-        if (main_gap >= 100)
+        // Check PIO health on both tracks
+        bool main_pio_healthy = main_track->isPIOHealthy();
+        bool prog_pio_healthy = prog_track->isPIOHealthy();
+        
+        // If we have a dangerous gap in commands (> 100ms) OR PIO failure
+        if (main_gap >= 100 || !main_pio_healthy || !prog_pio_healthy)
         {
             // Emergency safety measures
             main_track->setPower(false); // Cut power to main track
             prog_track->setPower(false); // Cut power to prog track
             gpio_put(timing_error_led_pin, 1); // Turn on error LED
-            LOG_CRITICAL(COMPONENT_TRACK, "DCC timing violation detected");
+            
+            if (main_gap >= 100)
+            {
+                LOG_CRITICAL(COMPONENT_CONTROLLER, "DCC timing violation detected");
+            }
+            if (!main_pio_healthy)
+            {
+                LOG_CRITICAL(COMPONENT_CONTROLLER, "Main track PIO failure - emergency cutoff");
+            }
+            if (!prog_pio_healthy)
+            {
+                LOG_CRITICAL(COMPONENT_CONTROLLER, "Programming track PIO failure - emergency cutoff");
+            }
         }
         else
         {

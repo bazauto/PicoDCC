@@ -8,6 +8,7 @@
 #include <hardware/gpio.h>
 #include <hardware/adc.h>
 #include <hardware/pio.h>
+#include <pico/time.h>
 
 #include "dcc.pio.h"
 #endif
@@ -55,11 +56,16 @@ PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings)
         pio = pio1;
 
     uint offset = pio_add_program((PIO)pio, &dcc_program);
-    uint sm = pio_claim_unused_sm((PIO)pio, true);
-    assert(sm != -1); // This should never happen
+    pio_sm = pio_claim_unused_sm((PIO)pio, true);
+    assert(pio_sm != -1); // This should never happen
 
-    dcc_program_init((PIO)pio, sm, offset, signal_pin, (is_prog ? DCC_PROG_PREAMBLE : DCC_MAIN_PREAMBLE));
-    pio_sm_set_enabled((PIO)pio, sm, true);
+    dcc_program_init((PIO)pio, pio_sm, offset, signal_pin, (is_prog ? DCC_PROG_PREAMBLE : DCC_MAIN_PREAMBLE));
+    pio_sm_set_enabled((PIO)pio, pio_sm, true);
+    
+    // Initialize PIO health monitoring
+    pio_health.last_activity_time = to_ms_since_boot(get_absolute_time());
+    pio_health.last_pio_check_time = pio_health.last_activity_time;
+    pio_health.last_interrupt_time = pio_health.last_activity_time;
 }
 
 void PicoDccTrack::setPower(bool on)
@@ -77,6 +83,9 @@ void PicoDccTrack::setPower(bool on)
 
 void PicoDccTrack::loop()
 {
+    // Check PIO health before processing commands
+    checkPIOHealth();
+    
     // Process current monitoring only if available
     if (canReadCurrent())
     {
@@ -117,18 +126,23 @@ void PicoDccTrack::loop()
     if (queue_try_remove(&cmd_queue, &cmd))
     {
         sendCommand(&cmd);
+        pio_health.commands_sent++;
+        pio_health.last_activity_time = to_ms_since_boot(get_absolute_time());
         // No repeat logic here; see above note.
     }
     else
     {
         // If no command is available, send idle packet
         sendIdle();
+        pio_health.idle_packets_sent++;
+        pio_health.last_activity_time = to_ms_since_boot(get_absolute_time());
     }
 }
 
 void PicoDccTrack::queueCommand(raw_dcc_cmd_t *cmd)
 {
     queue_add_blocking(&cmd_queue, cmd);
+    pio_health.commands_queued++;
 }
 
 void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
@@ -150,11 +164,15 @@ void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
         cmd->cmd_data |= ((uint64_t)cmd_xor << (((DCC_MAX_DATA_BYTES - 1) - cmd->length) * 8));
     }
 
+    // Send command to PIO and track successful transmission
     pio_sm_put_blocking((PIO)pio, 0, (cmd->cmd_data >> 32) & 0xFFFFFFFF);
     if (cmd->length > 1)
     {
         pio_sm_put_blocking((PIO)pio, 0, cmd->cmd_data & 0xFFFFFFFF);
     }
+    
+    // Option 4: Track PIO transmission activity (simulated interrupt)
+    pio_health.last_interrupt_time = to_ms_since_boot(get_absolute_time());
 }
 
 void PicoDccTrack::sendIdle()
@@ -169,4 +187,76 @@ void PicoDccTrack::sendIdle()
     idle_cmd.cmd_data = 0;    // Will be computed in sendCommand
     idle_cmd.repeats = 0;
     sendCommand(&idle_cmd);
+}
+
+// PIO Health Monitoring Implementation (Options 1, 3, 4)
+void PicoDccTrack::checkPIOHealth()
+{
+    uint32_t now = to_ms_since_boot(get_absolute_time());
+    bool was_healthy = pio_health.is_healthy;
+    pio_health.is_healthy = true;  // Assume healthy until proven otherwise
+    
+    // Option 3: Check transmission activity (every 50ms check)
+    if (now - pio_health.last_pio_check_time >= 50)
+    {
+        // Check for transmission stalls
+        if (pio_health.commands_queued > pio_health.commands_sent)
+        {
+            // Commands are queued but not being sent
+            if (now - pio_health.last_activity_time > 100) // 100ms timeout
+            {
+                pio_health.is_healthy = false;
+                LOG_CRITICAL(COMPONENT_TRACK, "PIO transmission stall detected");
+            }
+        }
+        
+        // Option 1: Alternative PIO health check using transmission rate
+        // Monitor that we're successfully transmitting commands/idle packets
+        uint32_t total_transmissions = pio_health.commands_sent + pio_health.idle_packets_sent;
+        static uint32_t last_transmission_count = 0;
+        
+        if (total_transmissions == last_transmission_count)
+        {
+            // No transmissions in the last check period
+            pio_health.pio_stall_count++;
+            if (pio_health.pio_stall_count > 3) // No activity for 150ms (3 * 50ms)
+            {
+                pio_health.is_healthy = false;
+                LOG_CRITICAL(COMPONENT_TRACK, "PIO transmission completely stopped");
+            }
+        }
+        else
+        {
+            pio_health.pio_stall_count = 0;
+            last_transmission_count = total_transmissions;
+        }
+        
+        // Option 4: Check interrupt activity (if enabled)
+        if (pio_health.interrupt_enabled)
+        {
+            if (now - pio_health.last_interrupt_time > 200) // 200ms timeout for interrupts
+            {
+                pio_health.is_healthy = false;
+                LOG_CRITICAL(COMPONENT_TRACK, "PIO interrupt activity timeout");
+            }
+        }
+        
+        pio_health.last_pio_check_time = now;
+    }
+    
+    // Track failure events
+    if (!pio_health.is_healthy)
+    {
+        pio_health.failure_count++;
+        if (was_healthy) // First failure detection
+        {
+            LOG_CRITICAL(COMPONENT_TRACK, "PIO health failure detected");
+        }
+    }
+}
+
+bool PicoDccTrack::isPIOHealthy()
+{
+    checkPIOHealth();
+    return pio_health.is_healthy;
 }

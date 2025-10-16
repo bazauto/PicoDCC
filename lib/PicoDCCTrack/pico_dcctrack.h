@@ -50,6 +50,7 @@ private:
     queue_t cmd_queue;
 
     void *pio;
+    uint pio_sm;  // State machine number for PIO monitoring
 
     uint8_t signal_pin = UNUSED_PIN;
     uint8_t power_ctrl_pin = UNUSED_PIN;
@@ -61,6 +62,28 @@ private:
     uint current_sum = 0;
     uint current_cnt = 0;
     bool power_on = false;
+
+    // PIO Health Monitoring (Options 1, 3, 4)
+    struct {
+        // Option 3: Transmission Counter Monitoring
+        uint32_t commands_queued = 0;
+        uint32_t commands_sent = 0;
+        uint32_t idle_packets_sent = 0;
+        uint32_t last_activity_time = 0;
+        
+        // Option 1: State Machine Status Monitoring  
+        uint32_t last_pio_pc = 0;
+        uint32_t pio_stall_count = 0;
+        uint32_t last_pio_check_time = 0;
+        
+        // Option 4: Interrupt Activity Detection
+        volatile uint32_t last_interrupt_time = 0;
+        bool interrupt_enabled = false;
+        
+        // Health status
+        bool is_healthy = true;
+        uint32_t failure_count = 0;
+    } pio_health;
 
 public:
     PicoDccTrack(bool is_prog, track_settings_t settings);
@@ -91,6 +114,14 @@ public:
     uint32_t getLastCommandTime() { return last_command_time; }
     uint32_t getMaxCommandGap() { return max_command_gap; }
     void resetMaxCommandGap() { max_command_gap = 0; }
+    
+    // PIO Health Monitoring
+    bool isPIOHealthy();
+    void checkPIOHealth();
+    uint32_t getCommandsQueued() { return pio_health.commands_queued; }
+    uint32_t getCommandsSent() { return pio_health.commands_sent; }
+    uint32_t getIdlePacketsSent() { return pio_health.idle_packets_sent; }
+    bool getPIOHealthStatus() { return pio_health.is_healthy; }
 
 private:
     uint32_t last_command_time = 0;   // Time of last command sent
