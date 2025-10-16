@@ -6,8 +6,11 @@ set(TEST_BUILD OFF CACHE BOOL "Build for testing")
 
 if(TEST_BUILD)
 
-  enable_language(C)
-  enable_language(CXX)
+  project(PicoDCCTest
+    VERSION 1.0
+    DESCRIPTION "RP2040 Raspberry Pico DCC Command Station - Tests"
+    LANGUAGES C CXX
+  )
 
   include_directories(
     ${CMAKE_SOURCE_DIR}/test/mocks
@@ -16,12 +19,6 @@ if(TEST_BUILD)
   )
 
   list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmocka)
-
-  project(PicoDCCTest
-    VERSION 1.0
-    DESCRIPTION "RP2040 Raspberry Pico DCC Command Station - Tests"
-    LANGUAGES C CXX
-  )
 
   # Ensure cmocka is installed and linked for the test build
   find_package(cmocka 1.1.0 REQUIRED)
@@ -52,6 +49,11 @@ else()
   )
 
   pico_sdk_init()
+
+  # Suppress GCC ABI compatibility warnings for cleaner output
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    add_compile_options(-Wno-psabi)
+  endif()
 
   add_subdirectory(./lib)
   add_subdirectory(./src)
