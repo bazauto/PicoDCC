@@ -39,6 +39,11 @@ private:
     // Main command queue for repeat/interleaving logic (Core 0)
     std::queue<raw_dcc_cmd_t> main_cmd_queue;
 
+    // Core health monitoring for safety
+    volatile uint32_t core1_heartbeat;
+    uint32_t last_core1_check;
+    uint32_t last_core1_heartbeat_value;
+
 
 
 public:
@@ -46,6 +51,9 @@ public:
 
     void dccLoop();
     void dccexLoop();
+    
+    // Safety functions
+    void emergencyPowerCutoff();
 
 #ifdef TEST_BUILD
     // Test accessors

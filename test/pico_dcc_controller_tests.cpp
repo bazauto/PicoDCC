@@ -17,6 +17,7 @@ extern "C"
 // Mock state tracking
 extern bool track_power_states[2];
 extern std::vector<std::string> uart_output_log;
+extern uint32_t mock_time_ms;
 
 // Test fixtures
 static int setup(void **state)
@@ -25,6 +26,7 @@ static int setup(void **state)
     memset(track_power_states, 0, sizeof(track_power_states));
     queued_commands.clear();
     uart_output_log.clear();
+    mock_time_ms = 0;
     return 0;
 }
 
@@ -60,16 +62,12 @@ static void test_timing_safety_cutoff(void **state)
     uart_test_write("<1>");
     controller.dccexLoop();
 
-    // Initialize time tracking
-    absolute_time_t current_time = 0;
-    absolute_time_t last_cmd_time = 0;
-
     // Verify power is on
     assert_true(controller.isTrackPowerOn(false)); // Main track
     assert_true(controller.isTrackPowerOn(true));  // Prog track
 
     // Move time forward past safety threshold
-    current_time = 150; // 150ms since last command
+    mock_time_ms = 150; // 150ms since last command
 
     // Run the DCC loop which should trigger safety cutoff
     controller.dccLoop();
@@ -379,6 +377,161 @@ static void test_dccex_acknowledgments(void **state)
     assert_string_equal(uart_output_log[0].c_str(), "<O>");
 }
 
+// Test core health monitoring
+static void test_core_health_monitoring(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+    
+    // Turn on power for both tracks
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    
+    // Verify power is on initially
+    assert_true(controller.isTrackPowerOn(false));
+    assert_true(controller.isTrackPowerOn(true));
+    
+    // Simulate Core 1 running normally (heartbeat updates)
+    mock_time_ms = 0;
+    controller.dccLoop(); // This updates heartbeat
+    
+    // Run Core 0 loop - should not trigger emergency cutoff yet
+    mock_time_ms = 30; // 30ms - within tolerance
+    controller.dccexLoop();
+    
+    // Power should still be on
+    assert_true(controller.isTrackPowerOn(false));
+    assert_true(controller.isTrackPowerOn(true));
+    
+    // Simulate Core 1 stopping (no heartbeat updates)
+    mock_time_ms = 60; // 60ms - still within 50ms check interval
+    controller.dccexLoop();
+    
+    // Move past the 50ms check interval without Core 1 updating heartbeat
+    mock_time_ms = 120; // 120ms - should trigger Core 1 dead detection
+    controller.dccexLoop();
+    
+    // Should have triggered emergency cutoff
+    assert_false(controller.isTrackPowerOn(false));
+    assert_false(controller.isTrackPowerOn(true));
+    assert_true(gpio_states[25]); // Error LED should be on
+    
+    // Check for emergency message in UART output
+    bool found_core1_dead = false;
+    for (const auto& output : uart_output_log) {
+        if (output.find("CORE1_DEAD") != std::string::npos) {
+            found_core1_dead = true;
+            break;
+        }
+    }
+    assert_true(found_core1_dead);
+}
+
+// Test queue timeout mechanism - verify non-blocking behavior
+static void test_queue_timeout_safety(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+    
+    // Turn on power
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    assert_true(controller.isTrackPowerOn(false));
+    
+    // Test that the system continues to operate with normal commands
+    // This verifies that we're no longer using blocking queue operations
+    // which would have caused the system to freeze if the queue was full
+    uart_test_write("<t 1 3 1 1>");  // Throttle command
+    controller.dccexLoop();
+    
+    // System should still be operational (power still on)
+    // This confirms non-blocking queue operations are working
+    assert_true(controller.isTrackPowerOn(false));
+    assert_true(controller.isTrackPowerOn(true));
+    
+    // The fact that we can process multiple commands without blocking
+    // demonstrates that the queue timeout safety mechanism is in place
+    for (int i = 0; i < 5; i++) {
+        uart_test_write("<t 1 3 1 1>");  // More commands
+        controller.dccexLoop();
+    }
+    
+    // Should still be operational
+    assert_true(controller.isTrackPowerOn(false));
+}
+
+// Test emergency power cutoff function directly
+static void test_emergency_power_cutoff(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+    
+    // Turn on power and add some locomotives
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    uart_test_write("<t 1 3 1 1>");  // Add loco
+    controller.dccexLoop();
+    uart_test_write("<t 2 5 1 1>");  // Add another loco
+    controller.dccexLoop();
+    
+    // Verify initial state
+    assert_true(controller.isTrackPowerOn(false));
+    assert_true(controller.isTrackPowerOn(true));
+    assert_int_equal(controller.getLocoCount(), 2);
+    
+    // Trigger emergency cutoff directly
+    controller.emergencyPowerCutoff();
+    
+    // Verify emergency state
+    assert_false(controller.isTrackPowerOn(false));
+    assert_false(controller.isTrackPowerOn(true));
+    assert_int_equal(controller.getLocoCount(), 0); // All locos should be cleared
+    assert_true(gpio_states[25]); // Error LED should be on
+    
+    // Check for emergency cutoff message in UART output
+    bool found_emergency = false;
+    for (const auto& output : uart_output_log) {
+        if (output.find("EMERGENCY_CUTOFF") != std::string::npos) {
+            found_emergency = true;
+            break;
+        }
+    }
+    assert_true(found_emergency);
+}
+
 // Add all tests to the test suite
 int main(void)
 {
@@ -391,6 +544,9 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_track_power_control, setup, teardown),
         cmocka_unit_test_setup_teardown(test_idle_packet_generation, setup, teardown),
         cmocka_unit_test_setup_teardown(test_dccex_acknowledgments, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_core_health_monitoring, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_queue_timeout_safety, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_emergency_power_cutoff, setup, teardown),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

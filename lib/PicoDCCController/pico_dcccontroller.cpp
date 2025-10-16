@@ -37,11 +37,32 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
 
     // Setup our loco store
     pico_locos = new PicoDccLocos();
+    
+    // Initialize core health monitoring
+    core1_heartbeat = 0;
+    last_core1_check = 0;
+    last_core1_heartbeat_value = 0;
 }
 
 // This is the Core 0 loop
 void PicoDccController::dccexLoop()
 {
+    // Core 1 health monitoring - check every 50ms
+    uint32_t current_time = to_ms_since_boot(get_absolute_time());
+    if (current_time - last_core1_check >= 50) {
+        if (core1_heartbeat == last_core1_heartbeat_value) {
+            // Core 1 appears dead - emergency cutoff
+            emergencyPowerCutoff();
+#ifdef TEST_BUILD
+            uart_puts(uart0, "<E CORE1_DEAD>");
+#else
+            printf("<E CORE1_DEAD>");
+#endif
+        }
+        last_core1_heartbeat_value = core1_heartbeat;
+        last_core1_check = current_time;
+    }
+    
     pico_dccex_packet packetData;
     bool hasCommand = pico_dccex->processCommand(&packetData);
 
@@ -158,8 +179,17 @@ void PicoDccController::dccexLoop()
     if (!main_cmd_queue.empty()) {
         raw_dcc_cmd_t cmd = main_cmd_queue.front();
         main_cmd_queue.pop();
-        queue_add_blocking(&track_cmd_queue, &cmd);
-        if (cmd.repeats > 0) {
+        
+        // Use non-blocking queue add to prevent freezing if Core 1 is dead
+        if (!queue_try_add(&track_cmd_queue, &cmd)) {
+            // Queue is full - Core 1 may be dead or too slow
+            emergencyPowerCutoff();
+#ifdef TEST_BUILD
+            uart_puts(uart0, "<E QUEUE_FULL>");
+#else
+            printf("<E QUEUE_FULL>");
+#endif
+        } else if (cmd.repeats > 0) {
             cmd.repeats--;
             main_cmd_queue.push(cmd);
         }
@@ -170,7 +200,11 @@ void PicoDccController::dccexLoop()
 void PicoDccController::dccLoop()
 {
     static uint32_t last_command_check = 0;
+    static uint32_t heartbeat_counter = 0;
     uint32_t current_time = to_ms_since_boot(get_absolute_time());
+    
+    // Update Core 1 heartbeat for health monitoring
+    core1_heartbeat = ++heartbeat_counter;
     
     // Check command timing if it's been more than 10ms
     if (current_time - last_command_check >= 10)
@@ -196,5 +230,36 @@ void PicoDccController::dccLoop()
     // Command dequeue/send is now handled in main_track->loop().
     main_track->loop();
     prog_track->loop();
+}
+
+void PicoDccController::emergencyPowerCutoff()
+{
+    // Immediately cut power to both tracks
+    main_track->setPower(false);
+    prog_track->setPower(false);
+    
+    // Clear all queues to prevent further command processing
+    while (!main_cmd_queue.empty()) {
+        main_cmd_queue.pop();
+    }
+    
+    // Clear the hardware queue
+    raw_dcc_cmd_t dummy;
+    while (queue_try_remove(&track_cmd_queue, &dummy)) {
+        // Remove all queued commands
+    }
+    
+    // Clear all locos to prevent reminders
+    pico_locos->forgetAllLocos();
+    
+    // Turn on error LED to indicate emergency state
+    gpio_put(timing_error_led_pin, 1);
+    
+    // Log emergency event
+#ifdef TEST_BUILD
+    uart_puts(uart0, "<E EMERGENCY_CUTOFF>");
+#else
+    printf("<E EMERGENCY_CUTOFF>");
+#endif
 }
 
