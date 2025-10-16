@@ -91,43 +91,6 @@ The project includes a comprehensive PowerShell script (`scripts/Validate-DualMo
    - Hardware build validation results
    - Overall compatibility assessment
 
-#### Expected Output:
-```
-=== PicoDCC Dual-Mode Build Validation ===
-Project Root: E:\Development\PicoDCC
-Build Directory: E:\Development\PicoDCC\build
-
---- Switching to TEST Mode ---
-Cleared CMake cache
-Configuring CMake for TEST mode...
-Building in TEST mode...
-[OK] Found pico_dcc_controller_tests.exe (245760 bytes, modified 10/8/2025 2:30:45 PM)
-[OK] Found pico_dcc_dccex_tests.exe (192512 bytes, modified 10/8/2025 2:30:44 PM)
-...
-
---- Running Test Suites ---
-Running pico_dcc_controller_tests.exe...
-[==========] Running 6 test(s).
-[  PASSED  ] 6 test(s).
-...
-
---- Switching to HARDWARE Mode ---
-...
-
-=== Validation Summary ===
-Test Mode Build: [PASSED]
-Test Suite: [PASSED]
-Hardware Mode: [PASSED]
-
-Overall Result: [ALL TESTS PASSED]
-```
-
-#### Troubleshooting:
-- **Packet Tests Failure**: Known issue with `inline` keyword macro in MSVC compiler
-- **Hardware Mode Issues**: Requires proper ARM GCC toolchain and `PICO_SDK_PATH` environment variable
-- **Build Failures**: Script automatically clears CMake cache between mode switches to prevent configuration conflicts
-- **PowerShell Compatibility**: Script handles PowerShell-specific syntax limitations (avoids `&&` operators)
-
 #### When to Use:
 - Before committing major changes to ensure cross-mode compatibility
 - After modifying shared headers or core components
@@ -168,37 +131,17 @@ This script directly addresses the need to ensure that changes in one build mode
   - **ALWAYS** use the diagnostic logging system (`LOG_*` macros) for all internal diagnostics.
   - **ONLY** use `DCCEX_RESPONSE()` for genuine DCC-EX protocol responses to client commands.
 
-- **Diagnostic Infrastructure** (`lib/pico_diagnostic.h`):
-  - **LOG_CRITICAL()**: System failures, safety violations (overcurrent, timing errors)
-  - **LOG_ERROR()**: Component errors, failed operations
-  - **LOG_WARNING()**: Non-critical issues, unusual conditions  
-  - **LOG_INFO()**: Status information, operational messages
-  - All macros include component identification and severity classification.
-
-- **Current Implementation**:
-  - Silent operation mode - no output to avoid UART pollution
-  - Complete infrastructure ready for future LCD display integration
-  - Component-based categorization (CONTROLLER, TRACK, DCCEX, LOCO, etc.)
-  - Severity-based filtering support for different display modes
-
-- **Critical Error Conditions Logged**:
-  - Core heartbeat failures (`LOG_CRITICAL` in controller)
-  - Queue overflow conditions (`LOG_CRITICAL` in controller)  
-  - Overcurrent protection activation (`LOG_CRITICAL` in track, >90% threshold)
-  - Timing violations (`LOG_CRITICAL` in controller)
-  - Power cutoff events (`LOG_CRITICAL` in track)
+- **Usage** (`lib/pico_diagnostic.h`):
+  - `LOG_CRITICAL()`: System failures, safety violations  
+  - `LOG_ERROR()`: Component errors, failed operations
+  - `LOG_WARNING()`: Non-critical issues  
+  - `LOG_INFO()`: Status information
+  - Include `#include "pico_diagnostic.h"` in components that need logging
+  - Current implementation is silent to avoid UART pollution, ready for future LCD integration
 
 - **Protocol Compliance**:
-  - DCC-EX responses use standardized `DCCEX_RESPONSE()` macro exclusively
   - No conditional compilation (`#ifdef TEST_BUILD`) in diagnostic messages
   - Clean separation between protocol communication and internal diagnostics
-  - Future LCD integration path preserves UART protocol integrity
-
-- **Usage Guidelines**:
-  - Always include `#include "pico_diagnostic.h"` in components that need logging
-  - Use appropriate severity level for the condition being logged
-  - Include relevant context (values, states) in log messages
-  - Test both build modes to ensure diagnostic calls don't break compilation
 
 ## Test Investigation Best Practices
 - **Always compile and run the tests when investigating test issues.**
@@ -213,8 +156,7 @@ This script directly addresses the need to ensure that changes in one build mode
   - When debugging queue issues, check the "sent" packets rather than the current queue state.
   - Use debug output to trace packet flow between Core 0 (main queue) and Core 1 (hardware queue).
 - **Test Coverage Status**:
-  - **Complete coverage**: PicoDCCEX (3 tests), PicoDccExPacket (14 tests), PicoDccLoco (11 tests), PicoDccLocos (7 tests), PicoDccController (6 tests), PicoDccTrack (16 tests)
-  - **Total test count**: 57 tests across all components
+  - **60 total tests**: Controller (9), DCCEX (3), Locos (7), Loco (11), Packet (14), Track (16)
   - **Mock infrastructure**: Comprehensive hardware abstraction for GPIO, ADC, PIO, UART, and timing functions
 
 ## DCC Protocol Implementation
@@ -256,6 +198,13 @@ This script directly addresses the need to ensure that changes in one build mode
   - Always update tests when changing component behavior.
   - Use mock implementations to test hardware-dependent functionality.
   - Verify that tests pass after architectural changes.
+- **Documentation Maintenance**:
+  - **ALWAYS** update relevant documentation when making code changes or architectural modifications.
+  - **Architecture Document** (`docs/architecture.md`): Update when changing component responsibilities, adding new systems, or modifying core architecture.
+  - **Instructions File** (`.github/copilot-instructions.md`): Update when establishing new patterns, adding development guidelines, or changing build/test workflows.
+  - **Test Counts**: Update architecture document test counts when adding or removing test cases.
+  - **Future vs. Current Features**: Move implemented features from "Future Enhancements" to current architecture sections.
+  - **Examples Section**: Add new examples when implementing significant architectural changes or establishing new patterns.
 
 ## Examples
 - **Adding a New Test**:
@@ -277,12 +226,6 @@ This script directly addresses the need to ensure that changes in one build mode
   - Current monitoring was improved to only perform overcurrent protection when ADC is actually configured.
   - The change involved wrapping current monitoring logic in `canReadCurrent()` check in `PicoDCCTrack::loop()`.
   - Tests were added to verify that tracks without ADC configuration skip current monitoring entirely.
-
-- **DCC-EX Acknowledgment Restoration**:
-  - DCC-EX protocol acknowledgments were restored for all command types during refactoring.
-  - Power commands send `<p0>` or `<p1>` responses, throttle/function commands send `<l cab 0 speed 0>` status.
-  - Emergency stop and accessory commands send `<O>` acknowledgments.
-  - UART output tracking was added to test infrastructure for acknowledgment validation.
 
 - **DCC-EX Acknowledgment Restoration**:
   - DCC-EX protocol acknowledgments were restored for all command types during refactoring.

@@ -143,6 +143,14 @@ graph TD
 - **Current Averaging**: Running average over configurable sample count
 - **Visual Feedback**: Short circuit LED indication when available
 
+## Error Handling & Diagnostics
+
+### Safety Monitoring
+- **Critical Conditions**: Core synchronization failures, queue overflows, overcurrent protection, timing violations
+- **Diagnostic System**: Silent logging infrastructure with severity levels (CRITICAL/ERROR/WARNING/INFO)
+- **Protocol Compliance**: Strict separation between DCC-EX protocol responses and internal error reporting
+- **Future Integration**: Complete diagnostic framework ready for LCD display implementation
+
 ## Synchronization & Threading
 
 ### Inter-Core Communication
@@ -158,7 +166,7 @@ graph TD
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **56 total tests** across all components
+- **60 total tests** across all components
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation
@@ -203,9 +211,8 @@ typedef struct {
 ## Development & Debugging
 
 ### Build System
-- **CMake-based**: Cross-platform build configuration
-- **Pico SDK Integration**: Hardware abstraction and PIO support
-- **Test Integration**: Automatic test executable generation
+- **Dual-Mode Architecture**: CMake supports both test (MSVC/mocks) and hardware (ARM GCC/Pico SDK) builds
+- **Validation**: `.\scripts\Validate-DualMode.ps1` ensures cross-mode compatibility
 
 ### Debugging Strategies
 - **Hardware Queue**: Check sent packets, not current queue state
@@ -225,10 +232,9 @@ typedef struct {
 - **CV Programming**: Service mode operations for decoder configuration
 - **Advanced Addressing**: Extended address support beyond current implementation
 - **Function Groups**: Support for F13-F28 function ranges
-- **Diagnostic Features**: Enhanced current monitoring and track diagnostics
 
 ### Architecture Evolution
 - **Modular Tracks**: Support for multiple main tracks
 - **Wireless Integration**: Bluetooth or Wi-Fi command interfaces
 - **Web Interface**: Browser-based control and monitoring
-- **Logging System**: Command history and performance metrics
+- **Enhanced Logging**: Command history and performance metrics expansion
