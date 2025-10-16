@@ -2,12 +2,8 @@
 #include <queue>
 #include "../PicoDCCTrack/pico_dcctrack.h"
 #include "pico_dcccontroller.h"
-
-#ifdef TEST_BUILD
-#include "../../test/mocks.h"
-#else
-#include <pico/stdio.h>
-#endif
+#include "../dccex_communication.h"
+#include "../pico_diagnostic.h"
 
 PicoDccController::PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s, uint8_t timing_led_pin)
 {
@@ -53,11 +49,7 @@ void PicoDccController::dccexLoop()
         if (core1_heartbeat == last_core1_heartbeat_value) {
             // Core 1 appears dead - emergency cutoff
             emergencyPowerCutoff();
-#ifdef TEST_BUILD
-            uart_puts(uart0, "<E CORE1_DEAD>");
-#else
-            printf("<E CORE1_DEAD>");
-#endif
+            LOG_CRITICAL(COMPONENT_CORE, "Core 1 heartbeat failure detected");
         }
         last_core1_heartbeat_value = core1_heartbeat;
         last_core1_check = current_time;
@@ -82,11 +74,7 @@ void PicoDccController::dccexLoop()
                     main_track->setPower(packet.getPowerOn());
                 
                 // Send power status acknowledgment
-#ifdef TEST_BUILD
-                uart_puts(uart0, packet.getDccExPowerUpdate());
-#else
-                printf("%s", packet.getDccExPowerUpdate());
-#endif
+                DCCEX_RESPONSE(packet.getDccExPowerUpdate());
             }
 
             if (packet.isEmergencyStopCommand())
@@ -112,15 +100,12 @@ void PicoDccController::dccexLoop()
                 // Send the emergency stop command immediately
                 main_cmd_queue.push(cmd);
                 
+                // Send locomotive status responses for each loco (DCC-EX spec requirement)
+                // Must be done BEFORE clearing the locomotive collection
+                pico_locos->sendEmergencyStopResponses();
+                
                 // Clear all locos to prevent further reminders
                 pico_locos->forgetAllLocos();
-                
-                // Send emergency stop acknowledgment
-#ifdef TEST_BUILD
-                uart_puts(uart0, "<O>");
-#else
-                printf("<O>");
-#endif
             }
 
             if (packet.isThrottleCommand() || packet.isFunctionCommand())
@@ -142,12 +127,7 @@ void PicoDccController::dccexLoop()
                 }
                 
                 // Send locomotive status acknowledgment
-                // Send throttle/function status acknowledgment
-#ifdef TEST_BUILD
-                uart_puts(uart0, packet.getDccExCabUpdate());
-#else
-                printf("%s", packet.getDccExCabUpdate());
-#endif
+                DCCEX_RESPONSE(packet.getDccExCabUpdate());
             }
 
             if (packet.isAccesoryCommand())
@@ -156,11 +136,7 @@ void PicoDccController::dccexLoop()
                 main_cmd_queue.push(cmd);
                 
                 // Send accessory acknowledgment
-#ifdef TEST_BUILD
-                uart_puts(uart0, "<O>");
-#else
-                printf("<O>");
-#endif
+                DCCEX_RESPONSE("<O>");
             }
 
         }
@@ -184,11 +160,7 @@ void PicoDccController::dccexLoop()
         if (!queue_try_add(&track_cmd_queue, &cmd)) {
             // Queue is full - Core 1 may be dead or too slow
             emergencyPowerCutoff();
-#ifdef TEST_BUILD
-            uart_puts(uart0, "<E QUEUE_FULL>");
-#else
-            printf("<E QUEUE_FULL>");
-#endif
+            LOG_CRITICAL(COMPONENT_QUEUE, "Hardware command queue overflow");
         } else if (cmd.repeats > 0) {
             cmd.repeats--;
             main_cmd_queue.push(cmd);
@@ -218,6 +190,7 @@ void PicoDccController::dccLoop()
             main_track->setPower(false); // Cut power to main track
             prog_track->setPower(false); // Cut power to prog track
             gpio_put(timing_error_led_pin, 1); // Turn on error LED
+            LOG_CRITICAL(COMPONENT_TRACK, "DCC timing violation detected");
         }
         else
         {
@@ -256,10 +229,6 @@ void PicoDccController::emergencyPowerCutoff()
     gpio_put(timing_error_led_pin, 1);
     
     // Log emergency event
-#ifdef TEST_BUILD
-    uart_puts(uart0, "<E EMERGENCY_CUTOFF>");
-#else
-    printf("<E EMERGENCY_CUTOFF>");
-#endif
+    LOG_CRITICAL(COMPONENT_POWER, "Emergency power cutoff activated");
 }
 

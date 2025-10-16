@@ -7,13 +7,14 @@
 #include <string>
 #include <functional>
 #include "pico_dccex.h"
+#include "../dccex_communication.h"
 
 PicoDccEx::PicoDccEx(int maxCab)
 {
     maxSupportedCabs = maxCab;
 
     setup_default_uart();
-    uart_puts(uart0, "<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>\n");
+    DCCEX_RESPONSE("<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>\n");
     processState = DCCEX_IDLE;
 }
 
@@ -66,7 +67,7 @@ bool PicoDccEx::processCommand(pico_dccex_packet* packet)
                         // Process packet immediately
                         if (currentPacket->isVersionCommand())
                         {
-                            uart_puts(uart0, "<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>\n");
+                            DCCEX_RESPONSE("<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>\n");
                             reset();
                             return false;
                         }
@@ -74,7 +75,7 @@ bool PicoDccEx::processCommand(pico_dccex_packet* packet)
                         {
                             char s[10];
                             snprintf(s, sizeof(s), "<# %d>", maxSupportedCabs);
-                            uart_puts(uart0, s);
+                            DCCEX_RESPONSE(s);
                             reset();
                             return false;
                         }

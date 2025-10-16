@@ -1,4 +1,5 @@
 #include "pico_dcctrack.h"
+#include "../pico_diagnostic.h"
 
 #ifdef TEST_BUILD
 #include "../../test/mocks.h"
@@ -86,6 +87,7 @@ void PicoDccTrack::loop()
         {
             // If the current is too high then we need to stop the track
             setPower(false);
+            LOG_CRITICAL(COMPONENT_TRACK, "Overcurrent protection activated");
 
             if (short_led_pin != UNUSED_PIN)
             {

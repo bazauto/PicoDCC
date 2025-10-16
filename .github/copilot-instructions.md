@@ -141,6 +141,8 @@ This script directly addresses the need to ensure that changes in one build mode
 - Generates `.elf`, `.uf2`, `.hex`, and `.bin` files in `build/src/`
 - Requires Pico SDK installation and `PICO_SDK_PATH` environment variable
 - Uses conditional compilation (`#ifdef TEST_BUILD`) to switch between mock and hardware functions
+  - **CRITICAL**: Conditional compilation should ONLY be used for hardware abstraction (mocks vs. real hardware)
+  - **NEVER** use `#ifdef TEST_BUILD` in business logic, error handling, or diagnostic messages
 
 ### Debugging
 - Debug symbols are included in the build by default (`-g` flag in GCC).
@@ -160,10 +162,52 @@ This script directly addresses the need to ensure that changes in one build mode
 - **Testing Framework**:
   - The project uses `cmocka` for unit testing.
 
+## Diagnostic Logging System
+- **CRITICAL RULE**: Never pollute the DCC-EX command UART with diagnostic messages. 
+  - **NEVER** use `DCCEX_RESPONSE()` for error messages, warnings, or debug information.
+  - **ALWAYS** use the diagnostic logging system (`LOG_*` macros) for all internal diagnostics.
+  - **ONLY** use `DCCEX_RESPONSE()` for genuine DCC-EX protocol responses to client commands.
+
+- **Diagnostic Infrastructure** (`lib/pico_diagnostic.h`):
+  - **LOG_CRITICAL()**: System failures, safety violations (overcurrent, timing errors)
+  - **LOG_ERROR()**: Component errors, failed operations
+  - **LOG_WARNING()**: Non-critical issues, unusual conditions  
+  - **LOG_INFO()**: Status information, operational messages
+  - All macros include component identification and severity classification.
+
+- **Current Implementation**:
+  - Silent operation mode - no output to avoid UART pollution
+  - Complete infrastructure ready for future LCD display integration
+  - Component-based categorization (CONTROLLER, TRACK, DCCEX, LOCO, etc.)
+  - Severity-based filtering support for different display modes
+
+- **Critical Error Conditions Logged**:
+  - Core heartbeat failures (`LOG_CRITICAL` in controller)
+  - Queue overflow conditions (`LOG_CRITICAL` in controller)  
+  - Overcurrent protection activation (`LOG_CRITICAL` in track, >90% threshold)
+  - Timing violations (`LOG_CRITICAL` in controller)
+  - Power cutoff events (`LOG_CRITICAL` in track)
+
+- **Protocol Compliance**:
+  - DCC-EX responses use standardized `DCCEX_RESPONSE()` macro exclusively
+  - No conditional compilation (`#ifdef TEST_BUILD`) in diagnostic messages
+  - Clean separation between protocol communication and internal diagnostics
+  - Future LCD integration path preserves UART protocol integrity
+
+- **Usage Guidelines**:
+  - Always include `#include "pico_diagnostic.h"` in components that need logging
+  - Use appropriate severity level for the condition being logged
+  - Include relevant context (values, states) in log messages
+  - Test both build modes to ensure diagnostic calls don't break compilation
+
 ## Test Investigation Best Practices
 - **Always compile and run the tests when investigating test issues.**
   - After making changes to test code or related logic, rebuild the project and execute the relevant test suite to observe output and debug failures.
   - This ensures that any code or test changes are validated in the actual build and runtime environment.
+- **Dual-Mode Validation**:
+  - Use `.\scripts\Validate-DualMode.ps1` to validate changes work in both TEST and HARDWARE modes
+  - Critical when modifying shared headers, core components, or build configuration
+  - Prevents mode-specific compilation errors and ensures architectural consistency
 - **Understanding Hardware Queue Architecture**:
   - The hardware queue (`PicoDCCTrack`) is single-buffered by design, meaning only one command is visible at a time.
   - When debugging queue issues, check the "sent" packets rather than the current queue state.
@@ -233,6 +277,12 @@ This script directly addresses the need to ensure that changes in one build mode
   - Current monitoring was improved to only perform overcurrent protection when ADC is actually configured.
   - The change involved wrapping current monitoring logic in `canReadCurrent()` check in `PicoDCCTrack::loop()`.
   - Tests were added to verify that tracks without ADC configuration skip current monitoring entirely.
+
+- **DCC-EX Acknowledgment Restoration**:
+  - DCC-EX protocol acknowledgments were restored for all command types during refactoring.
+  - Power commands send `<p0>` or `<p1>` responses, throttle/function commands send `<l cab 0 speed 0>` status.
+  - Emergency stop and accessory commands send `<O>` acknowledgments.
+  - UART output tracking was added to test infrastructure for acknowledgment validation.
 
 - **DCC-EX Acknowledgment Restoration**:
   - DCC-EX protocol acknowledgments were restored for all command types during refactoring.

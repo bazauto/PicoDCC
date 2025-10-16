@@ -2,6 +2,7 @@
 #include <stdexcept>
 
 #include "pico_dcclocos.h"
+#include "../dccex_communication.h"
 
 PicoDccLocos::PicoDccLocos()
 {
@@ -106,5 +107,31 @@ void PicoDccLocos::forgetAllLocos()
     last_loco_reminder = INVALID_LOCO_ADDR;
     locos.clear();
 
+    sem_release(&locos_lock);
+}
+
+void PicoDccLocos::sendEmergencyStopResponses()
+{
+    sem_acquire_blocking(&locos_lock);
+    
+    // Send locomotive status response for each active locomotive
+    // This is required by DCC-EX specification for emergency stop
+    for (size_t i = 0; i < locos.size(); ++i) {
+        if (locos[i].isValid()) {
+            // Create emergency stop status update packet
+            pico_dccex_packet emergency_status = {
+                't',                    // throttle command opcode
+                (int)locos[i].getAddress(),  // locomotive address
+                0,                      // speed = 0 (emergency stop)
+                1,                      // direction = forward (maintain current direction)
+                false,                  // power_on (not used for throttle)
+                DCCEX_TRACK_MAIN       // track (not used for throttle)
+            };
+            
+            PicoDccExPacket response_packet(emergency_status);
+            DCCEX_RESPONSE(response_packet.getDccExCabUpdate());
+        }
+    }
+    
     sem_release(&locos_lock);
 }

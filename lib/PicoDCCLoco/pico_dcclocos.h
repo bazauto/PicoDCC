@@ -40,6 +40,8 @@ public:
     PicoDccLoco *findLoco(uint16_t address);
     
     bool getNextReminder(raw_dcc_cmd_t &cmd);
+    
+    void sendEmergencyStopResponses();
 };
 
 #endif

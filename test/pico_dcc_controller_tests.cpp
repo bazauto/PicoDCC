@@ -365,8 +365,11 @@ static void test_dccex_acknowledgments(void **state)
     uart_test_write("<!>");
     controller.dccexLoop();
     
+    // Emergency stop should send locomotive status for each active loco (DCC-EX spec requirement)
+    // We should get one response for locomotive 3 showing emergency stop state
     assert_int_equal(uart_output_log.size(), 1);
-    assert_string_equal(uart_output_log[0].c_str(), "<O>");
+    assert_true(uart_output_log[0].find("<l 3 0") == 0);  // Loco 3, speed 0 (emergency stop)
+    assert_true(uart_output_log[0].find("0>") == uart_output_log[0].length() - 2);
     uart_output_log.clear();
 
     // Test accessory command acknowledgment
