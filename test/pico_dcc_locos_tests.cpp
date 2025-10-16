@@ -152,6 +152,166 @@ void test_get_next_reminder_no_locos(void **state) {
     assert_false(reminder);
 }
 
+// Test getNextReminder after removing the last reminded loco
+void test_get_next_reminder_after_loco_removal(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    // Add three locomotives
+    const char *buffer1 = "t 3 0 0";
+    PicoDccExPacket packet1((char *)buffer1);
+    locos.addLoco(&packet1, cmd);
+
+    const char *buffer2 = "t 4 0 0";
+    PicoDccExPacket packet2((char *)buffer2);
+    locos.addLoco(&packet2, cmd);
+
+    const char *buffer3 = "t 5 0 0";
+    PicoDccExPacket packet3((char *)buffer3);
+    locos.addLoco(&packet3, cmd);
+
+    // Get first reminder (should be loco 3)
+    bool reminder = locos.getNextReminder(cmd);
+    assert_true(reminder);
+    assert_int_equal(cmd.data[0], 3);
+
+    // Get second reminder (should be loco 4)
+    reminder = locos.getNextReminder(cmd);
+    assert_true(reminder);
+    assert_int_equal(cmd.data[0], 4);
+
+    // Now remove loco 4 (the last reminded loco)
+    locos.forgetLoco(4);
+    assert_int_equal(locos.getLocoCount(), 2);
+
+    // Next reminder should start from beginning (loco 3), not crash or skip
+    reminder = locos.getNextReminder(cmd);
+    assert_true(reminder);
+    assert_int_equal(cmd.data[0], 3);  // Should return to beginning of list
+
+    // Following reminder should be loco 5
+    reminder = locos.getNextReminder(cmd);
+    assert_true(reminder);
+    assert_int_equal(cmd.data[0], 5);
+}
+
+// Test getNextReminder with single loco removal and re-addition
+void test_get_next_reminder_single_loco_cycle(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    // Add single locomotive
+    const char *buffer = "t 3 0 0";
+    PicoDccExPacket packet((char *)buffer);
+    locos.addLoco(&packet, cmd);
+
+    // Get reminder (should be loco 3)
+    bool reminder = locos.getNextReminder(cmd);
+    assert_true(reminder);
+    assert_int_equal(cmd.data[0], 3);
+
+    // Remove the only loco
+    locos.forgetLoco(3);
+    assert_int_equal(locos.getLocoCount(), 0);
+
+    // Should return false when no locos exist
+    reminder = locos.getNextReminder(cmd);
+    assert_false(reminder);
+
+    // Re-add locomotive
+    locos.addLoco(&packet, cmd);
+    assert_int_equal(locos.getLocoCount(), 1);
+
+    // Should work again
+    reminder = locos.getNextReminder(cmd);
+    assert_true(reminder);
+    assert_int_equal(cmd.data[0], 3);
+}
+
+// Test getNextReminder with middle loco removal
+void test_get_next_reminder_middle_loco_removal(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    // Add three locomotives
+    const char *buffer1 = "t 10 0 0";
+    PicoDccExPacket packet1((char *)buffer1);
+    locos.addLoco(&packet1, cmd);
+
+    const char *buffer2 = "t 20 0 0";
+    PicoDccExPacket packet2((char *)buffer2);
+    locos.addLoco(&packet2, cmd);
+
+    const char *buffer3 = "t 30 0 0";
+    PicoDccExPacket packet3((char *)buffer3);
+    locos.addLoco(&packet3, cmd);
+
+    // Cycle through all locos to establish order
+    bool reminder = locos.getNextReminder(cmd);
+    assert_true(reminder);
+    assert_int_equal(cmd.data[0], 10);
+
+    reminder = locos.getNextReminder(cmd);
+    assert_true(reminder);
+    assert_int_equal(cmd.data[0], 20);
+
+    // Remove the middle loco (20) after it was the last reminded
+    locos.forgetLoco(20);
+    assert_int_equal(locos.getLocoCount(), 2);
+
+    // Next reminder should restart from beginning (loco 10)
+    reminder = locos.getNextReminder(cmd);
+    assert_true(reminder);
+    assert_int_equal(cmd.data[0], 10);
+
+    // Next should be loco 30
+    reminder = locos.getNextReminder(cmd);
+    assert_true(reminder);
+    assert_int_equal(cmd.data[0], 30);
+
+    // Should cycle back to loco 10
+    reminder = locos.getNextReminder(cmd);
+    assert_true(reminder);
+    assert_int_equal(cmd.data[0], 10);
+}
+
+// Test thread-safe getLocoCount
+void test_thread_safe_loco_count(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    // Initially should be 0
+    assert_int_equal(locos.getLocoCount(), 0);
+
+    // Add locomotive
+    const char *buffer = "t 42 0 0";
+    PicoDccExPacket packet((char *)buffer);
+    locos.addLoco(&packet, cmd);
+
+    // Should now be 1 (this was the failing case)
+    assert_int_equal(locos.getLocoCount(), 1);
+
+    // Add another locomotive  
+    const char *buffer2 = "t 43 0 0";
+    PicoDccExPacket packet2((char *)buffer2);
+    locos.addLoco(&packet2, cmd);
+
+    // Should now be 2
+    assert_int_equal(locos.getLocoCount(), 2);
+
+    // Remove one locomotive
+    locos.forgetLoco(42);
+    
+    // Should be back to 1
+    assert_int_equal(locos.getLocoCount(), 1);
+
+    // Remove all locomotives
+    locos.forgetAllLocos();
+    
+    // Should be 0
+    assert_int_equal(locos.getLocoCount(), 0);
+}
+
 // Merge with existing tests
 int main(int argc, char *argv[]) {
     printf("Running Tests\n");
@@ -164,6 +324,10 @@ int main(int argc, char *argv[]) {
         cmocka_unit_test(test_get_next_reminder),
         cmocka_unit_test(test_get_emergency_stop_commands),
         cmocka_unit_test(test_get_next_reminder_no_locos),
+        cmocka_unit_test(test_get_next_reminder_after_loco_removal),
+        cmocka_unit_test(test_get_next_reminder_single_loco_cycle),
+        cmocka_unit_test(test_get_next_reminder_middle_loco_removal),
+        cmocka_unit_test(test_thread_safe_loco_count),
     };
 
     return cmocka_run_group_tests(all_tests, NULL, NULL);

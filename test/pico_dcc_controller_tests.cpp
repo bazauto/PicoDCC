@@ -433,7 +433,7 @@ static void test_core_health_monitoring(void **state)
     // Check for emergency message in UART output
     bool found_core1_dead = false;
     for (const auto& output : uart_output_log) {
-        if (output.find("CORE1_DEAD") != std::string::npos) {
+        if (output.find("CRITICAL:CORE:Core 1 heartbeat failure detected") != std::string::npos) {
             found_core1_dead = true;
             break;
         }
@@ -527,7 +527,7 @@ static void test_emergency_power_cutoff(void **state)
     // Check for emergency cutoff message in UART output
     bool found_emergency = false;
     for (const auto& output : uart_output_log) {
-        if (output.find("EMERGENCY_CUTOFF") != std::string::npos) {
+        if (output.find("CRITICAL:POWER:Emergency power cutoff activated") != std::string::npos) {
             found_emergency = true;
             break;
         }

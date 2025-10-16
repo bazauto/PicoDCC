@@ -32,25 +32,32 @@ PicoDccLoco *PicoDccLocos::findLoco(uint16_t address)
 
 bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
 {
+    sem_acquire_blocking(&locos_lock);
+    
     if (locos.empty())
     {
+        sem_release(&locos_lock);
         return false; // No locos to remind
     }
-
-    sem_acquire_blocking(&locos_lock);
 
     // Find the index of the next loco
     size_t nextIndex = 0;
     if (last_loco_reminder != INVALID_LOCO_ADDR)
     { // If we have a last reminded loco
         // Find the current index of last_loco_reminder
+        bool found = false;
         for (size_t i = 0; i < locos.size(); ++i)
         {
             if (locos[i].getAddress() == last_loco_reminder)
             {
                 nextIndex = (i + 1) % locos.size(); // Move to the next index, looping back to 0 if necessary
+                found = true;
                 break;
             }
+        }
+        // If last_loco_reminder is not found, start from index 0
+        if (!found) {
+            nextIndex = 0;
         }
     }
 
@@ -93,8 +100,12 @@ void PicoDccLocos::forgetLoco(uint16_t address)
     {
         if (it->getAddress() == address)
         {
-            locos.erase(it);
+            it = locos.erase(it);  // erase returns iterator to next element
             break;
+        }
+        else
+        {
+            ++it;  // increment iterator only when not erasing
         }
     }
 
@@ -108,6 +119,14 @@ void PicoDccLocos::forgetAllLocos()
     locos.clear();
 
     sem_release(&locos_lock);
+}
+
+size_t PicoDccLocos::getLocoCount()
+{
+    sem_acquire_blocking(&locos_lock);
+    size_t count = locos.size();
+    sem_release(&locos_lock);
+    return count;
 }
 
 void PicoDccLocos::sendEmergencyStopResponses()

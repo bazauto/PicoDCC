@@ -194,11 +194,13 @@ void PicoDccTrack::checkPIOHealth()
 {
     uint32_t now = to_ms_since_boot(get_absolute_time());
     bool was_healthy = pio_health.is_healthy;
-    pio_health.is_healthy = true;  // Assume healthy until proven otherwise
+    
+
     
     // Option 3: Check transmission activity (every 50ms check)
     if (now - pio_health.last_pio_check_time >= 50)
     {
+        pio_health.is_healthy = true;  // Assume healthy until proven otherwise
         // Check for transmission stalls
         if (pio_health.commands_queued > pio_health.commands_sent)
         {
@@ -213,22 +215,26 @@ void PicoDccTrack::checkPIOHealth()
         // Option 1: Alternative PIO health check using transmission rate
         // Monitor that we're successfully transmitting commands/idle packets
         uint32_t total_transmissions = pio_health.commands_sent + pio_health.idle_packets_sent;
-        static uint32_t last_transmission_count = 0;
         
-        if (total_transmissions == last_transmission_count)
+
+        
+        if (total_transmissions == pio_health.last_transmission_count)
         {
             // No transmissions in the last check period
             pio_health.pio_stall_count++;
-            if (pio_health.pio_stall_count > 3) // No activity for 150ms (3 * 50ms)
+
+            if (pio_health.pio_stall_count >= 3) // No activity for 150ms (3 * 50ms)
             {
                 pio_health.is_healthy = false;
                 LOG_CRITICAL(COMPONENT_TRACK, "PIO transmission completely stopped");
+
             }
         }
         else
         {
             pio_health.pio_stall_count = 0;
-            last_transmission_count = total_transmissions;
+            pio_health.last_transmission_count = total_transmissions;
+
         }
         
         // Option 4: Check interrupt activity (if enabled)

@@ -58,6 +58,16 @@ inline void log_diagnostic(diagnostic_level_t level, const char* component, cons
     // Current implementation: Silent operation for safety-first approach
     // This ensures no interference with DCC-EX protocol compliance
     
+#ifdef TEST_BUILD
+    // For testing: Output critical messages to UART for test validation
+    if (level >= DIAG_CRITICAL) {
+        // Format: "CRITICAL:<COMPONENT>:<MESSAGE>"
+        char diagnostic_output[256];
+        snprintf(diagnostic_output, sizeof(diagnostic_output), "CRITICAL:%s:%s", component, message);
+        uart_puts(uart0, diagnostic_output);
+    }
+#endif
+    
     // TODO: Future LCD implementation goes here
     // Example structure:
     // if (lcd_initialized && lcd_available()) {
@@ -68,7 +78,7 @@ inline void log_diagnostic(diagnostic_level_t level, const char* component, cons
     //     }
     // }
     
-    (void)level;      // Suppress unused parameter warnings
+    (void)level;      // Suppress unused parameter warnings  
     (void)component;
     (void)message;
 }

@@ -11,14 +11,15 @@ PicoDccLoco::PicoDccLoco(PicoDccExPacket *packet)
         throw std::invalid_argument("Only throttle or function commands can be used to create a loco.");
     }
 
-    if (packet->getCab() < 0 || packet->getCab() > 65535)
-    {
-        throw std::invalid_argument("Loco address outside allowed range.");
-    }
-
+    // Check speed first to give more specific error messages
     if (packet->getSpeed() < 0 || packet->getSpeed() > 255)
     {
         throw std::invalid_argument("Loco speed outside allowed range.");
+    }
+
+    if (packet->getCab() < 0 || packet->getCab() > 65535)
+    {
+        throw std::invalid_argument("Loco address outside allowed range.");
     }
 
     // Initiallising locally to allow the above validation ahead of initialisation

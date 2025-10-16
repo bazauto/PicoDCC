@@ -75,6 +75,7 @@ private:
         uint32_t last_pio_pc = 0;
         uint32_t pio_stall_count = 0;
         uint32_t last_pio_check_time = 0;
+        uint32_t last_transmission_count = 0;
         
         // Option 4: Interrupt Activity Detection
         volatile uint32_t last_interrupt_time = 0;

@@ -166,7 +166,7 @@ graph TD
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **60 total tests** across all components
+- **64 total tests** across all components: Controller (9), DCCEX (3), Locos (11), Loco (11), Packet (14), Track (16)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

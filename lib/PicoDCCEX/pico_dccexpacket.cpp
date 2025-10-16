@@ -98,21 +98,12 @@ void PicoDccExPacket::decodePacket(char *buffer)
     case ('F'):
         if (sscanf(buffer, "%*c %d %d %d", &packet.addr, &packet.param1, &packet.param2) == 3)
         {
-            // Validate locomotive address (1-10293 per DCC standard)
-            // Speed: 0-126 for throttle, function number for F command
-            // Direction: 0 or 1 for throttle, function state for F command
-            if (packet.addr >= 1 && packet.addr <= 10293 &&
-                packet.param1 >= 0 && packet.param1 <= 255 && // Allow wider range for functions
-                (packet.param2 == 0 || packet.param2 == 1))
-            {
-                break; // Valid parameters
-            }
-            else
-            {
-                LOG_WARNING(COMPONENT_DCCEX, "Invalid locomotive/function command parameters");
-            }
+            // Always parse successfully, validation happens in consumer classes
+            // This allows for specific error messages based on which field is invalid
+            break; // Valid parsing
         }
-        packet.addr = -1; // Invalid cab
+        // Only mark as invalid if parsing completely failed
+        packet.addr = -1; 
         break;
 
     // Emergency Stop
@@ -141,7 +132,7 @@ void PicoDccExPacket::validatePacket() {
         valid_packet = true;
         break;
 
-    // These opcodes are validated through having a valid address
+    // These opcodes are validated through having successfully parsed parameters
     case ('t'):
     case ('F'):
     case ('a'):

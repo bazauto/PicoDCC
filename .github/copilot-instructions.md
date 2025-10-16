@@ -76,7 +76,7 @@ The project includes a comprehensive PowerShell script (`scripts/Validate-DualMo
 1. **Test Mode Validation** (`TEST_BUILD=ON`):
    - Clears CMake cache and reconfigures for MSVC/Windows testing
    - Builds all test executables and libraries
-   - Executes all available test suites (currently 43/57 tests passing)
+   - Executes all available test suites (currently 59/64 tests passing, 5 pre-existing failures)
    - Reports individual test suite results
 
 2. **Hardware Mode Validation** (`TEST_BUILD=OFF`):
@@ -156,8 +156,9 @@ This script directly addresses the need to ensure that changes in one build mode
   - When debugging queue issues, check the "sent" packets rather than the current queue state.
   - Use debug output to trace packet flow between Core 0 (main queue) and Core 1 (hardware queue).
 - **Test Coverage Status**:
-  - **60 total tests**: Controller (9), DCCEX (3), Locos (7), Loco (11), Packet (14), Track (16)
+  - **64 total tests**: Controller (9), DCCEX (3), Locos (11), Loco (11), Packet (14), Track (16)
   - **Mock infrastructure**: Comprehensive hardware abstraction for GPIO, ADC, PIO, UART, and timing functions
+  - **Thread-Safety Testing**: Multi-core race condition validation and locomotive collection management
 
 ## DCC Protocol Implementation
 - **Emergency Stop Handling**:
@@ -185,6 +186,11 @@ This script directly addresses the need to ensure that changes in one build mode
   - Core 0 handles command processing and main queue management
   - Core 1 manages hardware-level packet transmission via PIO
   - Proper synchronization is critical when modifying queue operations
+- **Thread-Safety Patterns**:
+  - **CRITICAL**: All shared data structure access MUST be protected by semaphores
+  - **Vector Operations**: Always acquire semaphore BEFORE any `std::vector` operation (size(), empty(), etc.)
+  - **Race Condition Prevention**: Never check container state outside of semaphore protection
+  - **Iterator Safety**: Use proper iterator increment patterns to avoid infinite loops during removal
 - **Conditional Compilation**:
   - `#ifdef TEST_BUILD` switches between mock and hardware implementations
   - Shared `raw_dcc_cmd_t` type defined in `lib/dcc_types.h`
