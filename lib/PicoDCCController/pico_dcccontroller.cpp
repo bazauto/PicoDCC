@@ -38,6 +38,9 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     core1_heartbeat = 0;
     last_core1_check = 0;
     last_core1_heartbeat_value = 0;
+    
+    // Initialize reminder rate limiting
+    last_reminder_time = 0;
 }
 
 // This is the Core 0 loop
@@ -110,15 +113,11 @@ void PicoDccController::dccexLoop()
 
             if (packet.isThrottleCommand() || packet.isFunctionCommand())
             {
-                PicoDccLoco *loco = pico_locos->findLoco(packet.getCab());
-
-                if (loco == nullptr)
+                // Try to update existing loco, or add new one if not found
+                if (!pico_locos->updateLocoThrottle(packet.getCab(), &packet, cmd))
                 {
+                    // Loco not found in collection, add it
                     pico_locos->addLoco(&packet, cmd);
-                }
-                else
-                {
-                    cmd = loco->getThrottleCommand();
                 }
                 
                 if (cmd.length > 0) // Only queue if we have a valid command
@@ -143,28 +142,49 @@ void PicoDccController::dccexLoop()
     }
     else
     {
-        // Process reminders when no commands are waiting
-        raw_dcc_cmd_t cmd = {};
-        if (pico_locos->getNextReminder(cmd))
+        // Process reminders when no commands are waiting, but rate-limit to prevent queue overflow
+        // DCC spec requires packets every ~30ms, we use 20ms for safety margin
+        uint32_t current_time = to_ms_since_boot(get_absolute_time());
+        if (current_time - last_reminder_time >= REMINDER_INTERVAL_MS)
         {
-            main_cmd_queue.push(cmd);
+            raw_dcc_cmd_t cmd = {};
+            if (pico_locos->getNextReminder(cmd))
+            {
+                main_cmd_queue.push(cmd);
+                last_reminder_time = current_time;
+            }
         }
     }
 
     // Repeat/interleaving logic: process one command per loop
     if (!main_cmd_queue.empty()) {
         raw_dcc_cmd_t cmd = main_cmd_queue.front();
-        main_cmd_queue.pop();
         
-        // Use non-blocking queue add to prevent freezing if Core 1 is dead
-        if (!queue_try_add(&track_cmd_queue, &cmd)) {
-            // Queue is full - Core 1 may be dead or too slow
-            emergencyPowerCutoff();
-            LOG_CRITICAL(COMPONENT_QUEUE, "Hardware command queue overflow");
-        } else if (cmd.repeats > 0) {
-            cmd.repeats--;
-            main_cmd_queue.push(cmd);
+        // Try to add to hardware queue - if full, wait briefly and try again
+        // Queue full is normal when Core 0 generates commands faster than Core 1 can transmit
+        // We retry in a short loop to avoid blocking other operations (UART, heartbeat)
+        absolute_time_t timeout = make_timeout_time_ms(5);  // 5ms timeout
+        bool added = false;
+        while (!time_reached(timeout)) {
+            if (queue_try_add(&track_cmd_queue, &cmd)) {
+                added = true;
+                break;
+            }
+            // Brief yield to allow other operations
+            sleep_us(100);  // 100 microseconds
         }
+        
+        if (added) {
+            // Successfully sent, remove from queue
+            main_cmd_queue.pop();
+            
+            // Handle repeats
+            if (cmd.repeats > 0) {
+                cmd.repeats--;
+                main_cmd_queue.push(cmd);
+            }
+        }
+        // If not added, leave command at front of queue and try again next loop iteration
     }
 }
 

@@ -19,7 +19,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(PICO_BOARD pico2 CACHE STRING "Board type")
 set(PICO_PLATFORM rp2350)
 
-set(TEST_BUILD ON CACHE BOOL "Build for testing")
+set(TEST_BUILD OFF CACHE BOOL "Build for testing")
 
 if(TEST_BUILD)
 

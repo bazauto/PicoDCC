@@ -39,6 +39,10 @@ public:
 
     PicoDccLoco *findLoco(uint16_t address);
     
+    // Update an existing loco's throttle settings while maintaining thread safety
+    // Returns true if loco was found and updated, false if not found
+    bool updateLocoThrottle(uint16_t address, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
+    
     bool getNextReminder(raw_dcc_cmd_t &cmd);
     
     void sendEmergencyStopResponses();

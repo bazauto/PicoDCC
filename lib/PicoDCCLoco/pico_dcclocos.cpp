@@ -72,6 +72,10 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
     // Get the command for the next loco that will be sent to the track
     cmd = locos[nextIndex].getThrottleCommand();
     last_loco_reminder = locos[nextIndex].getAddress();
+    
+    // Reminder commands should NOT use the repeat mechanism
+    // They will be sent once and getNextReminder() will be called again on the next cycle
+    cmd.repeats = 0;
 
     sem_release(&locos_lock);
 
@@ -88,6 +92,28 @@ void PicoDccLocos::addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
     cmd = newLoco.getThrottleCommand();
 
     sem_release(&locos_lock);
+}
+
+bool PicoDccLocos::updateLocoThrottle(uint16_t address, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
+{
+    sem_acquire_blocking(&locos_lock);
+    
+    // Find the loco and update it while holding the lock
+    bool found = false;
+    for (size_t i = 0; i < locos.size(); ++i)
+    {
+        if (locos[i].getAddress() == address)
+        {
+            // Update throttle while holding the lock to prevent race conditions
+            locos[i].update(packet);
+            cmd = locos[i].getThrottleCommand();
+            found = true;
+            break;
+        }
+    }
+    
+    sem_release(&locos_lock);
+    return found;
 }
 
 

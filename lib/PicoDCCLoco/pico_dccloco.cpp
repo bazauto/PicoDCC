@@ -75,7 +75,12 @@ bool PicoDccLoco::updateControl(bool _forward, uint8_t _speed)
 void PicoDccLoco::generateThrottleCommand()
 {
     // Create the DCC command that will be sent to the track when needed
+    // Initialize all fields to prevent undefined behavior
+    cmd.is_prog = false;
     cmd.length = 0;
+    cmd.cmd_data = 0;
+    cmd.repeats = 3;  // Repeat 3 times when explicitly commanded (e.g., throttle change)
+    
     if (address > HIGHEST_SHORT_ADDR)
     {
         cmd.data[cmd.length++] = (address >> 8) | 0xc0;
