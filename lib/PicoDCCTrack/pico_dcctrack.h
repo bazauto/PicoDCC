@@ -11,6 +11,9 @@
 
 #include "../dcc_types.h"
 
+// Forward declaration to avoid circular dependency
+class PicoDccLocos;
+
 #ifdef TEST_BUILD
 #include "../../test/mocks.h"
 #else
@@ -48,6 +51,10 @@ class PicoDccTrack {
 private:
     bool is_prog;
     queue_t cmd_queue;
+    
+    // Reference to locomotive collection for reminder generation (Core 1)
+    // Only main track uses this; prog track leaves it nullptr
+    PicoDccLocos *locos_collection;
 
     void *pio;
     uint pio_sm;  // State machine number for PIO monitoring
@@ -87,7 +94,7 @@ private:
     } pio_health;
 
 public:
-    PicoDccTrack(bool is_prog, track_settings_t settings);
+    PicoDccTrack(bool is_prog, track_settings_t settings, PicoDccLocos *locos = nullptr);
 
     void loop();
 

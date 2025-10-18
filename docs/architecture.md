@@ -53,9 +53,9 @@ graph TD
 - **UART Communication**: Receives DCC-EX protocol commands via UART
 - **Command Parsing**: `PicoDccEx` parses and validates incoming commands
 - **Locomotive Management**: `PicoDccLocos` maintains collection of active locomotives
-- **Command Scheduling**: Main command queue handles repeat logic and packet interleaving
+- **Command Scheduling**: Main command queue handles repeat logic for explicit commands
 - **Emergency Stop**: Implements DCC broadcast emergency stop (address 0x00, instruction 0x41)
-- **Timing Safety**: Monitors for command gaps and potential timing violations
+- **Timing Safety**: Monitors Core 1 health via heartbeat mechanism
 
 ### Core 1 - Hardware Control & Safety
 - **Track Management**: Separate `PicoDccTrack` instances for main and programming tracks
@@ -63,17 +63,20 @@ graph TD
 - **Current Monitoring**: ADC-based overcurrent protection and averaging (when configured)
 - **Power Control**: GPIO-based track power switching with safety interlocks
 - **Hardware Queue**: Single-buffered command processing for deterministic timing
+- **Reminder Generation**: Main track generates locomotive reminders when hardware queue is empty
 
 ## Queue Architecture
 
 ### Main Command Queue (Core 0)
-- Handles command repeat logic and locomotive reminder scheduling
-- Implements packet interleaving for multiple locomotives
+- Handles repeat logic for explicit commands (throttle, function, accessory, emergency stop)
 - Allows urgent commands (emergency stop) to preempt regular traffic
+- No longer handles reminder generation (moved to Core 1 for self-regulation)
 
 ### Hardware Queue (Core 1)
 - **Single-buffered design**: Only one command visible at any time
 - **Deterministic processing**: Guarantees consistent DCC timing
+- **Priority system**: Explicit commands > locomotive reminders > idle packets
+- **Self-regulating**: Reminder generation only happens when hardware has capacity
 - **Debug consideration**: Use "sent" packets rather than queue state for debugging
 
 ## Component Details
@@ -82,10 +85,10 @@ graph TD
 - **Role**: System orchestrator and main entry point
 - **Responsibilities**: 
   - Coordinates Core 0 and Core 1 operations
-  - Manages main command queue and hardware queue synchronization
-  - Implements timing safety monitoring
+  - Manages main command queue (Core 0) and hardware queue synchronization
+  - Implements Core 1 health monitoring via heartbeat mechanism
   - Handles emergency stop workflow (queue clearing + broadcast packet)
-- **Key Methods**: `dccLoop()`, `dccexLoop()`
+- **Key Methods**: `dccLoop()` (Core 1), `dccexLoop()` (Core 0)
 
 ### PicoDccEx
 - **Role**: DCC-EX protocol parser and validator
@@ -107,9 +110,11 @@ graph TD
 - **Role**: Locomotive collection management
 - **Responsibilities**:
   - Maintains vector of active locomotives with semaphore protection
-  - Implements reminder scheduling for locomotive commands
+  - Implements reminder scheduling (accessed by Core 1 for generation)
   - Handles locomotive discovery and cleanup
-- **Key Features**: Thread-safe operations, efficient lookup, reminder rotation
+  - Provides thread-safe operations for multi-core access
+- **Key Features**: Round-robin reminder rotation, efficient lookup, semaphore-protected operations
+- **Thread Safety**: Collection is updated by Core 0, read by Core 1 for reminders
 
 ### PicoDccTrack
 - **Role**: Hardware abstraction for track control
@@ -117,9 +122,11 @@ graph TD
   - DCC packet generation and PIO interface
   - Power control with GPIO switching
   - Current monitoring and overcurrent protection (when ADC configured)
-  - Idle packet generation when no commands queued
+  - **Reminder generation**: Main track generates locomotive reminders when hardware queue empty
+  - **Priority management**: Explicit commands > reminders > idle packets
 - **Configuration**: Separate instances for main and programming tracks
 - **Safety Features**: Automatic power cutoff on overcurrent, short circuit LED indication
+- **Core 1 Operation**: Runs on Core 1, self-regulating reminder generation
 
 ## DCC Protocol Implementation
 

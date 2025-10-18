@@ -1,5 +1,6 @@
 #include "pico_dcctrack.h"
 #include "../pico_diagnostic.h"
+#include "../PicoDCCLoco/pico_dcclocos.h"
 
 #ifdef TEST_BUILD
 #include "../../test/mocks.h"
@@ -14,9 +15,10 @@
 #endif
 
 
-PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings)
+PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings, PicoDccLocos *locos)
 {
     is_prog = is_prog_in;
+    locos_collection = locos;  // Store reference to locomotive collection
     signal_pin = settings.signal_pin;
     power_ctrl_pin = settings.ctrl_pin;
     if (settings.adc_num != UNUSED_PIN)
@@ -119,20 +121,26 @@ void PicoDccTrack::loop()
     }
 
     // Process any incoming messages to be sent to the track
-    // NOTE: Repeat logic is handled on Core 0 (the caller of queueCommand),
-    // not here. This allows urgent commands (e.g., emergency stop) to preempt
-    // repeats and enables interleaving of packets for multiple locos.
+    // Priority: explicit commands from Core 0 > loco reminders > idle packets
+    // Repeat logic is handled on Core 0 for explicit commands
     raw_dcc_cmd_t cmd;
     if (queue_try_remove(&cmd_queue, &cmd))
     {
+        // Priority 1: Explicit command from Core 0
         sendCommand(&cmd);
         pio_health.commands_sent++;
         pio_health.last_activity_time = to_ms_since_boot(get_absolute_time());
-        // No repeat logic here; see above note.
+    }
+    else if (locos_collection != nullptr && locos_collection->getNextReminder(cmd))
+    {
+        // Priority 2: Locomotive reminder (main track only, when no explicit commands waiting)
+        sendCommand(&cmd);
+        pio_health.commands_sent++;
+        pio_health.last_activity_time = to_ms_since_boot(get_absolute_time());
     }
     else
     {
-        // If no command is available, send idle packet
+        // Priority 3: Idle packet (when no commands or reminders available)
         sendIdle();
         pio_health.idle_packets_sent++;
         pio_health.last_activity_time = to_ms_since_boot(get_absolute_time());

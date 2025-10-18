@@ -43,10 +43,6 @@ private:
     volatile uint32_t core1_heartbeat;
     uint32_t last_core1_check;
     uint32_t last_core1_heartbeat_value;
-    
-    // Reminder rate limiting to prevent queue overflow
-    uint32_t last_reminder_time;
-    static const uint32_t REMINDER_INTERVAL_MS = 20;  // Send reminders every 20ms
 
 
 

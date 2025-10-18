@@ -142,6 +142,20 @@ uint32_t to_ms_since_boot(absolute_time_t t) {
     return static_cast<uint32_t>(t);
 }
 
+absolute_time_t make_timeout_time_ms(uint32_t ms) {
+    return static_cast<absolute_time_t>(mock_time_ms + ms);
+}
+
+bool time_reached(absolute_time_t t) {
+    return mock_time_ms >= static_cast<uint32_t>(t);
+}
+
+void sleep_us(uint64_t us) {
+    // In test mode, just advance mock time instead of actual sleep
+    // This prevents tests from running slowly
+    mock_time_ms += static_cast<uint32_t>(us / 1000);
+}
+
 } // extern "C"
 
 PIO::PIO() {}

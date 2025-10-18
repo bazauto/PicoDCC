@@ -6,11 +6,11 @@ Welcome to the PicoDCC codebase! This document provides essential guidelines for
 PicoDCC is a project designed for managing and controlling Digital Command Control (DCC) systems, commonly used in model railroads. The codebase is structured to support modularity and scalability, with distinct components for different functionalities:
 
 - **Core Components**:
-  - `PicoDCCController`: Handles the main control logic, implements DCC-EX protocol parsing, manages dual-core architecture with Core 0/Core 1 coordination, and maintains main command queue.
+  - `PicoDCCController`: Handles the main control logic, implements DCC-EX protocol parsing, manages dual-core architecture with Core 0/Core 1 coordination, and maintains main command queue for explicit commands.
   - `PicoDCCEX`: Manages extended DCC functionalities and packet parsing for DCC-EX protocol.
   - `PicoDCCLoco`: Focuses on locomotive-specific operations including throttle commands, function control, and CV programming support.
-  - `PicoDCCTrack`: Deals with track-related functionalities, packet transmission via PIO, and hardware queue management (single-buffered design).
-  - `PicoDCCLocos`: Collection management for multiple locomotives with semaphore-protected operations.
+  - `PicoDCCTrack`: Deals with track-related functionalities, packet transmission via PIO, hardware queue management (single-buffered design), and **locomotive reminder generation on Core 1**.
+  - `PicoDCCLocos`: Collection management for multiple locomotives with semaphore-protected operations for thread-safe access from both cores.
 - **Testing**:
   - Unit tests are located in the `test/` directory, with comprehensive test coverage including `pico_dcc_controller_tests.cpp`, `pico_dcc_loco_tests.cpp`, `pico_dcc_locos_tests.cpp`, and `pico_dcc_packet_tests.cpp`.
 - **Circuit Design**:
@@ -170,9 +170,12 @@ This script directly addresses the need to ensure that changes in one build mode
   - Methods include `verifyCV()`, `readCVByte()`, `readCVBit()`, `writeCVBytes()`, and `writeCVBit()`.
   - These are preserved for planned programming track functionality.
 - **Queue Management**:
-  - Main command queue operates on Core 0, hardware queue on Core 1.
-  - Hardware queue is single-buffered - only one command visible at any time.
-  - Semaphore protection is used for multi-core synchronization.
+  - Main command queue operates on Core 0 for explicit commands with repeat logic.
+  - Hardware queue operates on Core 1 with single-buffered design.
+  - **Reminder generation moved to Core 1**: `PicoDccTrack::loop()` generates locomotive reminders when hardware queue is empty.
+  - Priority system: Explicit commands > locomotive reminders > idle packets.
+  - Semaphore protection is used for multi-core synchronization of locomotive collection.
+  - **Self-regulating design**: Core 1 only generates reminders when hardware has capacity, preventing queue overflow.
 
 ## Integration Points
 - **External Dependencies**:
@@ -183,9 +186,10 @@ This script directly addresses the need to ensure that changes in one build mode
   - `PicoDCCController` communicates with `PicoDCCTrack` for track updates
   - UART communication uses conditional compilation: `uart_puts()` for tests, `printf()` for hardware
 - **Multi-Core Architecture** (Hardware Mode):
-  - Core 0 handles command processing and main queue management
-  - Core 1 manages hardware-level packet transmission via PIO
-  - Proper synchronization is critical when modifying queue operations
+  - Core 0 handles command processing and main queue management for explicit commands
+  - Core 1 manages hardware-level packet transmission via PIO and generates locomotive reminders
+  - Proper synchronization is critical when modifying queue operations or locomotive collection
+  - `PicoDccLocos` collection is updated by Core 0, read by Core 1 for reminder generation
 - **Thread-Safety Patterns**:
   - **CRITICAL**: All shared data structure access MUST be protected by semaphores
   - **Vector Operations**: Always acquire semaphore BEFORE any `std::vector` operation (size(), empty(), etc.)
@@ -238,6 +242,15 @@ This script directly addresses the need to ensure that changes in one build mode
   - Power commands send `<p0>` or `<p1>` responses, throttle/function commands send `<l cab 0 speed 0>` status.
   - Emergency stop and accessory commands send `<O>` acknowledgments.
   - UART output tracking was added to test infrastructure for acknowledgment validation.
+
+- **Locomotive Reminder Refactoring (Queue Overflow Prevention)**:
+  - **Problem**: Core 0 generated reminders faster than Core 1 could transmit, causing queue overflow.
+  - **Solution**: Moved reminder generation from Core 0 to Core 1 (`PicoDccTrack::loop()`).
+  - **Architecture Change**: Core 1 now generates reminders only when hardware queue is empty (self-regulating).
+  - **Priority System**: Explicit commands > locomotive reminders > idle packets.
+  - **Thread Safety**: `PicoDccLocos` collection is updated by Core 0, read by Core 1 with semaphore protection.
+  - **Benefits**: Eliminates queue overflow, simpler flow, hardware-paced reminder generation.
+  - **Implementation**: `PicoDccTrack` constructor takes optional `PicoDccLocos*` parameter (main track only).
 
 ## Key Files and Directories
 - `CMakeLists.txt`: Build configuration.

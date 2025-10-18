@@ -99,6 +99,7 @@ void test_get_next_reminder(void **state) {
     assert_int_equal(cmd.data[0], 3);
     raw_dcc_cmd_t cab1cmd;
     memcpy(&cab1cmd, &cmd, sizeof(raw_dcc_cmd_t));
+    cab1cmd.repeats = 0;  // getNextReminder() sets repeats to 0
 
     const char *buffer1 = "t 4 0 0";
     PicoDccExPacket packet1((char *)buffer1);
@@ -106,21 +107,25 @@ void test_get_next_reminder(void **state) {
     assert_int_equal(cmd.data[0], 4);
     raw_dcc_cmd_t cab2cmd;
     memcpy(&cab2cmd, &cmd, sizeof(raw_dcc_cmd_t));
+    cab2cmd.repeats = 0;  // getNextReminder() sets repeats to 0
 
     reminder = locos.getNextReminder(cmd);
     assert_true(reminder);
     assert_memory_equal(&cab1cmd, &cmd, sizeof(raw_dcc_cmd_t));
     assert_int_equal(cmd.data[0], 3);
+    assert_int_equal(cmd.repeats, 0);  // Verify reminders have no repeats
 
     reminder = locos.getNextReminder(cmd);
     assert_true(reminder);
     assert_memory_equal(&cab2cmd, &cmd, sizeof(raw_dcc_cmd_t));
     assert_int_equal(cab2cmd.data[0], 4);
+    assert_int_equal(cmd.repeats, 0);  // Verify reminders have no repeats
 
     reminder = locos.getNextReminder(cmd);
     assert_true(reminder);
     assert_memory_equal(&cab1cmd, &cmd, sizeof(raw_dcc_cmd_t));
     assert_int_equal(cmd.data[0], 3);
+    assert_int_equal(cmd.repeats, 0);  // Verify reminders have no repeats
 }
 
 void test_get_emergency_stop_commands(void **state) {

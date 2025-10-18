@@ -18,9 +18,14 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     // Setup the queue to transfer track commands from Core 0 to Core 1
     queue_init(&track_cmd_queue, sizeof(raw_dcc_cmd_t), CMD_QUEUE_LENGTH);
 
+    // Setup our loco store first (needed by tracks for reminder generation)
+    pico_locos = new PicoDccLocos();
+
     // Setup the tracks
-    main_track = new PicoDccTrack(false, main_track_s);
-    prog_track = new PicoDccTrack(true, prog_track_s);
+    // Main track gets reference to locos collection for reminder generation on Core 1
+    // Programming track doesn't need reminders (nullptr)
+    main_track = new PicoDccTrack(false, main_track_s, pico_locos);
+    prog_track = new PicoDccTrack(true, prog_track_s, nullptr);
 
     // Setup timing error LED
     timing_error_led_pin = timing_led_pin;
@@ -30,17 +35,11 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
 
     // Setup DCCEX Packate processing
     pico_dccex = new PicoDccEx(MAX_LOCO);
-
-    // Setup our loco store
-    pico_locos = new PicoDccLocos();
     
     // Initialize core health monitoring
     core1_heartbeat = 0;
     last_core1_check = 0;
     last_core1_heartbeat_value = 0;
-    
-    // Initialize reminder rate limiting
-    last_reminder_time = 0;
 }
 
 // This is the Core 0 loop
@@ -142,18 +141,8 @@ void PicoDccController::dccexLoop()
     }
     else
     {
-        // Process reminders when no commands are waiting, but rate-limit to prevent queue overflow
-        // DCC spec requires packets every ~30ms, we use 20ms for safety margin
-        uint32_t current_time = to_ms_since_boot(get_absolute_time());
-        if (current_time - last_reminder_time >= REMINDER_INTERVAL_MS)
-        {
-            raw_dcc_cmd_t cmd = {};
-            if (pico_locos->getNextReminder(cmd))
-            {
-                main_cmd_queue.push(cmd);
-                last_reminder_time = current_time;
-            }
-        }
+        // No command processing needed when idle
+        // Reminders are now handled on Core 1 in PicoDccTrack::loop()
     }
 
     // Repeat/interleaving logic: process one command per loop
