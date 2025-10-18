@@ -168,7 +168,7 @@ void PicoDccController::dccexLoop()
             main_cmd_queue.pop();
             
             // Handle repeats
-            if (cmd.repeats > 0) {
+            if (cmd.repeats > 1) {
                 cmd.repeats--;
                 main_cmd_queue.push(cmd);
             }
@@ -223,6 +223,21 @@ void PicoDccController::dccLoop()
         }
         
         last_command_check = current_time;
+    }
+
+    // Transfer commands from inter-core queue to appropriate track queue
+    raw_dcc_cmd_t cmd;
+    if (queue_try_remove(&track_cmd_queue, &cmd))
+    {
+        // Route command to the appropriate track based on is_prog flag
+        if (cmd.is_prog)
+        {
+            prog_track->queueCommand(&cmd);
+        }
+        else
+        {
+            main_track->queueCommand(&cmd);
+        }
     }
 
     // Command dequeue/send is now handled in main_track->loop().
