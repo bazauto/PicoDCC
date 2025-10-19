@@ -9,6 +9,7 @@
 
 #include "../lib/PicoDCCEX/pico_dccex.h"
 #include "../lib/PicoDCCController/pico_dcccontroller.h"
+#include "../lib/PicoDCCDisplay/pico_dcc_display.h"
 
 #define TRACK_MAIN_SHORT_LED 16
 #define TRACK_MAIN_SIGNAL_PIN 17
@@ -45,6 +46,19 @@ static void main_core1()
 int main() {
 
 	stdio_init_all();
+
+#ifndef TEST_BUILD
+	// Initialize display (PHASE 1 - TEST PATTERN)
+	PicoDCCDisplay display;
+	if (!display.init()) {
+		// Display failed - log error
+		printf("ERROR: LCD initialization failed\n");
+	} else {
+		display.displayTestPattern();  // Show color bars
+		sleep_ms(2000);                // Display for 2 seconds
+		display.displayBootMessage();  // Clear to black
+	}
+#endif
 
 	// Start our core 1 loop
     multicore_launch_core1(main_core1);
