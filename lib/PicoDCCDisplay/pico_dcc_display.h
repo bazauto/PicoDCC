@@ -36,14 +36,18 @@ public:
     PicoDCCDisplay();
     ~PicoDCCDisplay();
     
-    // Initialization
+    // Initialization and boot sequence
     bool init();
+    void runBootSequence();  // Show test pattern, then switch to diagnostic screen
+    
+    // Main loop integration (call from Core 0 main loop)
+    void loop(class PicoDccController* controller);  // Handles periodic updates
     
     // Test methods (Phase 1 only)
     void displayTestPattern();
     void displayBootMessage();
     
-    // Phase 2: LVGL UI methods
+    // Phase 2: LVGL UI methods (used internally by loop())
     void showDiagnosticScreen();
     void updateTrackStatus(const TrackStatus& status);
     void update();  // Call periodically to refresh LVGL (10Hz recommended)
@@ -53,6 +57,10 @@ private:
     bool initialized_;
     bool lvgl_initialized_;
     
+#ifndef TEST_BUILD
+    uint32_t last_update_time_;
+    static const uint32_t UPDATE_INTERVAL_MS = 100;  // 10Hz refresh
+#endif
 #ifndef TEST_BUILD
     // LVGL objects for diagnostic screen
     lv_obj_t* screen_;

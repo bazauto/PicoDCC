@@ -11,6 +11,7 @@ PicoDCC is a project designed for managing and controlling Digital Command Contr
   - `PicoDCCLoco`: Focuses on locomotive-specific operations including throttle commands, function control, and CV programming support.
   - `PicoDCCTrack`: Deals with track-related functionalities, packet transmission via PIO, hardware queue management (single-buffered design), and **locomotive reminder generation on Core 1**.
   - `PicoDCCLocos`: Collection management for multiple locomotives with semaphore-protected operations for thread-safe access from both cores.
+  - `PicoDCCDisplay`: LCD display management (Waveshare WAV-27579, ST7789T3 controller, LVGL graphics). Self-contained component handles all display logic including boot sequence, periodic updates, and data gathering. **See LCD Code Organization section below.**
   - `PicoConfigStorage`: Non-volatile configuration storage in flash memory for calibration values and tunable parameters (last 4KB sector).
 - **Testing**:
   - Unit tests are located in the `test/` directory, with comprehensive test coverage including `pico_dcc_controller_tests.cpp`, `pico_dcc_loco_tests.cpp`, `pico_dcc_locos_tests.cpp`, and `pico_dcc_packet_tests.cpp`.
@@ -125,6 +126,57 @@ This script directly addresses the need to ensure that changes in one build mode
   - Use `CamelCase` for class names.
 - **Testing Framework**:
   - The project uses `cmocka` for unit testing.
+
+## Main Application Entry Point (`src/pico_dcc.cpp`)
+- **CRITICAL RULE**: Keep `main()` function minimal and clean.
+  - `main()` should ONLY contain high-level initialization and the main loop.
+  - **NEVER** add complex logic, data gathering, or update loops directly in `main()`.
+  - **ALWAYS** delegate functionality to component classes (e.g., `PicoDCCDisplay::loop()`).
+  
+- **Current Structure** (DO NOT violate):
+  ```cpp
+  int main() {
+      stdio_init_all();
+      
+      // Initialize components (keep to 5-10 lines max)
+      #ifndef TEST_BUILD
+      PicoDCCDisplay display;
+      display.init();
+      display.runBootSequence();
+      #endif
+      
+      // Start multi-core
+      multicore_launch_core1(main_core1);
+      
+      // Main loop (keep to 3-5 lines max)
+      while (true) {
+          pico_controller.dccexLoop();
+          #ifndef TEST_BUILD
+          display.loop(&pico_controller);  // Component handles its own logic
+          #endif
+      }
+  }
+  ```
+
+- **Pattern to Follow**:
+  - Component initialization: `component.init()`
+  - Component boot/setup: `component.runBootSequence()`
+  - Component periodic updates: `component.loop(controller)` (NOT in main!)
+  - Each component manages its own timing, data gathering, and update logic internally
+
+- **What NOT to Do**:
+  - ❌ Adding timer variables in `main()` (e.g., `last_update_time`)
+  - ❌ Gathering data from other components in `main()` (e.g., `getTrack()`, `getCurrent()`)
+  - ❌ Complex conditional logic or calculations in `main()`
+  - ❌ Long blocks of update code (>5 lines per component)
+
+## LCD Code Organization
+- **PicoDCCDisplay** is a self-contained component (lib/PicoDCCDisplay/)
+  - Handles ALL display logic internally: boot sequence, updates, data gathering
+  - Main application ONLY calls: `init()`, `runBootSequence()`, `loop(controller)`
+  - Component manages: timing, track data queries, LVGL updates, screen rendering
+- **Integration Pattern**: See main() structure above - 3 simple calls, no embedded logic
+- **Documentation**: `docs/lcd-*.md` for LCD-specific design and implementation details
 
 ## Diagnostic Logging System
 - **CRITICAL RULE**: Never pollute the DCC-EX command UART with diagnostic messages. 

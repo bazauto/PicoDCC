@@ -5,6 +5,8 @@
 #ifndef TEST_BUILD
 #include "pico/stdlib.h"
 #include "lvgl.h"
+#include "../PicoDCCController/pico_dcccontroller.h"
+#include "../PicoDCCTrack/pico_dcctrack.h"
 #endif
 
 // Static member initialization
@@ -26,6 +28,7 @@ PicoDCCDisplay::PicoDCCDisplay() : initialized_(false), lvgl_initialized_(false)
     prog_current_label_ = nullptr;
     packets_label_ = nullptr;
     locos_label_ = nullptr;
+    last_update_time_ = 0;
 #endif
 }
 
@@ -58,6 +61,54 @@ bool PicoDCCDisplay::init() {
 #endif
     
     return true;
+}
+
+void PicoDCCDisplay::runBootSequence() {
+    if (!initialized_) return;
+    
+#ifndef TEST_BUILD
+    // Phase 1 test: Show color test pattern for 2 seconds
+    displayTestPattern();
+    sleep_ms(2000);
+    
+    // Phase 2: Show diagnostic screen
+    showDiagnosticScreen();
+#endif
+}
+
+void PicoDCCDisplay::loop(PicoDccController* controller) {
+    if (!initialized_ || !controller) return;
+    
+#ifndef TEST_BUILD
+    // Update display at 10Hz
+    uint32_t now = time_us_32() / 1000;
+    if ((now - last_update_time_) >= UPDATE_INTERVAL_MS) {
+        // Gather track status from controller
+        TrackStatus status;
+        PicoDccTrack* main_track = controller->getTrack(false);
+        PicoDccTrack* prog_track = controller->getTrack(true);
+        
+        // Power status
+        status.main_power_on = main_track->getPower();
+        status.prog_power_on = prog_track->getPower();
+        
+        // Current readings (convert to milliamps)
+        status.main_current_ma = main_track->getAverageCurrent() * 1000.0f;
+        status.prog_current_ma = prog_track->getAverageCurrent() * 1000.0f;
+        
+        // Packet statistics (use main track stats)
+        status.packets_sent = main_track->getCommandsSent();
+        status.idle_packets_sent = main_track->getIdlePacketsSent();
+        
+        // Locomotive count
+        status.loco_count = controller->getLocoCount();
+        
+        updateTrackStatus(status);
+        update();
+        
+        last_update_time_ = now;
+    }
+#endif
 }
 
 #ifndef TEST_BUILD

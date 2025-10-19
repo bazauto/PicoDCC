@@ -48,28 +48,17 @@ int main() {
 	stdio_init_all();
 
 #ifndef TEST_BUILD
-	// Initialize display
+	// Initialize and show boot sequence on LCD
 	PicoDCCDisplay display;
 	if (!display.init()) {
 		printf("ERROR: LCD initialization failed\n");
 	} else {
-		// Phase 1 test: Show color test pattern for 2 seconds
-		display.displayTestPattern();
-		sleep_ms(2000);
-		
-		// Phase 2: Show diagnostic screen
-		display.showDiagnosticScreen();
+		display.runBootSequence();
 	}
 #endif
 
 	// Start our core 1 loop
     multicore_launch_core1(main_core1);
-
-#ifndef TEST_BUILD
-	// Track last display update time
-	uint32_t last_display_update = 0;
-	const uint32_t DISPLAY_UPDATE_INTERVAL_MS = 100;  // 10Hz refresh
-#endif
 
 	// This is our core 0 loop
 	while (true)
@@ -77,24 +66,8 @@ int main() {
 		pico_controller.dccexLoop();
 		
 #ifndef TEST_BUILD
-		// Update display at 10Hz
-		uint32_t now = time_us_32() / 1000;
-		if ((now - last_display_update) >= DISPLAY_UPDATE_INTERVAL_MS) {
-			// Gather track status
-			TrackStatus status;
-			status.main_power_on = pico_controller.isTrackPowerOn(false);
-			status.main_current_ma = 0.0f;  // TODO: Get from track
-			status.prog_power_on = pico_controller.isTrackPowerOn(true);
-			status.prog_current_ma = 0.0f;  // TODO: Get from track
-			status.packets_sent = 0;        // TODO: Get from track
-			status.idle_packets_sent = 0;   // TODO: Get from track
-			status.loco_count = pico_controller.getLocoCount();
-			
-			display.updateTrackStatus(status);
-			display.update();
-			
-			last_display_update = now;
-		}
+		// Update LCD display (10Hz refresh, handled internally)
+		display.loop(&pico_controller);
 #endif
 	}
 }
