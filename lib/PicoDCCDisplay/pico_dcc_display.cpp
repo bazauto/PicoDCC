@@ -362,6 +362,19 @@ void PicoDCCDisplay::update() {
         uart_puts(uart0, "[UPDATE] lv_timer_handler() being called\n");
     }
     
+    // CRITICAL: Tell LVGL how much time has passed since last call
+    // This is needed for timers (including touch polling) to work!
+    static uint32_t last_tick_time = 0;
+    uint32_t now = time_us_32() / 1000;  // Convert to milliseconds
+    if (last_tick_time == 0) {
+        last_tick_time = now;
+    }
+    uint32_t elapsed_ms = now - last_tick_time;
+    if (elapsed_ms > 0) {
+        lv_tick_inc(elapsed_ms);
+        last_tick_time = now;
+    }
+    
     // Process LVGL timers and trigger any pending redraws
     lv_timer_handler();
     
