@@ -386,7 +386,7 @@ void PicoDCCDisplay::update() {
 void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
     // Debug: Print EVERY callback invocation to see if LVGL is calling us
     static uint32_t callback_count = 0;
-    if (++callback_count % 100 == 0) {  // Print every 100 calls
+    if (++callback_count % 10 == 0) {  // Print every 10 calls (more frequent for debugging)
         uart_puts(uart0, "[CALLBACK] touchCallback() called by LVGL\n");
     }
     
@@ -407,6 +407,11 @@ void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
     // Read fresh touch data from CST328
     TouchPoint points[1];
     uint8_t num_touches = instance_->touch_.readTouchPoints(points, 1);
+    
+    // Debug: Always print the result of readTouchPoints
+    char debug_buf[64];
+    snprintf(debug_buf, sizeof(debug_buf), "[CALLBACK] readTouchPoints returned %u touches\n", num_touches);
+    uart_puts(uart0, debug_buf);
     
     // Update LVGL with current touch state
     if (num_touches > 0 && points[0].valid) {

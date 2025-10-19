@@ -183,6 +183,7 @@ bool TouchDriver::readMultipleRegisters(uint8_t reg, uint8_t* buffer, uint8_t le
 
 uint8_t TouchDriver::readTouchPoints(TouchPoint* points, uint8_t max_points) {
     if (!initialized_ || points == nullptr || max_points == 0) {
+        uart_puts(uart0, "[TOUCH_DRV] readTouchPoints: not initialized or bad params\n");
         return 0;
     }
     
@@ -192,6 +193,7 @@ uint8_t TouchDriver::readTouchPoints(TouchPoint* points, uint8_t max_points) {
 #else
     // Clear interrupt flag at start of read
     touch_interrupt_pending_ = false;
+    uart_puts(uart0, "[TOUCH_DRV] Flag cleared, reading I2C...\n");
     
     // CST328 touch data format:
     // Byte 0: Number of touch points (0-5)
@@ -207,10 +209,15 @@ uint8_t TouchDriver::readTouchPoints(TouchPoint* points, uint8_t max_points) {
     
     // Read status register (number of touches)
     if (!readMultipleRegisters(CST328_REG_STATUS, raw_data, 32)) {
+        uart_puts(uart0, "[TOUCH_DRV] I2C read FAILED!\n");
         return 0;
     }
     
     uint8_t num_touches = raw_data[0] & 0x0F;  // Lower 4 bits
+    
+    char buf[64];
+    snprintf(buf, sizeof(buf), "[TOUCH_DRV] I2C read OK, num_touches=%u\n", num_touches);
+    uart_puts(uart0, buf);
     
     // Clear touch state when no touches detected
     if (num_touches == 0) {
