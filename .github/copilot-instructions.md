@@ -165,10 +165,18 @@ This script directly addresses the need to ensure that changes in one build mode
   - Emergency stop is implemented as a DCC broadcast command (address 0x00, instruction 0x41).
   - The system uses a single broadcast packet rather than per-locomotive emergency stop commands.
   - Emergency stop clears the main queue, hardware queue, and all locomotive states.
+- **Service Mode Programming (Programming Track)**:
+  - Reference: [DCC Wiki - Service Mode Programming](https://dccwiki.com/Service_Mode_Programming)
+  - Implementation plan documented in `docs/service-mode-programming-plan.md`
+  - DCC-EX commands: `<W cv value>`, `<V cv value>`, `<R cv>`, `<B cv bit value>`
+  - ACK detection: Decoder responds with 60mA pulse for 6ms, must detect within 8ms window
+  - Programming track: Separate from main track, lower current limits, 20-bit preamble (vs 14-bit for main)
+  - Direct Mode (NMRA S-9.2.3): Primary method for CV read/write/verify operations
+  - Key CVs: CV1 (short address), CV17/18 (long address), CV29 (configuration)
 - **CV Programming Support**:
-  - The `PicoDccLoco` class includes CV (Configuration Variable) methods for future decoder programming.
+  - The `PicoDccLoco` class includes CV (Configuration Variable) method stubs for future decoder programming.
   - Methods include `verifyCV()`, `readCVByte()`, `readCVBit()`, `writeCVBytes()`, and `writeCVBit()`.
-  - These are preserved for planned programming track functionality.
+  - Full implementation planned with dedicated `PicoDccProgrammer` component.
 - **Queue Management**:
   - Main command queue operates on Core 0 for explicit commands with repeat logic.
   - Hardware queue operates on Core 1 with single-buffered design.

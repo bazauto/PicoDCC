@@ -7,6 +7,7 @@ list(APPEND TEST_TARGETS pico_dcc_loco_tests)
 list(APPEND TEST_TARGETS pico_dcc_locos_tests)
 list(APPEND TEST_TARGETS pico_dcc_controller_tests)
 list(APPEND TEST_TARGETS pico_dcc_track_tests)
+list(APPEND TEST_TARGETS pico_config_storage_tests)
 
 list(APPEND TEST_LIBS "${CMOCKA_LIBRARIES}")
 list(APPEND TEST_LIBS mocks)
@@ -14,6 +15,7 @@ list(APPEND TEST_LIBS PicoDCCEX)
 list(APPEND TEST_LIBS PicoDCCLoco)
 list(APPEND TEST_LIBS PicoDCCTrack)
 list(APPEND TEST_LIBS PicoDCCController)
+list(APPEND TEST_LIBS PicoConfigStorage)
 
 # Ensure cmocka is linked to all test targets
 list(APPEND TEST_LIBS cmocka::cmocka)

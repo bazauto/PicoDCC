@@ -96,6 +96,7 @@ inline void log_diagnostic(diagnostic_level_t level, const char* component, cons
 #define COMPONENT_QUEUE      "QUEUE"
 #define COMPONENT_CORE       "CORE"
 #define COMPONENT_DCCEX      "DCCEX"
+#define COMPONENT_SYSTEM     "SYSTEM"
 
 /**
  * Current Error Conditions Logged:
