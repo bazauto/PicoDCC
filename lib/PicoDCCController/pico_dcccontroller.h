@@ -54,13 +54,15 @@ public:
     
     // Safety functions
     void emergencyPowerCutoff();
+    
+    // Display/status accessors (used by PicoDCCDisplay and tests)
+    bool isTrackPowerOn(bool isProg) { return isProg ? prog_track->getPower() : main_track->getPower(); }
+    size_t getLocoCount() { return pico_locos->getLocoCount(); }
+    PicoDccTrack* getTrack(bool isProg) { return isProg ? prog_track : main_track; }
 
 #ifdef TEST_BUILD
-    // Test accessors
-    bool isTrackPowerOn(bool isProg) { return isProg ? prog_track->getPower() : main_track->getPower(); }
+    // Additional test accessors
     PicoDccEx* getDccEx() { return pico_dccex; }
-    PicoDccTrack* getTrack(bool isProg) { return isProg ? prog_track : main_track; }
-    size_t getLocoCount() { return pico_locos->getLocoCount(); }
     PicoDccLocos* getLocos() { return pico_locos; }
 #endif
 };
