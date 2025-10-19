@@ -6,6 +6,7 @@
 #include <cstdint>
 #include "lcd_driver.h"
 #include "touch_driver.h"  // Phase 4: Touch support
+#include "touch_calibration.h"  // Touch calibration utility
 
 #ifndef TEST_BUILD
 #include "lvgl.h"
@@ -53,9 +54,14 @@ public:
     void updateTrackStatus(const TrackStatus& status);
     void update();  // Call periodically to refresh LVGL (10Hz recommended)
     
+    // Touch calibration
+    void startCalibration();  // Enter calibration mode
+    bool isCalibrating() const;
+    
 private:
     LcdDriver lcd_;
     TouchDriver touch_;  // Phase 4: Touch controller
+    TouchCalibration calibration_;  // Touch calibration utility
     bool initialized_;
     bool lvgl_initialized_;
     
@@ -83,6 +89,11 @@ private:
     lv_obj_t* btn_reset_trips_;
     lv_obj_t* btn_calibrate_;
     
+    // Calibration screen objects
+    lv_obj_t* calib_screen_;
+    lv_obj_t* calib_crosshair_;
+    lv_obj_t* calib_label_;
+    
     // LVGL display driver buffer
     static lv_disp_draw_buf_t disp_buf_;
     static lv_color_t buf1_[LV_HOR_RES_MAX * 20];  // 20 lines buffer
@@ -105,6 +116,8 @@ private:
     bool initLVGL();
     void createDiagnosticScreen();
     void createTouchButtons();  // Phase 4: Create interactive buttons
+    void createCalibrationScreen();  // Create calibration UI
+    void updateCalibrationScreen();  // Update crosshair position and instructions
 #endif
 
 };

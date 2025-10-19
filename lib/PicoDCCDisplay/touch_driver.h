@@ -61,10 +61,10 @@ private:
     // GPIO interrupt handler
     static void touchInterruptHandler(unsigned int gpio, uint32_t events);
     
-    // CST328 I2C communication
-    bool writeRegister(uint8_t reg, uint8_t value);
-    bool readRegister(uint8_t reg, uint8_t* value);
-    bool readMultipleRegisters(uint8_t reg, uint8_t* buffer, uint8_t length);
+    // CST328 I2C communication (CST328 uses 16-bit register addresses)
+    bool writeRegister(uint16_t reg, uint8_t value);
+    bool readRegister(uint16_t reg, uint8_t* value);
+    bool readMultipleRegisters(uint16_t reg, uint8_t* buffer, uint8_t length);
     
     // Hardware reset sequence
     void hardwareReset();

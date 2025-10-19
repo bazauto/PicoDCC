@@ -22,8 +22,10 @@
 #define TOUCH_RST_PIN       11          // GP11 = RST (active low)
 
 // CST328 register map
-#define CST328_REG_STATUS   0x00        // Touch status register
-#define CST328_REG_TOUCH    0x01        // First touch point data
+#define CST328_REG_STATUS   0xD000      // Touch status register (16-bit address)
+#define CST328_REG_TOUCH    0xD000      // First touch point data (same as status)
+#define CST328_REG_MODE_DEBUG_INFO  0xD101  // Debug mode to read chip info
+#define CST328_REG_CHIP_INFO    0xD1FC      // Chip info register (returns 0xCACAxxxx)
 #define CST328_REG_MODE     0xFA        // Operating mode
 #define CST328_REG_CHIPID   0xFC        // Chip ID register
 
@@ -83,18 +85,37 @@ bool TouchDriver::init() {
     // Perform hardware reset
     hardwareReset();
     
-    // Wait for CST328 to boot (typical: 50-100ms)
-    sleep_ms(100);
+    // Wait for CST328 to boot (datasheet: TRON = 200ms)
+    sleep_ms(200);
     
-    // Verify communication by reading chip ID
-    uint8_t chip_id = 0;
-    if (!readRegister(CST328_REG_CHIPID, &chip_id)) {
-        return false;
+    // Verify CST328 is present by reading chip info
+    // Reference driver shows we need to try a few times and enable debug mode
+    bool chip_found = false;
+    for (int attempt = 0; attempt < 3 && !chip_found; attempt++) {
+        // Enable debug mode to read chip information
+        uint8_t reg_addr[2] = {(CST328_REG_MODE_DEBUG_INFO >> 8) & 0xFF, 
+                               CST328_REG_MODE_DEBUG_INFO & 0xFF};
+        i2c_write_blocking(i2c0, CST328_I2C_ADDR, reg_addr, 2, false);
+        
+        sleep_ms(10);
+        
+        // Read firmware checksum (should be 0xCACAxxxx)
+        uint8_t chip_info[4];
+        uint8_t info_addr[2] = {(CST328_REG_CHIP_INFO >> 8) & 0xFF,
+                                CST328_REG_CHIP_INFO & 0xFF};
+        i2c_write_blocking(i2c0, CST328_I2C_ADDR, info_addr, 2, true);
+        int result = i2c_read_blocking(i2c0, CST328_I2C_ADDR, chip_info, 4, false);
+        
+        if (result == 4) {
+            // Check if high bytes are 0xCACA
+            uint16_t fw_vc = (chip_info[3] << 8) | chip_info[2];
+            if (fw_vc == 0xCACA) {
+                chip_found = true;
+            }
+        }
     }
     
-    // CST328 should return chip ID (typically 0x28 or 0x32)
-    // Accept any non-zero value as valid
-    if (chip_id == 0) {
+    if (!chip_found) {
         return false;
     }
     
@@ -111,17 +132,11 @@ void TouchDriver::touchInterruptHandler(unsigned int gpio, uint32_t events) {
     if (gpio == TOUCH_INT_PIN && (events & GPIO_IRQ_EDGE_FALL)) {
         // Set flag - will be checked during next LVGL poll
         touch_interrupt_pending_ = true;
-        uart_puts(uart0, "[ISR] Touch interrupt! Flag set\n");
     }
 }
 
 bool TouchDriver::hasPendingTouch() {
-    bool pending = touch_interrupt_pending_;
-    // Only print when flag is true (not the spam of false checks)
-    if (pending) {
-        uart_puts(uart0, "[DRIVER] hasPendingTouch() = TRUE!\n");
-    }
-    return pending;
+    return touch_interrupt_pending_;
 }
 
 void TouchDriver::hardwareReset() {
@@ -134,24 +149,34 @@ void TouchDriver::hardwareReset() {
 #endif
 }
 
-bool TouchDriver::writeRegister(uint8_t reg, uint8_t value) {
+bool TouchDriver::writeRegister(uint16_t reg, uint8_t value) {
 #ifdef TEST_BUILD
     return true;
 #else
-    uint8_t data[2] = {reg, value};
-    int result = i2c_write_blocking(i2c0, CST328_I2C_ADDR, data, 2, false);
-    return (result == 2);
+    // CST328 uses 16-bit register addresses
+    uint8_t data[3] = {
+        static_cast<uint8_t>((reg >> 8) & 0xFF), 
+        static_cast<uint8_t>(reg & 0xFF), 
+        value
+    };
+    int result = i2c_write_blocking(i2c0, CST328_I2C_ADDR, data, 3, false);
+    return (result == 3);
 #endif
 }
 
-bool TouchDriver::readRegister(uint8_t reg, uint8_t* value) {
+bool TouchDriver::readRegister(uint16_t reg, uint8_t* value) {
 #ifdef TEST_BUILD
     *value = 0x28;  // Mock chip ID
     return true;
 #else
-    // Write register address
-    int result = i2c_write_blocking(i2c0, CST328_I2C_ADDR, &reg, 1, true);
-    if (result != 1) {
+    // CST328 uses 16-bit register addresses
+    uint8_t reg_addr[2];
+    reg_addr[0] = (reg >> 8) & 0xFF;  // High byte
+    reg_addr[1] = reg & 0xFF;         // Low byte
+    
+    // Write 16-bit register address
+    int result = i2c_write_blocking(i2c0, CST328_I2C_ADDR, reg_addr, 2, true);
+    if (result != 2) {
         return false;
     }
     
@@ -161,7 +186,7 @@ bool TouchDriver::readRegister(uint8_t reg, uint8_t* value) {
 #endif
 }
 
-bool TouchDriver::readMultipleRegisters(uint8_t reg, uint8_t* buffer, uint8_t length) {
+bool TouchDriver::readMultipleRegisters(uint16_t reg, uint8_t* buffer, uint8_t length) {
 #ifdef TEST_BUILD
     // Mock read - fill with zeros
     for (uint8_t i = 0; i < length; i++) {
@@ -169,9 +194,14 @@ bool TouchDriver::readMultipleRegisters(uint8_t reg, uint8_t* buffer, uint8_t le
     }
     return true;
 #else
-    // Write starting register address
-    int result = i2c_write_blocking(i2c0, CST328_I2C_ADDR, &reg, 1, true);
-    if (result != 1) {
+    // CST328 uses 16-bit register addresses
+    uint8_t reg_addr[2];
+    reg_addr[0] = (reg >> 8) & 0xFF;  // High byte
+    reg_addr[1] = reg & 0xFF;         // Low byte
+    
+    // Write 16-bit register address
+    int result = i2c_write_blocking(i2c0, CST328_I2C_ADDR, reg_addr, 2, true);
+    if (result != 2) {
         return false;
     }
     
@@ -183,7 +213,6 @@ bool TouchDriver::readMultipleRegisters(uint8_t reg, uint8_t* buffer, uint8_t le
 
 uint8_t TouchDriver::readTouchPoints(TouchPoint* points, uint8_t max_points) {
     if (!initialized_ || points == nullptr || max_points == 0) {
-        uart_puts(uart0, "[TOUCH_DRV] readTouchPoints: not initialized or bad params\n");
         return 0;
     }
     
@@ -193,31 +222,44 @@ uint8_t TouchDriver::readTouchPoints(TouchPoint* points, uint8_t max_points) {
 #else
     // Clear interrupt flag at start of read
     touch_interrupt_pending_ = false;
-    uart_puts(uart0, "[TOUCH_DRV] Flag cleared, reading I2C...\n");
-    
-    // CST328 touch data format:
-    // Byte 0: Number of touch points (0-5)
-    // Bytes 1-6: Touch point 1 (6 bytes per point)
-    //   [0]: XH (upper 4 bits) + event (lower 4 bits)
-    //   [1]: XL (lower 8 bits)
-    //   [2]: YH (upper 4 bits) + ID (lower 4 bits)
-    //   [3]: YL (lower 8 bits)
-    //   [4]: Pressure (not used)
-    //   [5]: Area (not used)
     
     uint8_t raw_data[32];  // Buffer for status + 5 touch points
     
     // Read status register (number of touches)
     if (!readMultipleRegisters(CST328_REG_STATUS, raw_data, 32)) {
-        uart_puts(uart0, "[TOUCH_DRV] I2C read FAILED!\n");
         return 0;
     }
     
-    uint8_t num_touches = raw_data[0] & 0x0F;  // Lower 4 bits
+    // Debug: Print raw data every 50 reads
+    static int read_count = 0;
+    if (++read_count % 50 == 0) {
+        char debug[200];
+        snprintf(debug, sizeof(debug), 
+                 "[TOUCH RAW %d] byte0=%02X byte1=%02X byte2=%02X byte3=%02X byte4=%02X\n",
+                 read_count, raw_data[0], raw_data[1], raw_data[2], raw_data[3], raw_data[4]);
+        uart_puts(uart0, debug);
+    }
     
-    char buf[64];
-    snprintf(buf, sizeof(buf), "[TOUCH_DRV] I2C read OK, num_touches=%u\n", num_touches);
-    uart_puts(uart0, buf);
+    // CST328 data format (from reference driver):
+    // Byte 0: [ID (4 bits)][State (4 bits)] - state == 6 means pressed
+    // Byte 1: X high 8 bits  
+    // Byte 2: Y high 8 bits
+    // Byte 3: [X low 4 bits][Y low 4 bits]
+    // Byte 4: Pressure/weight
+    
+    // Check if first touch point has valid state (pressed == 6)
+    uint8_t state = raw_data[0] & 0x0F;
+    
+    // Extract coordinates
+    uint16_t x_test = (raw_data[1] << 4) | ((raw_data[3] >> 4) & 0x0F);
+    uint16_t y_test = (raw_data[2] << 4) | (raw_data[3] & 0x0F);
+    
+    uint8_t num_touches = 0;
+    
+    // Determine actual touch count based on state and coordinate validity
+    if (state == 6 && x_test > 0 && x_test < 4096 && y_test > 0 && y_test < 4096) {
+        num_touches = 1;  // We have at least one valid touch
+    }
     
     // Clear touch state when no touches detected
     if (num_touches == 0) {
@@ -226,11 +268,9 @@ uint8_t TouchDriver::readTouchPoints(TouchPoint* points, uint8_t max_points) {
         return 0;
     }
     
-    // Validate number of touches
-    if (num_touches > MAX_TOUCH_POINTS) {
-        has_touch_ = false;
-        last_touch_.valid = false;
-        return 0;
+    // We only support single touch for now
+    if (num_touches > max_points) {
+        num_touches = max_points;
     }
     
     // Limit to requested number of points
@@ -240,26 +280,29 @@ uint8_t TouchDriver::readTouchPoints(TouchPoint* points, uint8_t max_points) {
     
     // Parse touch data for each point
     for (uint8_t i = 0; i < num_touches; i++) {
-        uint8_t offset = 1 + (i * 6);  // Each point is 6 bytes
+        // CST328 data format: 5 bytes per touch point
+        // Finger 1 starts at byte 0, Finger 2 at byte 7 (after 2-byte gap)
+        uint8_t offset = (i == 0) ? 0 : (7 + (i - 1) * 5);
         
-        // Extract X coordinate (12 bits)
-        uint16_t x = ((raw_data[offset] & 0x0F) << 8) | raw_data[offset + 1];
+        // Byte 0: [ID (4 bits)][State (4 bits)]
+        uint8_t finger_data = raw_data[offset];
+        uint8_t finger_state = finger_data & 0x0F;
         
-        // Extract Y coordinate (12 bits)
-        uint16_t y = ((raw_data[offset + 2] & 0x0F) << 8) | raw_data[offset + 3];
+        // Byte 1: X high 8 bits
+        // Byte 2: Y high 8 bits  
+        // Byte 3: [X low 4 bits][Y low 4 bits]
+        uint16_t x = (raw_data[offset + 1] << 4) | ((raw_data[offset + 3] >> 4) & 0x0F);
+        uint16_t y = (raw_data[offset + 2] << 4) | (raw_data[offset + 3] & 0x0F);
         
-        // Extract event type
-        uint8_t event = (raw_data[offset] >> 4) & 0x03;
-        
-        // Extract touch ID
-        uint8_t id = raw_data[offset + 2] & 0x0F;
+        // Byte 4: Pressure
+        uint8_t pressure = raw_data[offset + 4];
         
         // Store touch point
         points[i].x = x;
         points[i].y = y;
-        points[i].event = event;
-        points[i].id = id;
-        points[i].valid = true;
+        points[i].event = (finger_state == 6) ? EVENT_CONTACT : EVENT_UP;
+        points[i].id = (finger_data >> 4) & 0x0F;
+        points[i].valid = (finger_state == 6);  // Valid only if pressed
         
         // Update last touch (use first point for LVGL)
         if (i == 0) {

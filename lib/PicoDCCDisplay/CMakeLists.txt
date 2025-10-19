@@ -5,6 +5,7 @@ add_library(PicoDCCDisplay STATIC
     pico_dcc_display.cpp
     lcd_driver.cpp
     touch_driver.cpp
+    touch_calibration.cpp
     ui/ui_screens.cpp
     ui/ui_diagnostic_screen.cpp
 )

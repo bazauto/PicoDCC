@@ -63,47 +63,91 @@ Implementing CST328 capacitive touch controller for interactive LCD display. Tou
    - Timer created: 10ms period, not paused ✓
    - Callback confirmed being called by LVGL ✓
 
-### 🔧 CURRENT ISSUES
+4. **I2C Communication Working**:
+   - CST328 responds to I2C reads ✓
+   - Data is being received ✓
 
-#### Issue 1: Callback Frequency
-**Observed**: `[CALLBACK] touchCallback() called by LVGL` prints every 10 seconds  
-**Expected**: Every 1 second (counter prints every 10 calls at 10ms intervals)  
-**Analysis**: May indicate actual callback rate is lower than expected, or counter math is off.
+### 🔧 CURRENT ISSUES (19 Oct 2025 - Active Debug)
 
-#### Issue 2: No Touch Data Read
-**Observed**: 
-- `[ISR] Touch interrupt! Flag set` ✓ (confirms interrupt works)
-- `[DRIVER] hasPendingTouch() = TRUE!` ✓ (confirms flag check works)
-- `[CALLBACK] Flag is set! Reading touch data...` ✓ (confirms callback proceeds)
-- **MISSING**: `Touch: Raw (X,Y) -> Scaled (x,y) Event=N` (no touch coordinates)
-- **MISSING**: `[CALLBACK] readTouchPoints returned X touches`
-
-**Current Debug Code** (just added):
-```cpp
-// In touchCallback():
-uint8_t num_touches = instance_->touch_.readTouchPoints(points, 1);
-char debug_buf[64];
-snprintf(debug_buf, sizeof(debug_buf), "[CALLBACK] readTouchPoints returned %u touches\n", num_touches);
-uart_puts(uart0, debug_buf);
-
-// In readTouchPoints():
-uart_puts(uart0, "[TOUCH_DRV] Flag cleared, reading I2C...\n");
-if (!readMultipleRegisters(CST328_REG_STATUS, raw_data, 32)) {
-    uart_puts(uart0, "[TOUCH_DRV] I2C read FAILED!\n");
-    return 0;
-}
-uint8_t num_touches = raw_data[0] & 0x0F;
-snprintf(buf, sizeof(buf), "[TOUCH_DRV] I2C read OK, num_touches=%u\n", num_touches);
-uart_puts(uart0, buf);
+#### Issue 1: CST328 Data Format Mismatch - ✅ RESOLVED!
+**Original Problem**:
+```
+[TOUCH_DRV] I2C read OK, num_touches=6
+[CALLBACK] readTouchPoints returned 0 touches
 ```
 
-**Next Test**: Flash latest firmware and check UART output for:
-1. Does I2C read succeed or fail?
-2. If successful, what is `num_touches` value?
-3. If 0, why is CST328 reporting no touches despite INT firing?
+**Root Cause Discovered**:
+The CST328 doesn't reliably report touch count in byte 0. Analysis of raw data revealed:
+```
+Touch press:   Raw[0-6]: 06 07 11 3B 37 01 AB
+Touch release: Raw[0-6]: 00 07 11 3B 34 01 AB
+```
+- Byte 0 = `0x06` (garbage, not touch count)
+- Bytes 1-6 contain valid coordinate data: X=1809 (0x711), Y=2871 (0xB37)
+- Scaled coordinates: (141, 168) - perfectly reasonable for 320×240 screen!
 
-#### Issue 3: Buttons Don't Respond
-**Expected**: Will work once touch coordinates are correctly read.
+**Solution Implemented**:
+Changed from trusting byte 0 to validating actual coordinate data:
+```cpp
+// OLD: uint8_t num_touches = raw_data[0] & 0x0F;  // Unreliable!
+
+// NEW: Check if coordinates are valid (non-zero, in range 0-4095)
+uint16_t x_test = ((raw_data[1] & 0x0F) << 8) | raw_data[2];
+uint16_t y_test = ((raw_data[3] & 0x0F) << 8) | raw_data[4];
+if (x_test > 0 && x_test < 4096 && y_test > 0 && y_test < 4096) {
+    num_touches = 1;  // Valid touch detected
+}
+```
+
+**Bug Fix #2**: Event type extraction was wrong
+```cpp
+// OLD: uint8_t event = (raw_data[offset] >> 4) & 0x03;  // Wrong bits!
+// NEW: uint8_t event = (raw_data[offset] >> 6) & 0x03;  // Upper 2 bits
+```
+
+#### Issue 2: Touch Coordinates Axis Swap - ✅ SOLUTION IMPLEMENTED!
+
+**Final Analysis from Testing**:
+
+Multiple touches to MAIN PWR button showed:
+```
+Touch 1a: Raw(1554,1041) -> Swap(60,121)   ← Y=121 perfect for buttons!
+Touch 1b: Raw(1554,1052) -> Swap(61,121)   ← Y=121 consistent!
+Touch 2a: Raw(1553,2867) -> Swap(167,121)  ← Y=121 again!
+Touch 2b: Raw(1553,2871) -> Swap(168,121)  ← Y=121 stable!
+```
+
+**Key Discovery**:
+- **Swapped Y coordinate = 121** is consistently in button range (Y=100-140)! ✅
+- **Swapped X coordinate varies 60-168** covering different screen areas ✅
+- This matches 90° rotation: Touch X→Display Y, Touch Y→Display X
+
+**Button Positions**:
+- MAIN PWR: X=5-75, Y=100-140
+- PROG PWR: X=85-155, Y=100-140
+- RESET TRIPS: X=165-235, Y=100-140
+- CALIBRATE: X=245-315, Y=100-140
+
+**Expected Touch Mapping** (with swap):
+- Touch MAIN PWR → Raw X≈1550, Raw Y≈200-500 → Swap(11-30, 121)
+- Touch PROG PWR → Raw X≈1550, Raw Y≈700-1000 → Swap(40-60, 121)
+- Touch RESET TRIPS → Raw X≈1550, Raw Y≈2700-3000 → Swap(160-175, 121)
+- Touch CALIBRATE → Raw X≈1550, Raw Y≈3500-4000 → Swap(205-234, 121)
+
+**Solution Applied**:
+```cpp
+// Simple axis swap (90° rotation)
+int scaled_x = (points[0].x * 320) / 4096;
+int scaled_y = (points[0].y * 240) / 4096;
+data->point.x = scaled_y;  // Touch Y becomes Display X
+data->point.y = scaled_x;  // Touch X becomes Display Y
+```
+
+**Debug Output Cleaned Up**:
+- Removed: ISR messages, DRIVER messages, TOUCH_DRV verbose output, UPDATE messages, CALLBACK spam
+- Kept: Button click events, final touch coordinates only
+
+**Next Test**: Should see MAIN PWR button activate when touched!
 
 ## Key Files Modified
 
@@ -182,27 +226,78 @@ Touch: Raw (X,Y) -> Scaled (x,y) Event=N           ← If num_touches > 0 (NOT S
 
 ## Next Steps (Priority Order)
 
-### IMMEDIATE (Hardware Debug Session)
-1. **Flash latest firmware** (includes all new debug output)
-2. **Touch screen and capture UART output**:
-   - Does `[TOUCH_DRV] I2C read FAILED!` appear?
-   - Does `[TOUCH_DRV] I2C read OK, num_touches=X` appear?
-   - What is the value of `X`?
-3. **Analyze based on results**:
-   - **If I2C fails**: Check bus, address, timing
-   - **If num_touches=0**: Check timing between INT and read, verify register address
-   - **If num_touches>0 but no "Touch: Raw"**: Check coordinate parsing logic
+### IMMEDIATE (Hardware Debug Session - IN PROGRESS)
+1. ✅ **Touch detection working** (coordinates being read)
+2. ✅ **Axis swap confirmed** (Y stable at 120-141, perfect for buttons)
+3. 🔧 **Debounce added** - filters out jittery/unstable X coordinates
+   - Ignores touches within 50ms and 100 raw units of previous touch
+   - Should prevent random button activations
+4. **Test debounced touch** - should now consistently hit correct buttons
 
-### ONCE TOUCH DATA READS WORK
-4. **Verify coordinate scaling** (12-bit → 320×240 pixels)
-5. **Test button press detection** (should work automatically)
-6. **Remove/reduce debug output** (too much UART spam)
-7. **Verify touch release detection**
+### DEBOUNCE LOGIC DETAILS
+**Problem Observed**:
+```
+Touch 1: Display(18,141)   ← Should hit MAIN PWR (X=5-75) ✓
+Touch 2: Display(92,120)   ← Should hit PROG PWR (X=85-155) ✓
+Touch 3: Display(153,120)  ← Should hit RESET TRIPS (X=165-235) ✓
+Touch 4: Display(2,120)    ← X=2 is wrong (too far left)
+```
 
-### OPTIMIZATION (Phase 4 Completion)
-8. **Test all 4 buttons**: MAIN PWR, PROG PWR, RESET TRIPS, CALIBRATE
-9. **Verify power toggle functionality**
-10. **Clean up debug code** (reduce to initialization messages only)
+Y coordinates perfect, but X jumps around during same physical touch.
+
+**Solution Implemented**:
+```cpp
+// Track last touch coordinates and time
+static int last_raw_x = 0;
+static int last_raw_y = 0;
+static uint32_t last_touch_time = 0;
+
+// Calculate deltas
+int delta_x = abs((int)points[0].x - last_raw_x);
+int delta_y = abs((int)points[0].y - last_raw_y);
+uint32_t delta_time = now - last_touch_time;
+
+// Ignore if too similar (within 100 units and 50ms)
+if (delta_time < 50 && delta_x < 100 && delta_y < 100) {
+    // Same touch continuing - keep previous position
+    return;
+}
+```
+
+This filters out rapid jittery readings while allowing:
+- New touches after 50ms
+- Touch movement >100 units (~2.4% of range)
+- Intentional drags/swipes
+
+### ONCE DEBOUNCE WORKS
+5. **Verify all 4 buttons respond correctly**
+6. **Check button visual feedback** (press animation)
+7. **Test power toggle functionality**
+8. **Remove touch coordinate debug output** (keep button events only)
+
+## Expected UART Output (Next Test)
+
+**When touch occurs** (should now work correctly):
+```
+[ISR] Touch interrupt! Flag set                    
+[DRIVER] hasPendingTouch() = TRUE!                  
+[CALLBACK] Flag is set! Reading touch data...       
+[TOUCH_DRV] Flag cleared, reading I2C...           
+[TOUCH_DRV] I2C read OK, reported_count=6, x_test=1809, y_test=2871, num_touches=1
+[TOUCH_DRV] Raw[0-6]: 06 07 11 3B 37 01 AB        
+[TOUCH_DRV] Raw[7-12]: 00 00 00 56 00 00          
+[TOUCH_DRV] Point 0: X=1809 Y=2871 Event=0 ID=11 (offset=1)
+[TOUCH_DRV] Returning 1 touch points               
+[CALLBACK] readTouchPoints returned 1 touches       
+Touch: Raw (1809,2871) -> Scaled (141,168) Event=0 ← Should work now!
+```
+
+**When touch releases**:
+```
+[TOUCH_DRV] I2C read OK, reported_count=0, x_test=1809, y_test=2852, num_touches=0
+[CALLBACK] readTouchPoints returned 0 touches
+```
+Note: Stale coordinates remain in buffer, but num_touches=0 because coordinates haven't changed significantly (release detection).
 
 ## Critical Implementation Notes
 

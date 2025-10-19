@@ -79,6 +79,13 @@ bool PicoDccEx::processCommand(pico_dccex_packet* packet)
                             reset();
                             return false;
                         }
+                        else if (currentPacket->isCalibrationCommand())
+                        {
+                            // Return special packet to trigger calibration
+                            *packet = *currentPacket->getPacketData();
+                            reset();
+                            return true;
+                        }
                         else if (currentPacket->isPowerCommand())
                         {
                             *packet = *currentPacket->getPacketData();

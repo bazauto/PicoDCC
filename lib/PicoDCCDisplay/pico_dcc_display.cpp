@@ -1,6 +1,7 @@
 /* lib/PicoDCCDisplay/pico_dcc_display.cpp */
 #include "pico_dcc_display.h"
 #include <cstdio>
+#include <cstdlib>  // For abs()
 
 #ifndef TEST_BUILD
 #include "pico/stdlib.h"
@@ -38,6 +39,11 @@ PicoDCCDisplay::PicoDCCDisplay() : initialized_(false), lvgl_initialized_(false)
     btn_prog_power_ = nullptr;
     btn_reset_trips_ = nullptr;
     btn_calibrate_ = nullptr;
+    
+    // Calibration screen objects
+    calib_screen_ = nullptr;
+    calib_crosshair_ = nullptr;
+    calib_label_ = nullptr;
 #endif
 }
 
@@ -91,6 +97,11 @@ void PicoDCCDisplay::loop(PicoDccController* controller) {
 #ifndef TEST_BUILD
     // Save controller reference for button callbacks (Phase 4)
     controller_ref_ = controller;
+    
+    // Check if calibration was requested via serial command
+    if (controller->getCalibrationRequested()) {
+        startCalibration();
+    }
     
     // Update display at 10Hz
     uint32_t now = time_us_32() / 1000;
@@ -356,12 +367,6 @@ void PicoDCCDisplay::updateTrackStatus(const TrackStatus& status) {
 void PicoDCCDisplay::update() {
     if (!lvgl_initialized_) return;
     
-    // Debug: Verify this is being called
-    static uint32_t update_count = 0;
-    if (++update_count % 100 == 0) {  // Print every 100 calls (~1 second)
-        uart_puts(uart0, "[UPDATE] lv_timer_handler() being called\n");
-    }
-    
     // CRITICAL: Tell LVGL how much time has passed since last call
     // This is needed for timers (including touch polling) to work!
     static uint32_t last_tick_time = 0;
@@ -384,55 +389,131 @@ void PicoDCCDisplay::update() {
 
 // Phase 4: Touch input callback for LVGL
 void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
-    // Debug: Print EVERY callback invocation to see if LVGL is calling us
-    static uint32_t callback_count = 0;
-    if (++callback_count % 10 == 0) {  // Print every 10 calls (more frequent for debugging)
-        uart_puts(uart0, "[CALLBACK] touchCallback() called by LVGL\n");
-    }
-    
     if (!instance_) {
         data->state = LV_INDEV_STATE_RELEASED;
         return;
     }
     
-    // Check if interrupt flag is set (catches short INT pulses)
-    // If no interrupt, skip I2C read to save time
-    if (!instance_->touch_.hasPendingTouch()) {
-        data->state = LV_INDEV_STATE_RELEASED;
-        return;  // No interrupt pending - most common case
-    }
+    // During calibration, always read touch data (even without interrupt)
+    // This allows us to detect touch releases
+    bool calibrating = instance_->calibration_.isRunning();
+    bool has_interrupt = instance_->touch_.hasPendingTouch();
     
-    uart_puts(uart0, "[CALLBACK] Flag is set! Reading touch data...\n");
+    if (!calibrating && !has_interrupt) {
+        // Normal mode: no interrupt = no touch
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
     
     // Read fresh touch data from CST328
     TouchPoint points[1];
     uint8_t num_touches = instance_->touch_.readTouchPoints(points, 1);
     
-    // Debug: Always print the result of readTouchPoints
-    char debug_buf[64];
-    snprintf(debug_buf, sizeof(debug_buf), "[CALLBACK] readTouchPoints returned %u touches\n", num_touches);
-    uart_puts(uart0, debug_buf);
-    
-    // Update LVGL with current touch state
-    if (num_touches > 0 && points[0].valid) {
-        data->state = LV_INDEV_STATE_PRESSED;
+    // If calibration is active, always call processTouchPoint (even with no touch)
+    // This allows it to detect touch/release transitions
+    if (calibrating) {
+        bool has_valid_touch = (num_touches > 0 && points[0].valid);
+        uint16_t raw_x = has_valid_touch ? points[0].x : 0;
+        uint16_t raw_y = has_valid_touch ? points[0].y : 0;
         
-        // CST328 provides 12-bit coordinates (0-4095)
-        // Scale to screen resolution (320x240 landscape)
-        // Assuming touch coordinates match display orientation
-        data->point.x = (points[0].x * 320) / 4096;
-        data->point.y = (points[0].y * 240) / 4096;
-        
-        // Debug: Print touch events
-        {
-            char buf[128];
-            std::snprintf(buf, sizeof(buf),
-            "Touch: Raw (%u,%u) -> Scaled (%d,%d) Event=%u\n",
-            (unsigned)points[0].x, (unsigned)points[0].y,
-            (int)data->point.x, (int)data->point.y,
-            (unsigned)points[0].event);
+        // Debug: Show what we're reading including event type
+        static int callback_count = 0;
+        if (++callback_count % 50 == 0) {  // Print every 50 calls
+            char buf[120];
+            snprintf(buf, sizeof(buf), "[CALLBACK] interrupt=%d, num=%d, valid=%d, event=%d\n",
+                     has_interrupt, num_touches, has_valid_touch, 
+                     (num_touches > 0 ? points[0].event : 99));
             uart_puts(uart0, buf);
         }
+        
+        bool complete = instance_->calibration_.processTouchPoint(raw_x, raw_y, has_valid_touch);
+        if (complete) {
+            // Calibration finished - return to diagnostic screen
+            uart_puts(uart0, "[CALIBRATION] Returning to diagnostic screen\n");
+            lv_scr_load(instance_->screen_);
+        } else {
+            // Update calibration UI for next point
+            instance_->updateCalibrationScreen();
+        }
+        
+        // Report touch state to LVGL
+        data->state = has_valid_touch ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+        return;  // Don't process as normal touch during calibration
+    }
+    
+    // Normal touch processing (not calibrating)
+    // Update LVGL with current touch state
+    if (num_touches > 0 && points[0].valid) {
+        // Simple debounce: Only process if coordinates changed significantly
+        static int last_raw_x = 0;
+        static int last_raw_y = 0;
+        static uint32_t last_touch_time = 0;
+        uint32_t now = time_us_32() / 1000;
+        
+        // Calculate delta from last touch
+        int delta_x = abs((int)points[0].x - last_raw_x);
+        int delta_y = abs((int)points[0].y - last_raw_y);
+        uint32_t delta_time = now - last_touch_time;
+        
+        // Ignore if touch is too similar to previous (within 100 units and 50ms)
+        // This filters out jitter while allowing intentional touch movement
+        if (delta_time < 50 && delta_x < 100 && delta_y < 100) {
+            // Same touch continuing - report last known good position
+            data->state = LV_INDEV_STATE_PRESSED;
+            // Keep using previous scaled coordinates
+            return;
+        }
+        
+        data->state = LV_INDEV_STATE_PRESSED;
+        
+        // ========== BEGIN TOUCH CALIBRATION MAPPING ==========
+        // Calibration from 2025-10-19:
+        // X-axis: Left (X=40): Raw Y=285, Center (X=160): Raw Y=161, Right (X=280): Raw Y=32
+        // Y-axis: Top (Y=30): Raw X=11, Middle (Y=120): Raw X=106, Bottom (Y=210): Raw X=208
+        
+        int raw_y = points[0].y;
+        int raw_x = points[0].x;
+        int scaled_x, scaled_y;
+        
+        // Map raw Y to display X (inverted - Y decreases as X increases):
+        if (raw_y >= 161) {
+            // Left segment: raw_y 285→161 maps to X 40→160
+            scaled_x = 40 + ((285 - raw_y) * (160 - 40)) / (285 - 161);
+        } else if (raw_y >= 32) {
+            // Right segment: raw_y 161→32 maps to X 160→280
+            scaled_x = 160 + ((161 - raw_y) * (280 - 160)) / (161 - 32);
+        } else {
+            // Beyond right edge: extrapolate
+            scaled_x = 280 + ((161 - raw_y) * (320 - 280)) / (161 - 32);
+        }
+        
+        // Map raw X to display Y (normal - X increases as Y increases):
+        if (raw_x <= 106) {
+            // Top segment: raw_x 11→106 maps to Y 30→120
+            scaled_y = 30 + ((raw_x - 11) * (120 - 30)) / (106 - 11);
+        } else if (raw_x <= 208) {
+            // Bottom segment: raw_x 106→208 maps to Y 120→210
+            scaled_y = 120 + ((raw_x - 106) * (210 - 120)) / (208 - 106);
+        } else {
+            // Beyond bottom edge: extrapolate
+            scaled_y = 210 + ((raw_x - 208) * (240 - 210)) / (208 - 106);
+        }
+        
+        // Clamp to screen bounds:
+        if (scaled_x < 0) scaled_x = 0;
+        if (scaled_x > 320) scaled_x = 320;
+        if (scaled_y < 0) scaled_y = 0;
+        if (scaled_y > 240) scaled_y = 240;
+        
+        data->point.x = scaled_x;
+        data->point.y = scaled_y;
+        
+        // ========== END TOUCH CALIBRATION MAPPING ==========
+        
+        // Update debounce tracking
+        last_raw_x = points[0].x;
+        last_raw_y = points[0].y;
+        last_touch_time = now;
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
@@ -440,33 +521,62 @@ void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
 
 // Phase 4: Button event handlers
 void PicoDCCDisplay::onMainPowerClicked(lv_event_t* e) {
-    if (!instance_ || !instance_->controller_ref_) return;
+    uart_puts(uart0, "[BUTTON] MAIN PWR button clicked!\n");
+    
+    if (!instance_ || !instance_->controller_ref_) {
+        uart_puts(uart0, "[BUTTON] ERROR: instance or controller_ref is null\n");
+        return;
+    }
     
     // Toggle main track power
     PicoDccTrack* main_track = instance_->controller_ref_->getTrack(false);
     if (main_track) {
         bool current_state = main_track->getPower();
+        char buf[64];
+        snprintf(buf, sizeof(buf), "[BUTTON] Main track power: %s -> %s\n", 
+                 current_state ? "ON" : "OFF", !current_state ? "ON" : "OFF");
+        uart_puts(uart0, buf);
         main_track->setPower(!current_state);
+    } else {
+        uart_puts(uart0, "[BUTTON] ERROR: main_track is null\n");
     }
 }
 
 void PicoDCCDisplay::onProgPowerClicked(lv_event_t* e) {
-    if (!instance_ || !instance_->controller_ref_) return;
+    uart_puts(uart0, "[BUTTON] PROG PWR button clicked!\n");
+    
+    if (!instance_ || !instance_->controller_ref_) {
+        uart_puts(uart0, "[BUTTON] ERROR: instance or controller_ref is null\n");
+        return;
+    }
     
     // Toggle programming track power
     PicoDccTrack* prog_track = instance_->controller_ref_->getTrack(true);
     if (prog_track) {
         bool current_state = prog_track->getPower();
+        char buf[64];
+        snprintf(buf, sizeof(buf), "[BUTTON] Prog track power: %s -> %s\n", 
+                 current_state ? "ON" : "OFF", !current_state ? "ON" : "OFF");
+        uart_puts(uart0, buf);
         prog_track->setPower(!current_state);
+    } else {
+        uart_puts(uart0, "[BUTTON] ERROR: prog_track is null\n");
     }
 }
 
 void PicoDCCDisplay::onResetTripsClicked(lv_event_t* e) {
-    if (!instance_ || !instance_->controller_ref_) return;
+    uart_puts(uart0, "[BUTTON] RESET TRIPS button clicked!\n");
+    
+    if (!instance_ || !instance_->controller_ref_) {
+        uart_puts(uart0, "[BUTTON] ERROR: instance or controller_ref is null\n");
+        return;
+    }
     
     // Reset trips by powering off then on both tracks
     PicoDccTrack* main_track = instance_->controller_ref_->getTrack(false);
     PicoDccTrack* prog_track = instance_->controller_ref_->getTrack(true);
+    
+    uart_puts(uart0, "[BUTTON] Resetting trips (power cycling tracks)\n");
     
     // Power cycle to clear any trip conditions
     if (main_track) {
@@ -479,14 +589,139 @@ void PicoDCCDisplay::onResetTripsClicked(lv_event_t* e) {
         sleep_ms(100);
         prog_track->powerOn();
     }
+    
+    uart_puts(uart0, "[BUTTON] Trip reset complete\n");
 }
 
 void PicoDCCDisplay::onCalibrateClicked(lv_event_t* e) {
-    if (!instance_ || !instance_->controller_ref_) return;
+    uart_puts(uart0, "[BUTTON] CALIBRATE button clicked!\n");
     
-    // TODO Phase 5: Show calibration screen
-    // For now, just print a message
-    uart_puts(uart0, "Calibration button pressed (not yet implemented)\n");
+    if (!instance_ || !instance_->controller_ref_) {
+        uart_puts(uart0, "[BUTTON] ERROR: instance or controller_ref is null\n");
+        return;
+    }
+    
+    // TODO: Implement programming track calibration
+    // This should adjust CV read/write parameters, ACK detection thresholds, etc.
+    uart_puts(uart0, "[BUTTON] Programming track calibration not yet implemented\n");
+}
+
+void PicoDCCDisplay::startCalibration() {
+    uart_puts(uart0, "[CALIBRATION] Starting touch calibration...\n");
+    
+    // Create calibration screen if not already created
+    if (!calib_screen_) {
+        uart_puts(uart0, "[CALIBRATION] Creating calibration screen...\n");
+        createCalibrationScreen();
+        if (!calib_screen_) {
+            uart_puts(uart0, "[CALIBRATION] ERROR: Failed to create screen!\n");
+            return;
+        }
+        uart_puts(uart0, "[CALIBRATION] Screen created successfully\n");
+    }
+    
+    // Start calibration process
+    uart_puts(uart0, "[CALIBRATION] Starting calibration process...\n");
+    calibration_.start();
+    
+    // Show calibration screen
+    uart_puts(uart0, "[CALIBRATION] Loading calibration screen...\n");
+    lv_scr_load(calib_screen_);
+    uart_puts(uart0, "[CALIBRATION] Screen loaded\n");
+    
+    // Update screen with first calibration point
+    uart_puts(uart0, "[CALIBRATION] Updating screen with first point...\n");
+    updateCalibrationScreen();
+    uart_puts(uart0, "[CALIBRATION] Ready for touches\n");
+}
+
+bool PicoDCCDisplay::isCalibrating() const {
+    return calibration_.isRunning();
+}
+
+void PicoDCCDisplay::createCalibrationScreen() {
+    if (calib_screen_) {
+        uart_puts(uart0, "[CALIBRATION] Screen already created\n");
+        return;  // Already created
+    }
+    
+    uart_puts(uart0, "[CALIBRATION] Creating screen object...\n");
+    // Create new screen for calibration
+    calib_screen_ = lv_obj_create(nullptr);
+    if (!calib_screen_) {
+        uart_puts(uart0, "[CALIBRATION] ERROR: lv_obj_create(nullptr) failed!\n");
+        return;
+    }
+    lv_obj_set_style_bg_color(calib_screen_, lv_color_hex(0x000000), 0);
+    
+    uart_puts(uart0, "[CALIBRATION] Creating crosshair container...\n");
+    // Create crosshair (will be repositioned per point)
+    calib_crosshair_ = lv_obj_create(calib_screen_);
+    if (!calib_crosshair_) {
+        uart_puts(uart0, "[CALIBRATION] ERROR: Failed to create crosshair!\n");
+        return;
+    }
+    lv_obj_set_size(calib_crosshair_, 30, 30);
+    lv_obj_set_style_bg_opa(calib_crosshair_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(calib_crosshair_, 2, 0);
+    lv_obj_set_style_border_color(calib_crosshair_, lv_color_hex(0xFF0000), 0);
+    
+    uart_puts(uart0, "[CALIBRATION] Creating crosshair lines...\n");
+    // Draw crosshair lines
+    static lv_point_t line_h[] = {{-10, 0}, {10, 0}};
+    static lv_point_t line_v[] = {{0, -10}, {0, 10}};
+    
+    lv_obj_t* line1 = lv_line_create(calib_crosshair_);
+    if (!line1) {
+        uart_puts(uart0, "[CALIBRATION] ERROR: Failed to create line1!\n");
+        return;
+    }
+    lv_line_set_points(line1, line_h, 2);
+    lv_obj_set_style_line_width(line1, 2, 0);
+    lv_obj_set_style_line_color(line1, lv_color_hex(0xFF0000), 0);
+    lv_obj_center(line1);
+    
+    lv_obj_t* line2 = lv_line_create(calib_crosshair_);
+    if (!line2) {
+        uart_puts(uart0, "[CALIBRATION] ERROR: Failed to create line2!\n");
+        return;
+    }
+    lv_line_set_points(line2, line_v, 2);
+    lv_obj_set_style_line_width(line2, 2, 0);
+    lv_obj_set_style_line_color(line2, lv_color_hex(0xFF0000), 0);
+    lv_obj_center(line2);
+    
+    uart_puts(uart0, "[CALIBRATION] Creating instruction label...\n");
+    // Create instruction label
+    calib_label_ = lv_label_create(calib_screen_);
+    if (!calib_label_) {
+        uart_puts(uart0, "[CALIBRATION] ERROR: Failed to create label!\n");
+        return;
+    }
+    lv_obj_set_style_text_color(calib_label_, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(calib_label_, &lv_font_montserrat_14, 0);
+    lv_obj_align(calib_label_, LV_ALIGN_TOP_MID, 0, 10);
+    lv_label_set_text(calib_label_, "Touch Calibration");
+    
+    uart_puts(uart0, "[CALIBRATION] Screen creation complete\n");
+}
+
+void PicoDCCDisplay::updateCalibrationScreen() {
+    if (!calib_screen_ || !calibration_.isRunning()) {
+        return;
+    }
+    
+    // Get current instruction from calibration
+    const char* instruction = calibration_.getCurrentInstruction();
+    lv_label_set_text(calib_label_, instruction);
+    
+    // Parse display coordinates from instruction (hacky but works)
+    // Format: "Touch + at (X,Y)\nSample N/M"
+    int x = 0, y = 0;
+    if (sscanf(instruction, "Touch + at (%d,%d)", &x, &y) == 2) {
+        // Position crosshair at calibration point
+        lv_obj_set_pos(calib_crosshair_, x - 15, y - 15);  // Center crosshair
+    }
 }
 
 #endif // !TEST_BUILD
