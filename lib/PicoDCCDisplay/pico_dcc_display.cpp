@@ -14,6 +14,7 @@
 lv_disp_draw_buf_t PicoDCCDisplay::disp_buf_;
 lv_color_t PicoDCCDisplay::buf1_[LV_HOR_RES_MAX * 20];
 lv_disp_drv_t PicoDCCDisplay::disp_drv_;
+lv_indev_drv_t PicoDCCDisplay::indev_drv_;  // Phase 4: Touch input
 PicoDCCDisplay* PicoDCCDisplay::instance_ = nullptr;
 #endif
 
@@ -29,6 +30,13 @@ PicoDCCDisplay::PicoDCCDisplay() : initialized_(false), lvgl_initialized_(false)
     packets_label_ = nullptr;
     locos_label_ = nullptr;
     last_update_time_ = 0;
+    controller_ref_ = nullptr;
+    
+    // Phase 4: Initialize touch button objects
+    btn_main_power_ = nullptr;
+    btn_prog_power_ = nullptr;
+    btn_reset_trips_ = nullptr;
+    btn_calibrate_ = nullptr;
 #endif
 }
 
@@ -80,6 +88,9 @@ void PicoDCCDisplay::loop(PicoDccController* controller) {
     if (!initialized_ || !controller) return;
     
 #ifndef TEST_BUILD
+    // Save controller reference for button callbacks (Phase 4)
+    controller_ref_ = controller;
+    
     // Update display at 10Hz
     uint32_t now = time_us_32() / 1000;
     if ((now - last_update_time_) >= UPDATE_INTERVAL_MS) {
@@ -125,6 +136,18 @@ bool PicoDCCDisplay::initLVGL() {
     disp_drv_.flush_cb = flushCallback;
     disp_drv_.draw_buf = &disp_buf_;
     lv_disp_drv_register(&disp_drv_);
+    
+    // Phase 4: Initialize touch driver
+    if (!touch_.init()) {
+        // Touch init failed - continue without touch
+        printf("WARNING: Touch initialization failed\n");
+    } else {
+        // Register touch input device with LVGL
+        lv_indev_drv_init(&indev_drv_);
+        indev_drv_.type = LV_INDEV_TYPE_POINTER;
+        indev_drv_.read_cb = touchCallback;
+        lv_indev_drv_register(&indev_drv_);
+    }
     
     return true;
 }
@@ -196,6 +219,63 @@ void PicoDCCDisplay::createDiagnosticScreen() {
     lv_obj_set_style_text_color(locos_label_, lv_color_white(), 0);
     lv_obj_set_style_text_font(locos_label_, &lv_font_montserrat_12, 0);
     lv_obj_align(locos_label_, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+    
+    // Phase 4: Create interactive touch buttons
+    createTouchButtons();
+}
+
+void PicoDCCDisplay::createTouchButtons() {
+    if (!screen_) return;
+    
+    // Button layout: 4 buttons in a row at the middle of screen
+    // Each button: 70x40 pixels, 10px spacing
+    const int btn_width = 70;
+    const int btn_height = 40;
+    const int btn_spacing = 10;
+    const int start_y = 100;  // Y position (centered vertically)
+    
+    // Calculate starting X to center 4 buttons (320 - (4*70 + 3*10)) / 2 = 25
+    int start_x = (320 - (4 * btn_width + 3 * btn_spacing)) / 2;
+    
+    // Button 1: MAIN PWR
+    btn_main_power_ = lv_btn_create(screen_);
+    lv_obj_set_size(btn_main_power_, btn_width, btn_height);
+    lv_obj_set_pos(btn_main_power_, start_x, start_y);
+    lv_obj_t* label1 = lv_label_create(btn_main_power_);
+    lv_label_set_text(label1, "MAIN\nPWR");
+    lv_obj_set_style_text_font(label1, &lv_font_montserrat_12, 0);
+    lv_obj_center(label1);
+    lv_obj_add_event_cb(btn_main_power_, onMainPowerClicked, LV_EVENT_CLICKED, nullptr);
+    
+    // Button 2: PROG PWR
+    btn_prog_power_ = lv_btn_create(screen_);
+    lv_obj_set_size(btn_prog_power_, btn_width, btn_height);
+    lv_obj_set_pos(btn_prog_power_, start_x + btn_width + btn_spacing, start_y);
+    lv_obj_t* label2 = lv_label_create(btn_prog_power_);
+    lv_label_set_text(label2, "PROG\nPWR");
+    lv_obj_set_style_text_font(label2, &lv_font_montserrat_12, 0);
+    lv_obj_center(label2);
+    lv_obj_add_event_cb(btn_prog_power_, onProgPowerClicked, LV_EVENT_CLICKED, nullptr);
+    
+    // Button 3: RESET TRIPS
+    btn_reset_trips_ = lv_btn_create(screen_);
+    lv_obj_set_size(btn_reset_trips_, btn_width, btn_height);
+    lv_obj_set_pos(btn_reset_trips_, start_x + 2 * (btn_width + btn_spacing), start_y);
+    lv_obj_t* label3 = lv_label_create(btn_reset_trips_);
+    lv_label_set_text(label3, "RESET\nTRIPS");
+    lv_obj_set_style_text_font(label3, &lv_font_montserrat_12, 0);
+    lv_obj_center(label3);
+    lv_obj_add_event_cb(btn_reset_trips_, onResetTripsClicked, LV_EVENT_CLICKED, nullptr);
+    
+    // Button 4: CALIBRATE
+    btn_calibrate_ = lv_btn_create(screen_);
+    lv_obj_set_size(btn_calibrate_, btn_width, btn_height);
+    lv_obj_set_pos(btn_calibrate_, start_x + 3 * (btn_width + btn_spacing), start_y);
+    lv_obj_t* label4 = lv_label_create(btn_calibrate_);
+    lv_label_set_text(label4, "CALI-\nBRATE");
+    lv_obj_set_style_text_font(label4, &lv_font_montserrat_12, 0);
+    lv_obj_center(label4);
+    lv_obj_add_event_cb(btn_calibrate_, onCalibrateClicked, LV_EVENT_CLICKED, nullptr);
 }
 
 void PicoDCCDisplay::showDiagnosticScreen() {
@@ -258,6 +338,79 @@ void PicoDCCDisplay::update() {
     // Force immediate refresh if there are invalidated areas
     lv_refr_now(nullptr);
 }
+
+// Phase 4: Touch input callback for LVGL
+void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
+    if (!instance_) {
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
+    
+    uint16_t x, y;
+    if (instance_->touch_.getLastTouch(&x, &y)) {
+        data->state = LV_INDEV_STATE_PRESSED;
+        data->point.x = x;
+        data->point.y = y;
+    } else {
+        data->state = LV_INDEV_STATE_RELEASED;
+    }
+    
+    // Read touch to update internal state
+    TouchPoint points[1];
+    instance_->touch_.readTouchPoints(points, 1);
+}
+
+// Phase 4: Button event handlers
+void PicoDCCDisplay::onMainPowerClicked(lv_event_t* e) {
+    if (!instance_ || !instance_->controller_ref_) return;
+    
+    // Toggle main track power
+    PicoDccTrack* main_track = instance_->controller_ref_->getTrack(false);
+    if (main_track) {
+        bool current_state = main_track->getPower();
+        main_track->setPower(!current_state);
+    }
+}
+
+void PicoDCCDisplay::onProgPowerClicked(lv_event_t* e) {
+    if (!instance_ || !instance_->controller_ref_) return;
+    
+    // Toggle programming track power
+    PicoDccTrack* prog_track = instance_->controller_ref_->getTrack(true);
+    if (prog_track) {
+        bool current_state = prog_track->getPower();
+        prog_track->setPower(!current_state);
+    }
+}
+
+void PicoDCCDisplay::onResetTripsClicked(lv_event_t* e) {
+    if (!instance_ || !instance_->controller_ref_) return;
+    
+    // Reset trips by powering off then on both tracks
+    PicoDccTrack* main_track = instance_->controller_ref_->getTrack(false);
+    PicoDccTrack* prog_track = instance_->controller_ref_->getTrack(true);
+    
+    // Power cycle to clear any trip conditions
+    if (main_track) {
+        main_track->powerOff();
+        sleep_ms(100);
+        main_track->powerOn();
+    }
+    if (prog_track) {
+        prog_track->powerOff();
+        sleep_ms(100);
+        prog_track->powerOn();
+    }
+}
+
+void PicoDCCDisplay::onCalibrateClicked(lv_event_t* e) {
+    if (!instance_ || !instance_->controller_ref_) return;
+    
+    // TODO Phase 5: Show calibration screen
+    // For now, just print a message
+    printf("Calibration button pressed (not yet implemented)\n");
+}
+
 #endif // !TEST_BUILD
 
 // Test pattern methods (Phase 1)
