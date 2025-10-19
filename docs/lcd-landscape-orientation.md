@@ -276,12 +276,14 @@ for (int i = 0; i < 8; i++) {
 
 ## Version History
 
-- **2025-10-19**: Initial landscape configuration (Phase 2)
-- Display rotated 90° clockwise from portrait default
+- **2025-10-19 (v2)**: Updated to 270° rotation (`0xA0`) for physical mounting
+- **2025-10-19 (v1)**: Initial landscape configuration (Phase 2)
+- Display rotated to landscape from portrait default
 - All coordinates updated for 320×240 layout
 - Diagnostic screen redesigned for multi-column layout
 
 ---
 
 **Status**: ✅ Implemented and validated in hardware  
+**Rotation**: 270° clockwise (90° counter-clockwise) - matches physical LCD mounting  
 **Next Steps**: Phase 3 (diagnostic message integration) will use landscape layout
