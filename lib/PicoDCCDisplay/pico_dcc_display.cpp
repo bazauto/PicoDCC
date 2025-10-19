@@ -346,18 +346,32 @@ void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
         return;
     }
     
-    uint16_t x, y;
-    if (instance_->touch_.getLastTouch(&x, &y)) {
+    // Read fresh touch data from CST328
+    TouchPoint points[1];
+    uint8_t num_touches = instance_->touch_.readTouchPoints(points, 1);
+    
+    // Update LVGL with current touch state
+    if (num_touches > 0 && points[0].valid) {
         data->state = LV_INDEV_STATE_PRESSED;
-        data->point.x = x;
-        data->point.y = y;
+        
+        // CST328 provides 12-bit coordinates (0-4095)
+        // Scale to screen resolution (320x240 landscape)
+        // Assuming touch coordinates match display orientation
+        data->point.x = (points[0].x * 320) / 4096;
+        data->point.y = (points[0].y * 240) / 4096;
+        
+        // Debug: Print first touch event only (avoid spam)
+        static bool first_touch_printed = false;
+        if (!first_touch_printed) {
+            printf("Touch: Raw (%u,%u) -> Scaled (%d,%d) Event=%u\n",
+                   points[0].x, points[0].y, 
+                   data->point.x, data->point.y,
+                   points[0].event);
+            first_touch_printed = true;
+        }
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
-    
-    // Read touch to update internal state
-    TouchPoint points[1];
-    instance_->touch_.readTouchPoints(points, 1);
 }
 
 // Phase 4: Button event handlers

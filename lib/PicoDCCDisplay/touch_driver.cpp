@@ -10,7 +10,7 @@
 #endif
 
 // CST328 I2C configuration
-#define CST328_I2C_ADDR     0x15        // 7-bit I2C address
+#define CST328_I2C_ADDR     0x1A        // 7-bit I2C address
 #define CST328_I2C_FREQ     400000      // 400kHz I2C clock
 
 // GPIO pin assignments (from hardware spec)
@@ -178,8 +178,18 @@ uint8_t TouchDriver::readTouchPoints(TouchPoint* points, uint8_t max_points) {
     }
     
     uint8_t num_touches = raw_data[0] & 0x0F;  // Lower 4 bits
-    if (num_touches == 0 || num_touches > MAX_TOUCH_POINTS) {
+    
+    // Clear touch state when no touches detected
+    if (num_touches == 0) {
         has_touch_ = false;
+        last_touch_.valid = false;
+        return 0;
+    }
+    
+    // Validate number of touches
+    if (num_touches > MAX_TOUCH_POINTS) {
+        has_touch_ = false;
+        last_touch_.valid = false;
         return 0;
     }
     
