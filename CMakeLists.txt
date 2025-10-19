@@ -25,7 +25,7 @@ if(TEST_BUILD)
 
   project(PicoDCCTest
     VERSION 1.0
-    DESCRIPTION "RP2040 Raspberry Pico DCC Command Station - Tests"
+    DESCRIPTION "RP2350 Raspberry Pico DCC Command Station - Tests"
     LANGUAGES C CXX
   )
 
@@ -61,7 +61,7 @@ else()
 
   project(PicoDCC
     VERSION 1.0
-    DESCRIPTION "RP2040 Raspberry Pico DCC Command Station"
+    DESCRIPTION "RP2350 Raspberry Pico DCC Command Station"
     LANGUAGES C CXX ASM
   )
 

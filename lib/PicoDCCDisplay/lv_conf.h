@@ -19,8 +19,8 @@
 /*====================
    DISPLAY SETTINGS
  *====================*/
-#define LV_HOR_RES_MAX 240         // Horizontal resolution
-#define LV_VER_RES_MAX 320         // Vertical resolution
+#define LV_HOR_RES_MAX 320         // Horizontal resolution (landscape)
+#define LV_VER_RES_MAX 240         // Vertical resolution (landscape)
 #define LV_DPI_DEF 100             // DPI (affects text rendering)
 
 /*====================

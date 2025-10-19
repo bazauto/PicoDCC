@@ -2,8 +2,26 @@
 
 **Date**: October 19, 2025  
 **Branch**: `feature/lcd-display`  
-**Status**: Ready for Implementation  
-**Design Document**: `lcd-design-questionnaire.md`
+**Status**: Phase 2 Complete (Landscape Mode)  
+**Design Document**: `lcd-design-questionnaire.md`  
+**Orientation Update**: See `lcd-landscape-orientation.md` for landscape configuration details
+
+---
+
+## ⚠️ Important: Landscape Orientation
+
+**This plan was originally written for portrait mode (240×320).  
+As of Phase 2, the display is configured in landscape mode (320×240).**
+
+**All resolution-dependent code now uses**:
+- **Horizontal**: 320 pixels (was 240)
+- **Vertical**: 240 pixels (was 320)
+- **MADCTL Register**: `0x60` (90° rotation)
+
+See `docs/lcd-landscape-orientation.md` for:
+- Complete configuration changes
+- Layout design rationale
+- Future phase guidelines for landscape mode
 
 ---
 
@@ -11,25 +29,25 @@
 
 This document provides a detailed, phase-by-phase implementation plan for integrating the Waveshare WAV-27579 LCD display into PicoDCC. The plan is based on validated design decisions and includes task breakdowns, code structure, integration points, and testing checkpoints.
 
-### Design Overview
+### Design Overview (Updated for Landscape)
 
 ```yaml
 Hardware:
   Display Controller: ST7789T3
-  Resolution: 240x320 pixels
+  Resolution: 320x240 pixels (landscape orientation)
   Color Depth: 16-bit RGB565 (262K colors)
   Touch Controller: CST328 capacitive I2C
   Interface: SPI0 (display) + I2C0 (touch)
 
 Memory Allocation:
-  Framebuffer: 76KB (240 × 320 × 2 bytes)
+  Framebuffer: 150KB (320 × 240 × 2 bytes)
   LVGL Heap: ~20-30KB
-  Total LCD RAM: ~100KB
-  Available RAM: ~130KB remaining (264KB total)
+  Total LCD RAM: ~165KB
+  Available RAM: ~95KB remaining (264KB total)
 
 Software Architecture:
-  Graphics Library: LVGL 8.x/9.x
-  Update Strategy: Polling in main loop (5-10Hz)
+  Graphics Library: LVGL 8.3
+  Update Strategy: Polling in main loop (10Hz)
   Touch Input: Interrupt-driven (GP10 INT pin)
   Integration: New PicoDCCDisplay component
 
@@ -41,7 +59,7 @@ GPIO Assignments:
   Backlight: Tied to 3.3V (always on)
 
 UI Design:
-  Main Screen: Diagnostic message log (scrolling)
+  Main Screen: Diagnostic status (multi-column layout)
   Color Scheme: Black background, white/green text, red/yellow alerts
   Touch Buttons: MAIN PWR, PROG PWR, RESET TRIPS, CALIBRATE, DIAGNOSTICS, SETTINGS
 ```

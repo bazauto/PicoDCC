@@ -67,10 +67,10 @@ bool PicoDCCDisplay::initLVGL() {
     // Initialize display buffer
     lv_disp_draw_buf_init(&disp_buf_, buf1_, nullptr, LV_HOR_RES_MAX * 20);
     
-    // Initialize display driver
+    // Initialize display driver (landscape: 320x240)
     lv_disp_drv_init(&disp_drv_);
-    disp_drv_.hor_res = 240;
-    disp_drv_.ver_res = 320;
+    disp_drv_.hor_res = 320;
+    disp_drv_.ver_res = 240;
     disp_drv_.flush_cb = flushCallback;
     disp_drv_.draw_buf = &disp_buf_;
     lv_disp_drv_register(&disp_drv_);
@@ -103,48 +103,48 @@ void PicoDCCDisplay::createDiagnosticScreen() {
     screen_ = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(screen_, lv_color_black(), 0);
     
-    // Title label
+    // Title label (centered at top)
     title_label_ = lv_label_create(screen_);
     lv_label_set_text(title_label_, "PicoDCC Status");
     lv_obj_set_style_text_color(title_label_, lv_color_white(), 0);
     lv_obj_set_style_text_font(title_label_, &lv_font_montserrat_16, 0);
-    lv_obj_align(title_label_, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title_label_, LV_ALIGN_TOP_MID, 0, 5);
     
-    // Main track power label
+    // LEFT COLUMN: Main Track
     main_power_label_ = lv_label_create(screen_);
     lv_label_set_text(main_power_label_, "Main: OFF");
     lv_obj_set_style_text_color(main_power_label_, lv_color_make(255, 100, 100), 0);
-    lv_obj_align(main_power_label_, LV_ALIGN_TOP_LEFT, 10, 50);
+    lv_obj_align(main_power_label_, LV_ALIGN_TOP_LEFT, 10, 35);
     
-    // Main track current label
     main_current_label_ = lv_label_create(screen_);
     lv_label_set_text(main_current_label_, "0.0 mA");
     lv_obj_set_style_text_color(main_current_label_, lv_color_white(), 0);
-    lv_obj_align(main_current_label_, LV_ALIGN_TOP_LEFT, 10, 75);
+    lv_obj_align(main_current_label_, LV_ALIGN_TOP_LEFT, 10, 60);
     
-    // Prog track power label
+    // MIDDLE COLUMN: Prog Track
     prog_power_label_ = lv_label_create(screen_);
     lv_label_set_text(prog_power_label_, "Prog: OFF");
     lv_obj_set_style_text_color(prog_power_label_, lv_color_make(255, 100, 100), 0);
-    lv_obj_align(prog_power_label_, LV_ALIGN_TOP_LEFT, 10, 110);
+    lv_obj_align(prog_power_label_, LV_ALIGN_TOP_MID, 0, 35);
     
-    // Prog track current label
     prog_current_label_ = lv_label_create(screen_);
     lv_label_set_text(prog_current_label_, "0.0 mA");
     lv_obj_set_style_text_color(prog_current_label_, lv_color_white(), 0);
-    lv_obj_align(prog_current_label_, LV_ALIGN_TOP_LEFT, 10, 135);
+    lv_obj_align(prog_current_label_, LV_ALIGN_TOP_MID, 0, 60);
     
-    // Packets sent label
+    // BOTTOM LEFT: Packet stats
     packets_label_ = lv_label_create(screen_);
     lv_label_set_text(packets_label_, "Packets: 0");
     lv_obj_set_style_text_color(packets_label_, lv_color_white(), 0);
-    lv_obj_align(packets_label_, LV_ALIGN_TOP_LEFT, 10, 170);
+    lv_obj_set_style_text_font(packets_label_, &lv_font_montserrat_12, 0);
+    lv_obj_align(packets_label_, LV_ALIGN_BOTTOM_LEFT, 10, -10);
     
-    // Locomotive count label
+    // BOTTOM RIGHT: Locomotive count
     locos_label_ = lv_label_create(screen_);
     lv_label_set_text(locos_label_, "Locos: 0");
     lv_obj_set_style_text_color(locos_label_, lv_color_white(), 0);
-    lv_obj_align(locos_label_, LV_ALIGN_TOP_LEFT, 10, 195);
+    lv_obj_set_style_text_font(locos_label_, &lv_font_montserrat_12, 0);
+    lv_obj_align(locos_label_, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
 }
 
 void PicoDCCDisplay::showDiagnosticScreen() {
@@ -213,14 +213,15 @@ void PicoDCCDisplay::update() {
 void PicoDCCDisplay::displayTestPattern() {
     if (!initialized_) return;
     
-    // Display color bars (8 colors, each 40 pixels tall)
+    // Display vertical color bars (8 colors, each 40 pixels wide for landscape 320x240)
     const uint16_t colors[] = {
         COLOR_RED, COLOR_GREEN, COLOR_BLUE, COLOR_YELLOW,
         COLOR_CYAN, COLOR_MAGENTA, COLOR_WHITE, COLOR_BLACK
     };
     
     for (int i = 0; i < 8; i++) {
-        lcd_.setWindow(0, i * 40, 239, (i + 1) * 40 - 1);
+        // Landscape: 320x240, so 8 bars @ 40 pixels wide = 320 pixels
+        lcd_.setWindow(i * 40, 0, (i + 1) * 40 - 1, 239);
         
         // Fill this band with color
         uint8_t color_bytes[2] = {
@@ -231,7 +232,7 @@ void PicoDCCDisplay::displayTestPattern() {
 #ifndef TEST_BUILD
         gpio_put(LCD_PIN_DC, 1);  // Data mode
         gpio_put(LCD_PIN_CS, 0);
-        for (uint32_t j = 0; j < 240 * 40; j++) {
+        for (uint32_t j = 0; j < 40 * 240; j++) {  // 40 wide x 240 tall
             spi_write_blocking(spi0, color_bytes, 2);
         }
         gpio_put(LCD_PIN_CS, 1);
