@@ -193,11 +193,19 @@ void PicoDCCDisplay::updateTrackStatus(const TrackStatus& status) {
     // Update locomotive count
     snprintf(buf, sizeof(buf), "Locos: %u", status.loco_count);
     lv_label_set_text(locos_label_, buf);
+    
+    // Force screen invalidation to trigger redraw
+    lv_obj_invalidate(screen_);
 }
 
 void PicoDCCDisplay::update() {
     if (!lvgl_initialized_) return;
+    
+    // Process LVGL timers and trigger any pending redraws
     lv_timer_handler();
+    
+    // Force immediate refresh if there are invalidated areas
+    lv_refr_now(nullptr);
 }
 #endif // !TEST_BUILD
 
