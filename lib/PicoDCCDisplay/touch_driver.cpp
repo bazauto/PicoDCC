@@ -7,6 +7,7 @@
 #ifndef TEST_BUILD
 #include "hardware/i2c.h"
 #include "hardware/gpio.h"
+#include <hardware/uart.h>
 #include "pico/time.h"
 #endif
 
@@ -110,14 +111,14 @@ void TouchDriver::touchInterruptHandler(unsigned int gpio, uint32_t events) {
     if (gpio == TOUCH_INT_PIN && (events & GPIO_IRQ_EDGE_FALL)) {
         // Set flag - will be checked during next LVGL poll
         touch_interrupt_pending_ = true;
-        printf("[ISR] Touch interrupt! Flag set to true\n");
+        uart_puts(uart0, "[ISR] Touch interrupt! Flag set to true\n");
     }
 }
 
 bool TouchDriver::hasPendingTouch() {
     bool pending = touch_interrupt_pending_;
     if (pending) {
-        printf("[DRIVER] hasPendingTouch() = true\n");
+        uart_puts(uart0, "[DRIVER] hasPendingTouch() = true\n");
     }
     return pending;
 }

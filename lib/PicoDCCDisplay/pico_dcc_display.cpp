@@ -5,6 +5,7 @@
 #ifndef TEST_BUILD
 #include "pico/stdlib.h"
 #include "lvgl.h"
+#include <hardware/uart.h>
 #include "../PicoDCCController/pico_dcccontroller.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
 #endif
@@ -140,7 +141,7 @@ bool PicoDCCDisplay::initLVGL() {
     // Phase 4: Initialize touch driver
     if (!touch_.init()) {
         // Touch init failed - continue without touch
-        printf("WARNING: Touch initialization failed\n");
+        uart_puts(uart0, "WARNING: Touch initialization failed\n");
     } else {
         // Register touch input device with LVGL
         lv_indev_drv_init(&indev_drv_);
@@ -148,6 +149,8 @@ bool PicoDCCDisplay::initLVGL() {
         indev_drv_.read_cb = touchCallback;
         lv_indev_drv_register(&indev_drv_);
     }
+
+    uart_puts(uart0, "LVGL initialized successfully\n");
     
     return true;
 }
@@ -353,7 +356,7 @@ void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
         return;  // No interrupt pending - most common case
     }
     
-    printf("[CALLBACK] Flag is set! Reading touch data...\n");
+    uart_puts(uart0, "[CALLBACK] Flag is set! Reading touch data...\n");
     
     // Read fresh touch data from CST328
     TouchPoint points[1];
@@ -370,10 +373,15 @@ void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
         data->point.y = (points[0].y * 240) / 4096;
         
         // Debug: Print touch events
-        printf("Touch: Raw (%u,%u) -> Scaled (%d,%d) Event=%u\n",
-               points[0].x, points[0].y, 
-               data->point.x, data->point.y,
-               points[0].event);
+        {
+            char buf[128];
+            std::snprintf(buf, sizeof(buf),
+            "Touch: Raw (%u,%u) -> Scaled (%d,%d) Event=%u\n",
+            (unsigned)points[0].x, (unsigned)points[0].y,
+            (int)data->point.x, (int)data->point.y,
+            (unsigned)points[0].event);
+            uart_puts(uart0, buf);
+        }
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }
@@ -427,7 +435,7 @@ void PicoDCCDisplay::onCalibrateClicked(lv_event_t* e) {
     
     // TODO Phase 5: Show calibration screen
     // For now, just print a message
-    printf("Calibration button pressed (not yet implemented)\n");
+    uart_puts(uart0, "Calibration button pressed (not yet implemented)\n");
 }
 
 #endif // !TEST_BUILD
