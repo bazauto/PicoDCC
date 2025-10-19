@@ -94,7 +94,18 @@ void PicoDCCDisplay::loop(PicoDccController* controller) {
     
     // Update display at 10Hz
     uint32_t now = time_us_32() / 1000;
-    if ((now - last_update_time_) >= UPDATE_INTERVAL_MS) {
+    uint32_t elapsed = now - last_update_time_;
+    
+    // Debug: Check timing
+    static uint32_t timing_check = 0;
+    if (++timing_check % 1000 == 0) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "[TIMING] elapsed=%lu, UPDATE_INTERVAL=%lu\n", 
+                 (unsigned long)elapsed, (unsigned long)UPDATE_INTERVAL_MS);
+        uart_puts(uart0, buf);
+    }
+    
+    if (elapsed >= UPDATE_INTERVAL_MS) {
         // Gather track status from controller
         TrackStatus status;
         PicoDccTrack* main_track = controller->getTrack(false);
@@ -147,7 +158,13 @@ bool PicoDCCDisplay::initLVGL() {
         lv_indev_drv_init(&indev_drv_);
         indev_drv_.type = LV_INDEV_TYPE_POINTER;
         indev_drv_.read_cb = touchCallback;
-        lv_indev_drv_register(&indev_drv_);
+        lv_indev_t* indev = lv_indev_drv_register(&indev_drv_);
+        
+        if (indev) {
+            uart_puts(uart0, "Touch input device registered with LVGL\n");
+        } else {
+            uart_puts(uart0, "ERROR: Touch registration failed!\n");
+        }
     }
 
     uart_puts(uart0, "LVGL initialized successfully\n");
