@@ -162,6 +162,13 @@ bool PicoDCCDisplay::initLVGL() {
         
         if (indev) {
             uart_puts(uart0, "Touch input device registered with LVGL\n");
+            
+            // Check if the read timer was created
+            if (indev->driver && indev->driver->read_timer) {
+                uart_puts(uart0, "Touch read timer created successfully\n");
+            } else {
+                uart_puts(uart0, "WARNING: Touch read timer NOT created!\n");
+            }
         } else {
             uart_puts(uart0, "ERROR: Touch registration failed!\n");
         }
