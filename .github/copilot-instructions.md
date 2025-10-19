@@ -11,6 +11,7 @@ PicoDCC is a project designed for managing and controlling Digital Command Contr
   - `PicoDCCLoco`: Focuses on locomotive-specific operations including throttle commands, function control, and CV programming support.
   - `PicoDCCTrack`: Deals with track-related functionalities, packet transmission via PIO, hardware queue management (single-buffered design), and **locomotive reminder generation on Core 1**.
   - `PicoDCCLocos`: Collection management for multiple locomotives with semaphore-protected operations for thread-safe access from both cores.
+  - `PicoConfigStorage`: Non-volatile configuration storage in flash memory for calibration values and tunable parameters (last 4KB sector).
 - **Testing**:
   - Unit tests are located in the `test/` directory, with comprehensive test coverage including `pico_dcc_controller_tests.cpp`, `pico_dcc_loco_tests.cpp`, `pico_dcc_locos_tests.cpp`, and `pico_dcc_packet_tests.cpp`.
 - **Circuit Design**:
