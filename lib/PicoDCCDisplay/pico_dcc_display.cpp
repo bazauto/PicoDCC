@@ -335,6 +335,12 @@ void PicoDCCDisplay::updateTrackStatus(const TrackStatus& status) {
 void PicoDCCDisplay::update() {
     if (!lvgl_initialized_) return;
     
+    // Debug: Verify this is being called
+    static uint32_t update_count = 0;
+    if (++update_count % 100 == 0) {  // Print every 100 calls (~1 second)
+        uart_puts(uart0, "[UPDATE] lv_timer_handler() being called\n");
+    }
+    
     // Process LVGL timers and trigger any pending redraws
     lv_timer_handler();
     
@@ -344,6 +350,12 @@ void PicoDCCDisplay::update() {
 
 // Phase 4: Touch input callback for LVGL
 void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
+    // Debug: Print EVERY callback invocation to see if LVGL is calling us
+    static uint32_t callback_count = 0;
+    if (++callback_count % 100 == 0) {  // Print every 100 calls
+        uart_puts(uart0, "[CALLBACK] touchCallback() called by LVGL\n");
+    }
+    
     if (!instance_) {
         data->state = LV_INDEV_STATE_RELEASED;
         return;

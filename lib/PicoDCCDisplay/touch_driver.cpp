@@ -111,14 +111,15 @@ void TouchDriver::touchInterruptHandler(unsigned int gpio, uint32_t events) {
     if (gpio == TOUCH_INT_PIN && (events & GPIO_IRQ_EDGE_FALL)) {
         // Set flag - will be checked during next LVGL poll
         touch_interrupt_pending_ = true;
-        uart_puts(uart0, "[ISR] Touch interrupt! Flag set to true\n");
+        uart_puts(uart0, "[ISR] Touch interrupt! Flag set\n");
     }
 }
 
 bool TouchDriver::hasPendingTouch() {
     bool pending = touch_interrupt_pending_;
+    // Only print when flag is true (not the spam of false checks)
     if (pending) {
-        uart_puts(uart0, "[DRIVER] hasPendingTouch() = true\n");
+        uart_puts(uart0, "[DRIVER] hasPendingTouch() = TRUE!\n");
     }
     return pending;
 }
