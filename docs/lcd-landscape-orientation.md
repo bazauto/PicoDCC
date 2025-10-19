@@ -18,8 +18,8 @@
 
 **Current (Landscape)**:
 - Resolution: 320 (W) × 240 (H) pixels
-- Orientation: 90° clockwise rotation
-- MADCTL register: `0x60` (MX=0, MY=1, MV=1, RGB=0)
+- Orientation: 270° clockwise rotation (landscape, flipped)
+- MADCTL register: `0xA0` (MX=1, MY=0, MV=1, RGB=0)
 
 ---
 
@@ -30,16 +30,16 @@
 **MADCTL Register Configuration**:
 ```cpp
 writeCommand(ST7789_MADCTL);   // Memory access control
-writeData(0x60);               // Landscape mode: MX=0, MY=1, MV=1, RGB=0
+writeData(0xA0);               // Landscape mode (270°): MX=1, MY=0, MV=1, RGB=0
 ```
 
 **MADCTL Bit Meanings**:
 - **MV (bit 5)**: Row/Column Exchange = 1 (swap X and Y)
-- **MY (bit 6)**: Row Address Order = 1 (bottom to top)
-- **MX (bit 7)**: Column Address Order = 0 (left to right)
+- **MY (bit 6)**: Row Address Order = 0 (top to bottom)
+- **MX (bit 7)**: Column Address Order = 1 (right to left)
 - **RGB (bit 3)**: RGB/BGR Order = 0 (RGB mode)
 
-**Result**: Display rotated 90° clockwise, origin at top-left
+**Result**: Display rotated 270° clockwise (90° counter-clockwise), origin at top-right
 
 ---
 
@@ -241,13 +241,14 @@ for (int i = 0; i < 8; i++) {
 
 | Setting | Value | Location |
 |---------|-------|----------|
-| **MADCTL** | `0x60` | `lib/PicoDCCDisplay/lcd_driver.cpp` |
+| **MADCTL** | `0xA0` | `lib/PicoDCCDisplay/lcd_driver.cpp` |
 | **LV_HOR_RES_MAX** | `320` | `lib/PicoDCCDisplay/lv_conf.h` |
 | **LV_VER_RES_MAX** | `240` | `lib/PicoDCCDisplay/lv_conf.h` |
 | **disp_drv_.hor_res** | `320` | `lib/PicoDCCDisplay/pico_dcc_display.cpp` |
 | **disp_drv_.ver_res** | `240` | `lib/PicoDCCDisplay/pico_dcc_display.cpp` |
 | **Test Pattern** | 8 vertical bars | `displayTestPattern()` |
 | **Layout Style** | 3-column | `createDiagnosticScreen()` |
+| **Rotation** | 270° CW (90° CCW) | Physical mounting dependent |
 
 ---
 
@@ -265,9 +266,9 @@ for (int i = 0; i < 8; i++) {
 
 **MADCTL Values**:
 - `0x00`: 0° (portrait, default)
-- `0x60`: 90° clockwise (landscape, current)
+- `0x60`: 90° clockwise (landscape)
 - `0xC0`: 180° (portrait, upside-down)
-- `0xA0`: 270° clockwise (landscape, reversed)
+- `0xA0`: 270° clockwise / 90° CCW (landscape, flipped) ← **CURRENT**
 
 **Note**: Always update resolution defines to match orientation.
 

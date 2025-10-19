@@ -120,7 +120,7 @@ void LcdDriver::sendInitSequence() {
     writeData(0x55);               // 16-bit RGB565
     
     writeCommand(ST7789_MADCTL);   // Memory access control
-    writeData(0x60);               // Landscape mode: MX=0, MY=1, MV=1, RGB=0
+    writeData(0xA0);               // Landscape mode (270°): MX=1, MY=0, MV=1, RGB=0
     
     writeCommand(ST7789_INVON);    // Display inversion ON (typical for ST7789)
     
