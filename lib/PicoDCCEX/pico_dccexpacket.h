@@ -48,7 +48,6 @@ public:
     bool isPowerCommand() { return packet.opcode == '0' || packet.opcode == '1'; }
     bool isVersionCommand() { return packet.opcode == 's'; }
     bool isNumCabsCommand() { return packet.opcode == '#'; }
-    bool isCalibrationCommand() { return packet.opcode == 'C'; }
     bool isThrottleCommand() { return packet.opcode == 't'; }
     bool isFunctionCommand() { return packet.opcode == 'F'; }
     bool isEmergencyStopCommand() { return packet.opcode == '!'; }

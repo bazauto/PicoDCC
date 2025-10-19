@@ -43,10 +43,6 @@ private:
     volatile uint32_t core1_heartbeat;
     uint32_t last_core1_check;
     uint32_t last_core1_heartbeat_value;
-    
-    // Calibration request flag (set by serial command, checked by display)
-    volatile bool calibration_requested_;
-
 
 
 public:
@@ -62,13 +58,6 @@ public:
     bool isTrackPowerOn(bool isProg) { return isProg ? prog_track->getPower() : main_track->getPower(); }
     size_t getLocoCount() { return pico_locos->getLocoCount(); }
     PicoDccTrack* getTrack(bool isProg) { return isProg ? prog_track : main_track; }
-    
-    // Calibration control
-    bool getCalibrationRequested() { 
-        bool requested = calibration_requested_; 
-        calibration_requested_ = false;  // Auto-clear on read
-        return requested;
-    }
 
 #ifdef TEST_BUILD
     // Additional test accessors

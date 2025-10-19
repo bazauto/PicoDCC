@@ -40,9 +40,6 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     core1_heartbeat = 0;
     last_core1_check = 0;
     last_core1_heartbeat_value = 0;
-    
-    // Initialize calibration flag
-    calibration_requested_ = false;
 }
 
 // This is the Core 0 loop
@@ -69,15 +66,6 @@ void PicoDccController::dccexLoop()
         if (packet.isValid())
         {
             raw_dcc_cmd_t cmd = {};
-            
-            if (packet.isCalibrationCommand())
-            {
-                // Signal that calibration was requested
-                // The display component will check getCalibrationRequested()
-                calibration_requested_ = true;
-                DCCEX_RESPONSE("<CAL OK - Starting calibration...>\n");
-                return;  // Don't process as normal command
-            }
             
             if (packet.isPowerCommand())
             {

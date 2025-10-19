@@ -91,11 +91,6 @@ void PicoDccExPacket::decodePacket(char *buffer)
     // Sensors
     case ('S'):
         break;
-    
-    // Calibration
-    case ('C'):
-        // No parameters - simple command like 's' or '#'
-        break;
 
     // Throttle Control and Functions have the same parameter layout
     // <t cab speed direction> and <F cab funct state>
@@ -134,7 +129,6 @@ void PicoDccExPacket::validatePacket() {
     // Version and Num supported cabs
     case ('s'):
     case ('#'):
-    case ('C'):  // Calibration command
         valid_packet = true;
         break;
 
