@@ -95,16 +95,6 @@ void PicoDCCDisplay::loop(PicoDccController* controller) {
     // Update display at 10Hz
     uint32_t now = time_us_32() / 1000;
     uint32_t elapsed = now - last_update_time_;
-    
-    // Debug: Check timing
-    static uint32_t timing_check = 0;
-    if (++timing_check % 1000 == 0) {
-        char buf[64];
-        snprintf(buf, sizeof(buf), "[TIMING] elapsed=%lu, UPDATE_INTERVAL=%lu\n", 
-                 (unsigned long)elapsed, (unsigned long)UPDATE_INTERVAL_MS);
-        uart_puts(uart0, buf);
-    }
-    
     if (elapsed >= UPDATE_INTERVAL_MS) {
         // Gather track status from controller
         TrackStatus status;
@@ -166,6 +156,13 @@ bool PicoDCCDisplay::initLVGL() {
             // Check if the read timer was created
             if (indev->driver && indev->driver->read_timer) {
                 uart_puts(uart0, "Touch read timer created successfully\n");
+                
+                // Check timer configuration (access structure members directly)
+                lv_timer_t* timer = indev->driver->read_timer;
+                char buf[64];
+                snprintf(buf, sizeof(buf), "Timer period: %lu ms, paused: %d\n", 
+                         (unsigned long)timer->period, (int)timer->paused);
+                uart_puts(uart0, buf);
             } else {
                 uart_puts(uart0, "WARNING: Touch read timer NOT created!\n");
             }
