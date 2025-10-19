@@ -350,8 +350,10 @@ void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
     // If no interrupt, skip I2C read to save time
     if (!instance_->touch_.hasPendingTouch()) {
         data->state = LV_INDEV_STATE_RELEASED;
-        return;
+        return;  // No interrupt pending - most common case
     }
+    
+    printf("[CALLBACK] Flag is set! Reading touch data...\n");
     
     // Read fresh touch data from CST328
     TouchPoint points[1];

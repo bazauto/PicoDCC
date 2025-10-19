@@ -2,6 +2,7 @@
 #include "touch_driver.h"
 #include <stdint.h>
 #include <cstring>
+#include <cstdio>
 
 #ifndef TEST_BUILD
 #include "hardware/i2c.h"
@@ -109,11 +110,16 @@ void TouchDriver::touchInterruptHandler(unsigned int gpio, uint32_t events) {
     if (gpio == TOUCH_INT_PIN && (events & GPIO_IRQ_EDGE_FALL)) {
         // Set flag - will be checked during next LVGL poll
         touch_interrupt_pending_ = true;
+        printf("[ISR] Touch interrupt! Flag set to true\n");
     }
 }
 
 bool TouchDriver::hasPendingTouch() {
-    return touch_interrupt_pending_;
+    bool pending = touch_interrupt_pending_;
+    if (pending) {
+        printf("[DRIVER] hasPendingTouch() = true\n");
+    }
+    return pending;
 }
 
 void TouchDriver::hardwareReset() {
