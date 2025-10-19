@@ -143,36 +143,13 @@ bool PicoDCCDisplay::initLVGL() {
     // Phase 4: Initialize touch driver
     if (!touch_.init()) {
         // Touch init failed - continue without touch
-        uart_puts(uart0, "WARNING: Touch initialization failed\n");
     } else {
         // Register touch input device with LVGL
         lv_indev_drv_init(&indev_drv_);
         indev_drv_.type = LV_INDEV_TYPE_POINTER;
         indev_drv_.read_cb = touchCallback;
-        lv_indev_t* indev = lv_indev_drv_register(&indev_drv_);
-        
-        if (indev) {
-            uart_puts(uart0, "Touch input device registered with LVGL\n");
-            
-            // Check if the read timer was created
-            if (indev->driver && indev->driver->read_timer) {
-                uart_puts(uart0, "Touch read timer created successfully\n");
-                
-                // Check timer configuration (access structure members directly)
-                lv_timer_t* timer = indev->driver->read_timer;
-                char buf[64];
-                snprintf(buf, sizeof(buf), "Timer period: %lu ms, paused: %d\n", 
-                         (unsigned long)timer->period, (int)timer->paused);
-                uart_puts(uart0, buf);
-            } else {
-                uart_puts(uart0, "WARNING: Touch read timer NOT created!\n");
-            }
-        } else {
-            uart_puts(uart0, "ERROR: Touch registration failed!\n");
-        }
+        lv_indev_drv_register(&indev_drv_);
     }
-
-    uart_puts(uart0, "LVGL initialized successfully\n");
     
     return true;
 }
@@ -447,10 +424,7 @@ void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
 
 // Phase 4: Button event handlers
 void PicoDCCDisplay::onMainPowerClicked(lv_event_t* e) {
-    uart_puts(uart0, "[BUTTON] MAIN PWR button clicked!\n");
-    
     if (!instance_ || !instance_->controller_ref_) {
-        uart_puts(uart0, "[BUTTON] ERROR: instance or controller_ref is null\n");
         return;
     }
     
@@ -458,21 +432,12 @@ void PicoDCCDisplay::onMainPowerClicked(lv_event_t* e) {
     PicoDccTrack* main_track = instance_->controller_ref_->getTrack(false);
     if (main_track) {
         bool current_state = main_track->getPower();
-        char buf[64];
-        snprintf(buf, sizeof(buf), "[BUTTON] Main track power: %s -> %s\n", 
-                 current_state ? "ON" : "OFF", !current_state ? "ON" : "OFF");
-        uart_puts(uart0, buf);
         main_track->setPower(!current_state);
-    } else {
-        uart_puts(uart0, "[BUTTON] ERROR: main_track is null\n");
     }
 }
 
 void PicoDCCDisplay::onProgPowerClicked(lv_event_t* e) {
-    uart_puts(uart0, "[BUTTON] PROG PWR button clicked!\n");
-    
     if (!instance_ || !instance_->controller_ref_) {
-        uart_puts(uart0, "[BUTTON] ERROR: instance or controller_ref is null\n");
         return;
     }
     
@@ -480,29 +445,18 @@ void PicoDCCDisplay::onProgPowerClicked(lv_event_t* e) {
     PicoDccTrack* prog_track = instance_->controller_ref_->getTrack(true);
     if (prog_track) {
         bool current_state = prog_track->getPower();
-        char buf[64];
-        snprintf(buf, sizeof(buf), "[BUTTON] Prog track power: %s -> %s\n", 
-                 current_state ? "ON" : "OFF", !current_state ? "ON" : "OFF");
-        uart_puts(uart0, buf);
         prog_track->setPower(!current_state);
-    } else {
-        uart_puts(uart0, "[BUTTON] ERROR: prog_track is null\n");
     }
 }
 
 void PicoDCCDisplay::onResetTripsClicked(lv_event_t* e) {
-    uart_puts(uart0, "[BUTTON] RESET TRIPS button clicked!\n");
-    
     if (!instance_ || !instance_->controller_ref_) {
-        uart_puts(uart0, "[BUTTON] ERROR: instance or controller_ref is null\n");
         return;
     }
     
     // Reset trips by powering off then on both tracks
     PicoDccTrack* main_track = instance_->controller_ref_->getTrack(false);
     PicoDccTrack* prog_track = instance_->controller_ref_->getTrack(true);
-    
-    uart_puts(uart0, "[BUTTON] Resetting trips (power cycling tracks)\n");
     
     // Power cycle to clear any trip conditions
     if (main_track) {
@@ -515,22 +469,16 @@ void PicoDCCDisplay::onResetTripsClicked(lv_event_t* e) {
         sleep_ms(100);
         prog_track->powerOn();
     }
-    
-    uart_puts(uart0, "[BUTTON] Trip reset complete\n");
 }
 
 void PicoDCCDisplay::onCalibrateClicked(lv_event_t* e) {
-    uart_puts(uart0, "[BUTTON] CALIBRATE button clicked!\n");
-    
     if (!instance_ || !instance_->controller_ref_) {
-        uart_puts(uart0, "[BUTTON] ERROR: instance or controller_ref is null\n");
         return;
     }
     
     // TODO: Implement programming track calibration
     // This button is for programming track calibration (CV read/write, ACK detection)
     // NOT for touch screen calibration
-    uart_puts(uart0, "[BUTTON] Programming track calibration not yet implemented\n");
 }
 
 #endif // !TEST_BUILD

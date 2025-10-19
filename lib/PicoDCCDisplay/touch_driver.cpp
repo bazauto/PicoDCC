@@ -230,16 +230,6 @@ uint8_t TouchDriver::readTouchPoints(TouchPoint* points, uint8_t max_points) {
         return 0;
     }
     
-    // Debug: Print raw data every 50 reads
-    static int read_count = 0;
-    if (++read_count % 50 == 0) {
-        char debug[200];
-        snprintf(debug, sizeof(debug), 
-                 "[TOUCH RAW %d] byte0=%02X byte1=%02X byte2=%02X byte3=%02X byte4=%02X\n",
-                 read_count, raw_data[0], raw_data[1], raw_data[2], raw_data[3], raw_data[4]);
-        uart_puts(uart0, debug);
-    }
-    
     // CST328 data format (from reference driver):
     // Byte 0: [ID (4 bits)][State (4 bits)] - state == 6 means pressed
     // Byte 1: X high 8 bits  
