@@ -346,6 +346,13 @@ void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
         return;
     }
     
+    // Check if interrupt flag is set (catches short INT pulses)
+    // If no interrupt, skip I2C read to save time
+    if (!instance_->touch_.hasPendingTouch()) {
+        data->state = LV_INDEV_STATE_RELEASED;
+        return;
+    }
+    
     // Read fresh touch data from CST328
     TouchPoint points[1];
     uint8_t num_touches = instance_->touch_.readTouchPoints(points, 1);
@@ -360,15 +367,11 @@ void PicoDCCDisplay::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
         data->point.x = (points[0].x * 320) / 4096;
         data->point.y = (points[0].y * 240) / 4096;
         
-        // Debug: Print first touch event only (avoid spam)
-        static bool first_touch_printed = false;
-        if (!first_touch_printed) {
-            printf("Touch: Raw (%u,%u) -> Scaled (%d,%d) Event=%u\n",
-                   points[0].x, points[0].y, 
-                   data->point.x, data->point.y,
-                   points[0].event);
-            first_touch_printed = true;
-        }
+        // Debug: Print touch events
+        printf("Touch: Raw (%u,%u) -> Scaled (%d,%d) Event=%u\n",
+               points[0].x, points[0].y, 
+               data->point.x, data->point.y,
+               points[0].event);
     } else {
         data->state = LV_INDEV_STATE_RELEASED;
     }

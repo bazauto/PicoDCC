@@ -37,6 +37,9 @@ public:
     // Get last touch event (for LVGL integration)
     bool getLastTouch(uint16_t* x, uint16_t* y);
     
+    // Check if touch interrupt occurred (for detecting short pulses)
+    bool hasPendingTouch();
+    
     // Enable/disable touch interrupts
     void enableInterrupt(bool enable);
     
@@ -50,6 +53,13 @@ private:
     // Last valid touch point (for LVGL)
     TouchPoint last_touch_;
     bool has_touch_;
+    
+    // Interrupt flag (set by GPIO ISR, cleared when read)
+    static volatile bool touch_interrupt_pending_;
+    static TouchDriver* instance_;  // For ISR access
+    
+    // GPIO interrupt handler
+    static void touchInterruptHandler(unsigned int gpio, uint32_t events);
     
     // CST328 I2C communication
     bool writeRegister(uint8_t reg, uint8_t value);

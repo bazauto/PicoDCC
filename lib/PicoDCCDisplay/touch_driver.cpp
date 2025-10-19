@@ -30,16 +30,23 @@
 #define EVENT_UP            1
 #define EVENT_CONTACT       2
 
+// Static member initialization
+volatile bool TouchDriver::touch_interrupt_pending_ = false;
+TouchDriver* TouchDriver::instance_ = nullptr;
+
 TouchDriver::TouchDriver() 
     : initialized_(false)
     , interrupt_enabled_(false)
     , has_touch_(false)
 {
     last_touch_.valid = false;
+    instance_ = this;
 }
 
 TouchDriver::~TouchDriver() {
-    // Cleanup if needed
+    if (instance_ == this) {
+        instance_ = nullptr;
+    }
 }
 
 bool TouchDriver::init() {
@@ -89,9 +96,24 @@ bool TouchDriver::init() {
         return false;
     }
     
+    // Enable GPIO interrupt for short INT pulses
+    enableInterrupt(true);
+    
     initialized_ = true;
     return true;
 #endif
+}
+
+// GPIO interrupt handler (catches short INT pulses)
+void TouchDriver::touchInterruptHandler(unsigned int gpio, uint32_t events) {
+    if (gpio == TOUCH_INT_PIN && (events & GPIO_IRQ_EDGE_FALL)) {
+        // Set flag - will be checked during next LVGL poll
+        touch_interrupt_pending_ = true;
+    }
+}
+
+bool TouchDriver::hasPendingTouch() {
+    return touch_interrupt_pending_;
 }
 
 void TouchDriver::hardwareReset() {
@@ -160,6 +182,9 @@ uint8_t TouchDriver::readTouchPoints(TouchPoint* points, uint8_t max_points) {
     // Mock: No touch in test mode
     return 0;
 #else
+    // Clear interrupt flag at start of read
+    touch_interrupt_pending_ = false;
+    
     // CST328 touch data format:
     // Byte 0: Number of touch points (0-5)
     // Bytes 1-6: Touch point 1 (6 bytes per point)
@@ -266,8 +291,11 @@ void TouchDriver::enableInterrupt(bool enable) {
     interrupt_enabled_ = enable;
     
     if (enable) {
-        // Enable falling edge interrupt on INT pin
-        gpio_set_irq_enabled(TOUCH_INT_PIN, GPIO_IRQ_EDGE_FALL, true);
+        // Set up GPIO interrupt callback
+        gpio_set_irq_enabled_with_callback(TOUCH_INT_PIN, 
+                                          GPIO_IRQ_EDGE_FALL, 
+                                          true, 
+                                          &touchInterruptHandler);
     } else {
         // Disable interrupt
         gpio_set_irq_enabled(TOUCH_INT_PIN, GPIO_IRQ_EDGE_FALL, false);
