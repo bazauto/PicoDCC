@@ -20,6 +20,47 @@ The PicoDCC system has a fundamentally sound dual-core architecture with good ba
 
 **Communication Flow**: Core 0 → Core 1 via hardware queue (`track_cmd_queue`) with semaphore protection.
 
+## Critical Safety Issue: DC Mode Danger ⚠️
+
+### The Problem: Decoder DC Mode Behavior
+
+**CRITICAL FACT**: When DCC packets stop, decoders **DO NOT COAST** - they immediately switch to **DC mode** and go **FULL SPEED** in the direction of track polarity.
+
+**Failure Scenario**:
+1. DCC signal generation stops (PIO failure, core crash, flash write, etc.)
+2. Decoder detects absence of DCC packets (typically within 10-30ms)
+3. Decoder switches to DC mode operation
+4. If track has power → **Locomotive goes full speed immediately**
+5. **NO gradual acceleration** - instant maximum speed
+
+**Why This Matters**:
+- Timing watchdog (100ms) is too slow to prevent DC mode entry
+- Flash write operations (410ms) WILL trigger DC mode if track has power
+- Any system failure that stops DCC packets for >30ms is dangerous
+- This is NOT a software bug - this is **decoder specification behavior**
+
+### Flash Write Safety - Layout Maintenance Mode
+
+**Flash Write Characteristics**:
+- Erase + program = ~410ms blocking operation
+- Both cores halt during flash operations (SDK requirement)
+- DCC packets STOP for entire duration
+- Guaranteed to trigger DC mode switch
+
+**Layout Maintenance Mode Requirements**:
+- **Main track MUST be OFF** before flash write
+- **Programming track continues operating** (safe with isolated decoder)
+- **User confirms all locos stopped** via LCD modal
+- **System verifies main track power state** (enforced)
+- **LCD-only mode entry** (no remote activation via DCC-EX commands)
+- **Manual exit only** (no timeout, main track stays OFF after exit)
+
+**Why This Design**:
+- Prevents DC mode full-speed runaway during flash writes
+- Physical presence required (LCD) prevents accidental activation
+- Verify-not-force approach (system checks power, user confirms loco state)
+- No auto-restore of main track power after exit (explicit user action required)
+
 ## Existing Safety Mechanisms ✅
 
 ### 1. Command Timing Watchdog (100ms threshold)

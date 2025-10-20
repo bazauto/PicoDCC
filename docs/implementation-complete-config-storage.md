@@ -1,8 +1,50 @@
 # Configuration Storage & Calibration System - Implementation Complete
 
 **Date**: October 19, 2025  
-**Status**: ✅ Implementation Complete, All Tests Passing  
+**Updated**: October 20, 2025 (Layout Maintenance Mode Design)  
+**Status**: ✅ Core Infrastructure Complete, Layout Maintenance Mode Designed  
 **Phase**: Infrastructure (prerequisite for CV Programming Phase 1)
+
+---
+
+## Architecture Overview
+
+### Hybrid Configuration System
+The configuration system uses a **two-tier architecture**:
+
+1. **Runtime Configuration** (RAM-based, volatile):
+   - ACK detection parameters (`ack_threshold_ma`, `ack_min/max_duration_ms`)
+   - Adjustable via DCC-EX commands in NORMAL operation mode
+   - Changes effective immediately, reset on power cycle
+   - **Use Case**: Fine-tuning ACK parameters for difficult decoders during CV programming
+
+2. **Persistent Configuration** (Flash-based, non-volatile):
+   - Calibration values (`adc_to_ma_conversion`)
+   - Safety limits (`main/prog_track_current_limit_ma`)
+   - Baseline measurements (`baseline_current_ma`)
+   - Requires **Layout Maintenance Mode** to save (410ms flash write safety)
+   - **Use Case**: One-time calibration, safety parameter adjustments
+
+### Layout Maintenance Mode
+**Purpose**: Safe state for flash write operations that block both cores for 410ms
+
+**Safety Critical**: When DCC packets stop, decoders switch to DC mode and go **FULL SPEED** immediately (not coast). If main track has power during flash write, locomotives will run uncontrolled at maximum speed.
+
+**Entry Requirements** (manual, LCD-only):
+1. All locomotives stopped (verified by user, not enforced)
+2. Main track power OFF (verified by system, enforced by lockout)
+3. User acknowledges safety via LCD button press
+
+**Restrictions During Maintenance Mode**:
+- Main track power lockout (cannot enable via `<1>` or `<1 MAIN>`)
+- Only configuration commands accepted (`<D ACK ...>`, `<E>`)
+- Throttle/function/accessory commands silently rejected
+- Programming track continues operating normally
+
+**Exit Behavior**:
+- Manual exit only (no timeout)
+- Main track stays OFF after exit (user must explicitly re-enable)
+- Unsaved changes warning if modified but not saved
 
 ---
 
@@ -37,54 +79,78 @@
 
 ### 2. DCC-EX Configuration Commands
 
-**Files Created:**
+**Files To Be Updated:**
 - `lib/PicoDCCEX/pico_dccex_config.h` - Configuration command handler interface
 - `lib/PicoDCCEX/pico_dccex_config.cpp` - Command parser and handlers
+- `lib/PicoDCCController/pico_dcc_controller.h` - Add OperationMode state machine
 
-**Commands Implemented:**
+**Command Architecture (Updated Design):**
 
-#### Configuration Management
+#### Runtime Configuration Commands (NORMAL Mode)
+These commands adjust parameters in RAM, effective immediately:
 ```
-<D CONFIG GET parameter>        Get configuration value
-<D CONFIG SET parameter value>  Set configuration value
-<D CONFIG SAVE>                 Save to flash (survives power cycle)
-<D CONFIG RESET>                Reset to factory defaults
-<D CONFIG EXPORT>               Export all parameters for backup
+<D ACK LIMIT mA>    Set ACK detection current threshold (runtime)
+<D ACK MIN us>      Set minimum ACK pulse duration (runtime)
+<D ACK MAX us>      Set maximum ACK pulse duration (runtime)
+```
+**Behavior:**
+- Takes effect immediately for CV programming operations
+- **Does NOT require Layout Maintenance Mode**
+- Changes lost on power cycle (not persisted automatically)
+- Useful for fine-tuning during CV programming sessions
+
+#### Persistent Configuration Commands (Maintenance Mode Required)
+```
+<E>                 Save current runtime config to flash
+                    ⚠️ Only works in Layout Maintenance Mode
+                    Returns <X> error if called in NORMAL mode
+```
+**Behavior:**
+- Persists runtime configuration to flash
+- Blocks both cores for ~410ms
+- Returns `<e SAVED>` on success, `<e FAILED>` on error
+- Main track must be OFF (enforced by mode entry)
+
+#### Status & Query Commands (Any Mode)
+```
+<s>                 System status (track power, mode, unsaved changes)
+<#>                 Locomotive capacity report
 ```
 
-#### Calibration Workflow
+**Example Runtime Adjustment Session (NORMAL Mode):**
 ```
-<D CAL START>                   Begin calibration workflow
-<D CAL ADC [channel]>           Read ADC value (default channel 1)
-<D CAL SET load_ma adc_value>   Calculate and set conversion factor
-<D CAL SAVE>                    Save calibration to flash
+> <D ACK LIMIT 55>              # Lower threshold for weak decoder
+< <D ACK LIMIT 55>
+
+> <W 1 123>                      # Try CV write with new threshold
+< <r 1 123 123>                  # Success!
+
+> <D ACK MAX 8000>               # Increase max duration
+< <D ACK MAX 8000>
+
+> <E>                            # Try to save
+< <X>                            # ERROR: Not in maintenance mode
 ```
 
-**Example Calibration Session:**
+**Example Calibration Save Session (Maintenance Mode Required):**
 ```
-> <D CAL START>
-< <D CAL START OK>
-< <D CAL MSG Connect 100mA calibration load to programming track>
-< <D CAL MSG Enable programming track power: <1 PROG>>
-< <D CAL MSG Read ADC value: <D CAL ADC>>
-< <D CAL MSG Set calibration: <D CAL SET 100.0 <adc_value>>>
-< <D CAL MSG Save calibration: <D CAL SAVE>>
+[User enters Layout Maintenance Mode via LCD]
+[System verifies main track power OFF]
 
-> <1 PROG>
-< <p1 PROG>
+> <s>                            # Check status
+< <p0 MAIN> <p1 PROG> <iM>      # Main OFF, Prog ON, Maintenance mode
 
-> <D CAL ADC>
-< <D CAL ADC 1 VALUE 2048>
+> <D ACK LIMIT 55>               # Set runtime parameter
+< <D ACK LIMIT 55>
 
-> <D CAL SET 100.0 2048>
-< <D CAL SET OK ADC_MA=0.0488 (100.0mA @ 2048 counts)>
+> <E>                            # Save to flash
+< <e SAVED>                      # Success (410ms blocking)
 
-> <D CAL SAVE>
-< <D CONFIG SAVING>
-< <D CONFIG SAVE OK>
+[User exits maintenance mode via LCD]
+[Main track stays OFF after exit]
 
-> <D CONFIG GET ADC_MA>
-< <D CONFIG ADC_MA 0.0488>
+> <1 MAIN>                       # User re-enables main track
+< <p1 MAIN>
 ```
 
 ### 3. Documentation
@@ -159,18 +225,49 @@ Flash (2MB):
 - At 1 write/day = **27 years** lifespan
 - At 1 write/week = **192 years** lifespan
 
-### Dual-Core Safety
+### Dual-Core Safety & Layout Maintenance Mode
 
 **Flash Write Sequence:**
 1. Check if Core 1 running (`multicore_lockout_victim_is_initialized`)
 2. Halt Core 1 (`multicore_lockout_start_blocking`)
 3. Disable interrupts (`save_and_disable_interrupts`)
-4. Erase sector (`flash_range_erase`)
-5. Program sector (`flash_range_program`)
+4. Erase sector (`flash_range_erase`) - ~400ms
+5. Program sector (`flash_range_program`) - ~10ms
 6. Re-enable interrupts (`restore_interrupts`)
 7. Resume Core 1 (`multicore_lockout_end_blocking`)
 
-**Impact:** Main track locomotives coast for ~410ms during save (acceptable for infrequent calibration)
+**Total Duration:** ~410ms blocking operation on both cores
+
+**Critical Safety Issue:**
+- When DCC packets stop, decoders immediately switch to DC mode
+- DC mode: Full throttle in direction of track polarity
+- If main track has power during flash write → **locomotives go FULL SPEED uncontrolled**
+- NOT a gradual coast - instant maximum speed
+
+**Layout Maintenance Mode Design:**
+```
+OperationMode (PicoDCCController state):
+├─ NORMAL: Standard DCC operation
+│  ├─ <D ACK ...> commands adjust runtime config (RAM)
+│  ├─ <E> command returns <X> error
+│  └─ Main track power controllable via <0>/<1>
+│
+└─ LAYOUT_MAINTENANCE: Safe state for flash writes
+   ├─ Entry via LCD only (button press)
+   ├─ System verifies main track power OFF
+   ├─ User confirms locomotives stopped
+   ├─ Main track power lockout enforced
+   ├─ <D ACK ...> commands still work (runtime config)
+   ├─ <E> command allowed (saves to flash)
+   ├─ Throttle/function commands silently rejected
+   └─ Exit via LCD only (manual, no timeout)
+```
+
+**Mode Transition Safety:**
+- **Entry**: LCD modal verifies locos stopped + main power off
+- **During**: Main track power lockout prevents accidental enable
+- **Exit**: Main track stays OFF, user must explicitly re-enable
+- **Unsaved Changes**: Warning modal if config modified but not saved
 
 ### Data Integrity
 
@@ -222,49 +319,71 @@ programmer.setACKDuration(
 
 ## User Workflow
 
-### Initial Setup (One-Time)
+### Initial Setup (One-Time Calibration)
+
+**Goal:** Calibrate ADC-to-mA conversion for accurate ACK detection
 
 1. **Build and flash firmware** with configuration storage
-2. **Connect 100mA calibration load** (120Ω resistor @ 12V)
-3. **Run calibration workflow:**
-   ```
-   <D CAL START>
-   <1 PROG>
-   <D CAL ADC>
-   <D CAL SET 100.0 2048>    # Use actual ADC value
-   <D CAL SAVE>
-   ```
-4. **Verify calibration:**
-   ```
-   <D CONFIG GET ADC_MA>
-   ```
-5. **Power cycle** - configuration persists in flash
+2. **Connect hardware:**
+   - Programming track to decoder
+   - 100mA calibration load (120Ω resistor @ 12V) in series
+3. **Enter Layout Maintenance Mode** (LCD only):
+   - Navigate to Settings screen
+   - Press "Layout Maintenance Mode" button
+   - Confirm locos stopped + main power off
+4. **Perform calibration via LCD:**
+   - LCD guides through calibration workflow
+   - Reads ADC value from programming track
+   - Calculates conversion factor
+   - User saves to flash via LCD button
+5. **Exit maintenance mode** via LCD
+6. **Power cycle** - calibration persists in flash
 
-### Runtime Usage
+### Runtime Usage (CV Programming)
 
-**View configuration:**
+**Scenario 1: CV Programming with Default Settings**
 ```
-<D CONFIG GET ALL>
-```
-
-**Tune ACK threshold for finicky decoder:**
-```
-<D CONFIG SET ACK_THRESH 55.0>
-<D CONFIG SAVE>
+> <W 1 123>                      # Write CV1 = 123
+< <r 1 123 123>                  # ACK detected, verified
 ```
 
-**Backup configuration before firmware update:**
+**Scenario 2: Difficult Decoder (Weak ACK Pulse)**
 ```
-<D CONFIG EXPORT>
-# Save response to text file
+> <W 1 123>                      # Write attempt
+< <r 1 123 -1>                   # FAILED - no ACK detected
+
+> <D ACK LIMIT 50>               # Lower threshold (runtime)
+< <D ACK LIMIT 50>
+
+> <W 1 123>                      # Retry
+< <r 1 123 123>                  # Success!
+
+# If you want to keep this setting permanently:
+[Enter Layout Maintenance Mode via LCD]
+
+> <E>                            # Save runtime config to flash
+< <e SAVED>
+
+[Exit maintenance mode via LCD]
 ```
 
-**Restore after firmware update:**
+**Scenario 3: Check for Unsaved Changes**
 ```
-<D CONFIG SET ADC_MA 0.0512>
-<D CONFIG SET ACK_THRESH 55.0>
-# ... restore all parameters ...
-<D CONFIG SAVE>
+> <D ACK LIMIT 50>               # Adjust runtime parameter
+< <D ACK LIMIT 50>
+
+> <s>                            # Check status
+< <p1 MAIN> <p1 PROG> <iN> <u>  # Normal mode, unsaved changes
+
+[If you want to keep changes, enter maintenance mode and use <E>]
+[If you don't care, changes reset on power cycle]
+```
+
+**Scenario 4: View Current Configuration**
+```
+> <s>                            # System status includes ACK params
+< <p1 MAIN> <p1 PROG> <iN>      # Normal mode
+< <D ACK LIMIT 60> <D ACK MIN 5000> <D ACK MAX 7000>
 ```
 
 ---
@@ -276,12 +395,18 @@ programmer.setACKDuration(
    - **Future**: Add linker script modification to CMakeLists.txt
 
 2. **Flash Write Blocking**: ~410ms pause on both cores
-   - **Impact**: Main track locomotives coast briefly
-   - **Acceptable**: Calibration/config writes are rare (user-initiated only)
+   - **Impact**: DCC packets stop → decoders switch to DC mode → FULL SPEED if track has power
+   - **Mitigation**: Layout Maintenance Mode enforces main track power OFF
+   - **Acceptable**: Flash writes only allowed in safe maintenance mode
 
 3. **Test Mode**: Flash operations mocked (always returns defaults)
    - **Impact**: Can't test actual flash write in unit tests
    - **Acceptable**: Hardware testing validates real flash operations
+
+4. **LCD-Only Mode Entry**: No DCC-EX command to enter Layout Maintenance Mode
+   - **Rationale**: Prevents accidental remote activation during operation
+   - **Impact**: User must physically access LCD to enter maintenance mode
+   - **Acceptable**: Safety-critical operation requires intentional local action
 
 ---
 
@@ -314,14 +439,65 @@ All criteria met:
 
 ## What's Next
 
-### Immediate Next Step: Phase 1 - ACK Detection Infrastructure
+### Immediate: Layout Maintenance Mode Implementation
+
+**Components to Implement:**
+
+1. **PicoDCCController Mode State Machine:**
+   ```cpp
+   enum class OperationMode {
+       NORMAL,
+       LAYOUT_MAINTENANCE
+   };
+   
+   bool canEnterMaintenanceMode();  // Check main track power off
+   void enterMaintenanceMode();      // Set mode, log entry
+   void exitMaintenanceMode();       // Set mode, log exit
+   bool isMaintenanceModeActive();   // Query current state
+   ```
+
+2. **PicoConfigStorage Hybrid Config:**
+   ```cpp
+   struct RuntimeConfig {
+       float ack_threshold_ma;       // Adjustable via <D ACK LIMIT>
+       float ack_min_duration_us;    // Adjustable via <D ACK MIN>
+       float ack_max_duration_us;    // Adjustable via <D ACK MAX>
+   };
+   
+   struct FlashConfig {
+       float adc_to_ma_conversion;   // Calibration
+       float baseline_current_ma;    // Measurement
+       uint16_t main_limit_ma;       // Safety
+       uint16_t prog_limit_ma;       // Safety
+   };
+   
+   bool hasUnsavedChanges();         // Track dirty state
+   void saveToFlash();               // Persist runtime → flash
+   void discardChanges();            // Reset runtime from flash
+   ```
+
+3. **PicoDCCEX Command Updates:**
+   - Parse `<D ACK LIMIT/MIN/MAX>` → update runtime config
+   - Parse `<E>` → check mode, call `saveToFlash()`
+   - Update `<s>` response to include mode and unsaved flag
+   - Return `<X>` error if `<E>` called in NORMAL mode
+
+4. **PicoDCCDisplay Maintenance Mode UI:**
+   - Settings screen: "Layout Maintenance Mode" button
+   - Entry modal: Verify locos stopped + main power off
+   - Maintenance screen: "Save to Flash" button, unsaved indicator
+   - Exit warning modal: "Unsaved changes will be lost"
+
+**Estimated Time**: 3-4 days
+
+### After Maintenance Mode: Phase 1 - ACK Detection Infrastructure
 
 **Ready to Implement:**
 1. Create `lib/PicoDCCProgrammer/` directory structure
 2. Implement `PicoDccProgrammer` class with:
-   - `measureBaselineCurrent()` - Uses stored `baseline_current_ma`
-   - `detectACK()` - Uses stored `ack_threshold_ma` and durations
-   - `analyzeACKSamples()` - Applies calibrated `adc_to_ma_conversion`
+   - `measureBaselineCurrent()` - Uses flash config `baseline_current_ma`
+   - `detectACK()` - Uses runtime config `ack_threshold_ma` and durations
+   - `analyzeACKSamples()` - Applies flash config `adc_to_ma_conversion`
 3. Integrate with `PicoDccController`:
    - Load `PicoConfigStorage` on boot
    - Pass calibration values to programmer
@@ -334,14 +510,25 @@ All criteria met:
 
 ## Summary
 
-The configuration storage and calibration system is **complete and ready for use**. This provides the foundation for CV programming by:
+The configuration storage infrastructure is **complete** with a comprehensive safety design. The hybrid architecture provides:
 
-1. **Storing hardware-specific calibration** (ADC-to-mA conversion)
-2. **Enabling runtime tuning** (ACK thresholds and durations)
-3. **Persisting across power cycles** (flash storage)
-4. **Providing user-friendly calibration workflow** (DCC-EX commands)
+1. **Runtime Configuration** (RAM): Adjustable ACK parameters via `<D ACK ...>` commands
+2. **Persistent Configuration** (Flash): Calibration and safety limits saved via `<E>` command
+3. **Layout Maintenance Mode**: Safety state for flash writes (main track OFF, 410ms blocking safe)
+4. **Hybrid Workflow**: Fine-tune during CV programming, optionally persist if needed
 
-**All systems green** ✅ - Ready to proceed with Phase 1 (ACK Detection) implementation.
+**Safety Critical Design:**
+- Flash write blocks both cores for 410ms → DCC packets stop
+- Decoders switch to DC mode → **FULL SPEED if track has power**
+- Layout Maintenance Mode prevents this by enforcing main track power OFF
+- LCD-only entry prevents accidental remote activation
+
+**Current Status:**
+- ✅ Flash storage infrastructure complete (PicoConfigStorage)
+- ✅ Safety design complete (Layout Maintenance Mode specification)
+- 🔄 Implementation pending: Mode state machine, hybrid config, LCD UI, command updates
+
+**Next Step:** Implement Layout Maintenance Mode components (~3-4 days), then proceed to Phase 1 (ACK Detection).
 
 ---
 

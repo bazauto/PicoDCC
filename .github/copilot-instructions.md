@@ -376,6 +376,45 @@ This script directly addresses the need to ensure that changes in one build mode
     - Added conservative limits (20 entries max, 128 bytes/entry buffer space check)
   - **Lessons**: ARM Cortex-M has strict alignment requirements; always test with actual hardware; multicore semaphore blocking can corrupt timing-critical code; hardware debugging requires Linux test machine with OpenOCD access.
 
+- **Layout Maintenance Mode Pattern (Safety-Critical State Machine)**:
+  - **Problem**: Flash write blocks both cores for 410ms → DCC packets stop → decoders switch to DC mode → **FULL SPEED if track has power**
+  - **Solution**: Layout Maintenance Mode - safe state for flash writes with strict entry requirements
+  - **Architecture**:
+    ```cpp
+    enum class OperationMode { NORMAL, LAYOUT_MAINTENANCE };  // PicoDCCController
+    
+    // Entry Requirements (verified before mode transition)
+    bool canEnterMaintenanceMode() {
+        return !main_track.isPowered();  // System check
+    }
+    // User confirms locos stopped via LCD modal (not enforced by system)
+    ```
+  - **Mode Ownership**: `PicoDCCController` owns mode state, enforces power lockout
+  - **Entry**: LCD-only (button press) → prevents accidental remote activation
+  - **During Mode**:
+    - Main track power lockout (`<1 MAIN>` returns `<X>` error)
+    - Programming track continues normally
+    - `<D ACK ...>` commands adjust runtime config (RAM)
+    - `<E>` command saves to flash (only allowed in maintenance mode)
+    - Throttle/function/accessory commands silently rejected
+  - **Exit**: Manual via LCD (no timeout) → main track stays OFF
+  - **Configuration Architecture**:
+    - **Runtime Config** (RAM): ACK parameters adjustable via `<D ACK LIMIT/MIN/MAX>`
+    - **Flash Config** (persistent): Calibration, limits, saved via `<E>` in maintenance mode
+    - **Unsaved Changes Tracking**: `hasUnsavedChanges()` flag, warning modal on exit
+  - **Key Design Decisions**:
+    - Verify-not-force: System checks power state, user confirms loco state
+    - Manual transitions: No automatic mode changes (safety critical)
+    - LCD-only entry: Requires physical presence at controller
+    - Persistent lockout: No timeout, explicit exit required
+    - No auto-restore: Main track stays OFF after exit (user must re-enable)
+  - **Cross-Component Coordination**:
+    - `PicoDCCController`: Mode state machine, power lockout enforcement
+    - `PicoConfigStorage`: Hybrid runtime/flash config, unsaved changes tracking
+    - `PicoDCCEX`: Command parsing, mode-aware `<E>` handling
+    - `PicoDCCDisplay`: Mode entry/exit UI, unsaved changes indicators
+  - **Lessons**: Safety-critical operations require explicit user action; hybrid runtime/persistent config provides flexibility; mode state machines prevent dangerous operations; physical presence requirements (LCD-only) prevent remote accidents.
+
 ## Key Files and Directories
 - `CMakeLists.txt`: Build configuration.
 - `src/`: Main source code.
