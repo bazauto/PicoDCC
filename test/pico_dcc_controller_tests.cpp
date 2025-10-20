@@ -13,6 +13,7 @@ extern "C"
 }
 
 #include "../lib/PicoDCCController/pico_dcccontroller.h"
+#include "../lib/pico_diagnostic.h"  // For diag_log_init()
 
 // Mock state tracking
 extern bool track_power_states[2];
@@ -27,6 +28,7 @@ static int setup(void **state)
     queued_commands.clear();
     uart_output_log.clear();
     mock_time_ms = 0;
+    diag_log_init();  // Initialize diagnostic log buffer
     return 0;
 }
 
@@ -34,6 +36,7 @@ static int teardown(void **state)
 {
     queued_commands.clear();
     uart_output_log.clear();
+    diag_log_clear();  // Clear diagnostic log buffer
     return 0;
 }
 
