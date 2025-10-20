@@ -71,41 +71,98 @@ This document validates the PicoDCC project implementation against the [DCC-EX N
 **Reason**: PicoDCC focuses on standard DCC operation, not multi-track management
 
 ### Configuration Variable (CV) Programming
-**Status**: ⚠️ **STUBS ONLY**
+**Status**: 🔄 **IN DEVELOPMENT**
 
 | Command Category | Implementation Status | Notes |
 |-----------------|----------------------|-------|
-| Programming Track CVs | ⚠️ Method stubs exist | `PicoDccLoco::verifyCV()`, `readCVByte()`, `writeCVBytes()` |
-| Main Track CV Programming | ❌ Not implemented | `<w cab cv value>`, `<b cab cv bit value>` |
-| CV Reading | ⚠️ Method stubs exist | `PicoDccLoco::readCVByte()`, `readCVBit()` |
+| Programming Track CVs | 🔄 Infrastructure ready | `<W cv value>`, `<V cv value>`, `<R cv>`, `<B cv bit value>` |
+| Main Track CV Programming | ❌ Not planned | `<w cab cv value>`, `<b cab cv bit value>` |
+| CV Reading | 🔄 Infrastructure ready | ACK detection hardware in place |
 
 **Implementation Status**:
+- ✅ Hardware ACK detection ready (ADC-based current sensing)
+- ✅ Programming track infrastructure (`PicoDccTrack` prog track)
 - ✅ Method signatures defined in `PicoDccLoco` class
-- ❌ Actual CV programming logic not implemented
-- ❌ Programming track acknowledgment detection not implemented
-- ❌ DCC-EX CV command parsing not implemented
+- ✅ Non-volatile storage for calibration values (`PicoConfigStorage`)
+- 🔄 CV programming logic implementation in progress
+- 🔄 DCC-EX CV command parsing in progress
+
+### Programming Track Configuration Commands
+**Status**: ✅ **IMPLEMENTED** (Runtime adjustable, persistable in maintenance mode)
+
+| Command | Description | Implementation Status | Location |
+|---------|-------------|----------------------|----------|
+| `<D ACK LIMIT mA>` | Set ACK detection current threshold | ✅ Implemented | Runtime config (default 60mA) |
+| `<D ACK MIN us>` | Set minimum ACK pulse duration | ✅ Implemented | Runtime config (default 5000µs) |
+| `<D ACK MAX us>` | Set maximum ACK pulse duration | ✅ Implemented | Runtime config (default 7000µs) |
+
+**Implementation Details**:
+- **Runtime Adjustable**: Changes take effect immediately in RAM
+- **Persistent Storage**: Saved to flash via `<E>` command (maintenance mode only)
+- **ACK Detection**: Uses calibrated ADC current sensing on programming track
+- **Configuration Storage**: `PicoConfigStorage` manages NV storage in flash
+
+### EEPROM/Flash Storage Commands
+**Status**: ✅ **IMPLEMENTED** (with safety restrictions)
+
+| Command | Description | Implementation Status | Security |
+|---------|-------------|----------------------|----------|
+| `<E>` | Save settings to flash/EEPROM | ✅ Implemented | 🔒 Maintenance mode only |
+
+**Responses**:
+- ✅ `<e SAVED>` - Flash write successful
+- ✅ `<e FAILED>` - Flash write failed
+- ✅ `<X>` - Command rejected (not in maintenance mode)
+
+**Safety Design**:
+- **Layout Maintenance Mode Required**: Prevents flash write during track operations
+- **410ms Flash Write Block**: Both cores halt during write (all locos must be stopped)
+- **Main Track Power Lockout**: Main track power disabled during maintenance mode
+- **Programming Track Continues**: CV operations allowed during maintenance mode
+- **LCD-Only Mode Entry**: Cannot enter maintenance mode via DCC-EX commands (operator presence required)
+
+**Implementation Details**:
+- **Flash Storage**: Last 4KB sector (0x101FF000) with CRC32 validation
+- **Configuration Class**: `PicoConfigStorage` manages persistent parameters
+- **Mode Management**: `PicoDCCController` enforces maintenance mode restrictions
+- **Unsaved Changes Tracking**: System tracks runtime changes vs. flash-saved values
 
 ### System Information Commands
-**Status**: ❌ **NOT IMPLEMENTED**
-- `<s>` - Version and hardware info
-- `<c>` - Request current measurements
-- `<#>` - Number of supported cabs
+**Status**: ⚠️ **PARTIALLY IMPLEMENTED**
 
-**Reason**: These are informational commands not critical for basic DCC operation
+| Command | Description | Implementation Status | Notes |
+|---------|-------------|----------------------|-------|
+| `<s>` | Version and hardware info | ⚠️ Planned | JMRI compatibility improvement |
+| `<c>` | Request current measurements | ❌ Not planned | Hardware monitoring exists but not exposed |
+| `<#>` | Number of supported cabs | ⚠️ Planned | JMRI compatibility improvement |
+
+**JMRI Compatibility Notes**:
+- JMRI queries `<s>` and `<#>` on startup
+- Current behavior: Command timeout (JMRI waits ~3 seconds)
+- **Planned**: Return proper responses to eliminate startup delays
 
 ### Advanced Features NOT Implemented
 **Status**: ❌ **NOT REQUIRED FOR BASIC LAYOUT**
 
-| Feature Category | Commands | Status |
-|-----------------|----------|---------|
-| Turnouts/Points | `<T>`, `<T id state>` | ❌ Not implemented |
-| Turntables | `<I>`, `<I id position>` | ❌ Not implemented |
-| Sensors | `<Q>`, `<S>` | ❌ Not implemented |
-| Outputs | `<Z>`, `<z>` | ❌ Not implemented |
-| Routes/Automations | `<J A>` | ❌ Not implemented |
-| Roster Management | `<J R>` | ❌ Not implemented |
-| WiFi Control | `<+>` commands | ❌ Not implemented |
-| Fast Clock | `<JC>` | ❌ Not implemented |
+| Feature Category | Commands | Status | JMRI Impact |
+|-----------------|----------|---------|-------------|
+| Turnouts/Points | `<JT>` (list), `<T>` (control) | ❌ Not implemented | Startup query timeout |
+| Turntables | `<I>`, `<I id position>` | ❌ Not implemented | No impact |
+| Sensors | `<Q>`, `<S>` | ❌ Not implemented | No impact |
+| Outputs | `<Z>`, `<z>` | ❌ Not implemented | No impact |
+| Routes/Automations | `<JA>` (list), `</>` (control) | ❌ Not implemented | Startup query timeout |
+| Roster Management | `<JR>` (list) | ❌ Not implemented | Startup query timeout |
+| WiFi Control | `<+>` commands | ❌ Not implemented | No impact |
+| Fast Clock | `<JC>` | ❌ Not implemented | No impact |
+
+**JMRI Startup Behavior**:
+- **Issue**: JMRI queries list commands on startup (`<JT>`, `<JA>`, `<JR>`)
+- **Current**: ~9 second startup delay (3 seconds per timeout)
+- **Planned**: Return empty list responses to eliminate delays
+  - `<jT>` - Empty turnout list
+  - `<jA>` - Empty automation list  
+  - `<jR>` - Empty roster list
+- **Add/Modify Commands**: Return `<X>` error for unsupported operations
 
 ## Implementation Architecture
 
@@ -134,17 +191,20 @@ This document validates the PicoDCC project implementation against the [DCC-EX N
 2. **Basic Locomotive Control** - Speed, direction, functions, emergency stop
 3. **DCC Accessories** - Basic accessory decoder control
 4. **Protocol Responses** - Proper DCC-EX acknowledgments and status updates
+5. **ACK Configuration** - Runtime adjustable programming track parameters (`<D ACK ...>`)
+6. **Flash Storage** - EEPROM-equivalent storage with safety restrictions (`<E>`)
 
 ### ⚠️ Partially Implemented Areas
-1. **CV Programming** - Method stubs exist but programming logic not implemented
-2. **Error Handling** - Basic error responses but not comprehensive
+1. **CV Programming** - Infrastructure ready, command parsing in development
+2. **System Information** - Basic queries needed for JMRI compatibility
+3. **List Queries** - Empty list responses needed to prevent JMRI timeouts
 
 ### ❌ Not Implemented (By Design)
 1. **Track Manager** - Multi-track configuration beyond main/prog
 2. **Advanced Accessories** - Turnouts, turntables, sensors, outputs
-3. **System Information** - Version, current monitoring, diagnostics
-4. **Network Features** - WiFi management, roster synchronization
-5. **Automation** - Routes, EXRAIL integration
+3. **Network Features** - WiFi management, roster synchronization
+4. **Automation** - Routes, EXRAIL integration
+5. **Main Track CV Programming** - Operations track programming not supported
 
 ## Layout Compatibility Assessment
 
@@ -166,21 +226,25 @@ This document validates the PicoDCC project implementation against the [DCC-EX N
 
 ## Future Development Recommendations
 
-### Priority 1: Essential for Complete DCC Operation
+### Priority 1: JMRI Compatibility Improvements (Quick Wins)
+1. **Empty List Responses** - Eliminate 9-second startup delay:
+   - `<JT>` → `<jT>` (empty turnout list)
+   - `<JA>` → `<jA>` (empty automation list)
+   - `<JR>` → `<jR>` (empty roster list)
+2. **Basic System Info**:
+   - `<s>` → Version and track count response
+   - `<#>` → Locomotive capacity response
+
+### Priority 2: Essential for Complete DCC Operation
 1. **CV Programming Implementation**:
-   - Implement programming track ACK detection
-   - Add `<R cv>`, `<W cv value>`, `<V cv value>` command support
-   - Complete the existing CV method stubs in `PicoDccLoco`
+   - Complete DCC-EX CV command parsing (`<W>`, `<V>`, `<R>`, `<B>`)
+   - Implement programming track ACK detection logic
+   - Integrate with existing `PicoDccLoco` CV method stubs
+   - Add CV read/write test coverage
 
-### Priority 2: Layout Enhancement
-1. **System Information Commands**:
-   - `<s>` version information for JMRI compatibility
-   - `<#>` locomotive capacity reporting
-   - `<c>` current monitoring integration
-
-### Priority 3: Advanced Features (Optional)
+### Priority 3: Layout Enhancement (Optional)
 1. **Turnout Support**: For layouts with DCC-controlled turnouts
-2. **Sensor Integration**: For occupancy detection and automation
+2. **Current Monitoring API**: Expose existing hardware monitoring via `<c>`
 3. **Diagnostic Commands**: Enhanced debugging and monitoring
 
 ## Testing Coverage
