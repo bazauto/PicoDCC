@@ -24,11 +24,13 @@ PicoDCC is a project designed for managing and controlling Digital Command Contr
 The project supports two distinct build modes controlled by the `TEST_BUILD` flag in `CMakeLists.txt`:
 
 1. **Test Mode** (`TEST_BUILD=ON`):
-   - Uses MSVC compiler for Windows testing
+   - Uses **GCC/MinGW compiler** with **Ninja generator** on Windows
+   - Matches IDE F7 build configuration for consistency
    - Includes mock implementations for hardware functions
    - Links with CMocka testing framework
    - Uses `uart_puts(uart0, ...)` for UART output (mocked)
    - Builds test executables in `build/test/`
+   - **Build command**: `cmake -G "Ninja" -DTEST_BUILD=ON ..`
 
 2. **Hardware Mode** (`TEST_BUILD=OFF`):
    - Uses ARM GCC compiler (arm-none-eabi) for Raspberry Pi Pico
