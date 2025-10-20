@@ -157,6 +157,11 @@ void sleep_us(uint64_t us) {
     mock_time_ms += static_cast<uint32_t>(us / 1000);
 }
 
+uint32_t time_us_32(void) {
+    // Return mock time in microseconds (mock_time_ms is in milliseconds)
+    return mock_time_ms * 1000;
+}
+
 } // extern "C"
 
 PIO::PIO() {}

@@ -61,8 +61,8 @@ static void test_log_buffer_add_single(void **state) {
     diagnostic_msg_t msg;
     msg.level = DIAG_ERROR;
     msg.timestamp = 1000;
-    msg.component = COMPONENT_TRACK;
-    msg.message = "Test error message";
+    strcpy(msg.component, COMPONENT_TRACK);
+    strcpy(msg.message, "Test error message");
     
     diag_log_add(msg);
     
@@ -89,8 +89,8 @@ static void test_log_buffer_add_multiple(void **state) {
         diagnostic_msg_t msg;
         msg.level = DIAG_INFO;
         msg.timestamp = 1000 + i;
-        msg.component = COMPONENT_CONTROLLER;
-        msg.message = "Test message";
+        strcpy(msg.component, COMPONENT_CONTROLLER);
+        strcpy(msg.message, "Test message");
         diag_log_add(msg);
     }
     
@@ -116,8 +116,8 @@ static void test_log_buffer_wraparound(void **state) {
         diagnostic_msg_t msg;
         msg.level = DIAG_WARNING;
         msg.timestamp = 1000 + i;
-        msg.component = COMPONENT_POWER;
-        msg.message = "Wraparound test";
+        strcpy(msg.component, COMPONENT_POWER);
+        strcpy(msg.message, "Wraparound test");
         diag_log_add(msg);
     }
     
@@ -146,8 +146,8 @@ static void test_log_buffer_invalid_index(void **state) {
         diagnostic_msg_t msg;
         msg.level = DIAG_CRITICAL;
         msg.timestamp = 2000 + i;
-        msg.component = COMPONENT_CORE;
-        msg.message = "Critical error";
+        strcpy(msg.component, COMPONENT_CORE);
+        strcpy(msg.message, "Critical error");
         diag_log_add(msg);
     }
     
@@ -176,8 +176,8 @@ static void test_log_buffer_clear(void **state) {
         diagnostic_msg_t msg;
         msg.level = DIAG_ERROR;
         msg.timestamp = 3000 + i;
-        msg.component = COMPONENT_DCCEX;
-        msg.message = "Error entry";
+        strcpy(msg.component, COMPONENT_DCCEX);
+        strcpy(msg.message, "Error entry");
         diag_log_add(msg);
     }
     
@@ -267,8 +267,8 @@ static void test_uninitialized_buffer(void **state) {
     diagnostic_msg_t msg;
     msg.level = DIAG_ERROR;
     msg.timestamp = 5000;
-    msg.component = COMPONENT_TRACK;
-    msg.message = "Should be ignored";
+    strcpy(msg.component, COMPONENT_TRACK);
+    strcpy(msg.message, "Should be ignored");
     
     diag_log_add(msg);  // Should do nothing
     
