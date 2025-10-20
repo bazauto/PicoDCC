@@ -50,6 +50,29 @@ void MockDisplayRenderer::setController(class PicoDccController* controller) {
     controller_ref_ = controller;
 }
 
+void MockDisplayRenderer::showSettingsScreen() {
+    // Stub: No-op for test mode
+}
+
+bool MockDisplayRenderer::showMaintenanceModeEntryModal() {
+    // Stub: Return false (user declined) for test mode
+    return false;
+}
+
+void MockDisplayRenderer::showMaintenanceModeScreen() {
+    // Stub: No-op for test mode
+}
+
+void MockDisplayRenderer::updateMaintenanceModeScreen(bool has_unsaved_changes) {
+    // Stub: No-op for test mode
+    (void)has_unsaved_changes;
+}
+
+bool MockDisplayRenderer::showUnsavedChangesModal() {
+    // Stub: Return false (user declined) for test mode
+    return false;
+}
+
 void MockDisplayRenderer::reset() {
     init_called_ = false;
     test_pattern_shown_ = false;

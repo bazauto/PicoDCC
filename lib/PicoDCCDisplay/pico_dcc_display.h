@@ -16,6 +16,8 @@ struct TrackStatus {
     uint32_t packets_sent;
     uint32_t idle_packets_sent;
     uint8_t loco_count;
+    bool maintenance_mode_active;  // Layout Maintenance Mode indicator
+    bool has_unsaved_changes;      // Configuration unsaved changes
 };
 
 /**

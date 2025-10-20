@@ -29,6 +29,13 @@ public:
     void showLogScreen() override;
     void updateLogScreen() override;
     
+    // Settings and maintenance mode methods
+    void showSettingsScreen() override;
+    bool showMaintenanceModeEntryModal() override;
+    void showMaintenanceModeScreen() override;
+    void updateMaintenanceModeScreen(bool has_unsaved) override;
+    bool showUnsavedChangesModal() override;
+    
 private:
     LcdDriver& lcd_;
     TouchDriver& touch_;
@@ -59,6 +66,28 @@ private:
     lv_obj_t* btn_view_logs_;       // Button on main screen to open log viewer
     lv_obj_t* log_count_label_;     // Indicator showing log count on main screen
     
+    // Settings screen objects
+    lv_obj_t* settings_screen_;
+    lv_obj_t* settings_title_label_;
+    lv_obj_t* btn_maintenance_mode_;
+    lv_obj_t* btn_back_to_main_from_settings_;
+    lv_obj_t* btn_settings_;        // Button on main screen to open settings
+    
+    // Maintenance mode screen objects
+    lv_obj_t* maintenance_screen_;
+    lv_obj_t* maintenance_title_label_;
+    lv_obj_t* maintenance_status_label_;
+    lv_obj_t* unsaved_indicator_label_;
+    lv_obj_t* btn_save_config_;
+    lv_obj_t* btn_exit_maintenance_;
+    lv_obj_t* maintenance_mode_indicator_;  // Indicator on main screen
+    
+    // Modal dialog objects (reusable)
+    lv_obj_t* modal_box_;
+    lv_obj_t* modal_btn_yes_;
+    lv_obj_t* modal_btn_no_;
+    bool modal_result_;             // Result from modal dialog
+    
     // LVGL display driver buffer
     static lv_disp_draw_buf_t disp_buf_;
     static lv_color_t buf1_[LV_HOR_RES_MAX * 20];  // 20 lines buffer
@@ -83,11 +112,27 @@ private:
     static void onClearLogsClicked(lv_event_t* e);
     static void onBackToMainClicked(lv_event_t* e);
     
+    // Settings screen event handlers
+    static void onSettingsClicked(lv_event_t* e);
+    static void onMaintenanceModeClicked(lv_event_t* e);
+    static void onBackToMainFromSettingsClicked(lv_event_t* e);
+    
+    // Maintenance mode event handlers
+    static void onSaveConfigClicked(lv_event_t* e);
+    static void onExitMaintenanceClicked(lv_event_t* e);
+    
+    // Modal dialog event handlers
+    static void onModalYesClicked(lv_event_t* e);
+    static void onModalNoClicked(lv_event_t* e);
+    
     // Helper methods
     void initLVGL();
     void createDiagnosticScreen();
     void createTouchButtons();
     void createLogScreen();
+    void createSettingsScreen();
+    void createMaintenanceModeScreen();
+    bool showModal(const char* title, const char* message);
     const char* severityToString(int level);
     lv_color_t severityToColor(int level);
 };

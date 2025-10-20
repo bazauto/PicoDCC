@@ -121,6 +121,10 @@ TrackStatus PicoDCCDisplay::gatherTrackStatus(PicoDccController* controller) {
     
     // Locomotive count
     status.loco_count = controller->getLocoCount();
+    
+    // Mode and configuration status
+    status.maintenance_mode_active = controller->isMaintenanceModeActive();
+    status.has_unsaved_changes = controller->getConfigStorage()->hasUnsavedChanges();
 #endif
     
     return status;

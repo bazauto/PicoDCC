@@ -63,6 +63,37 @@ public:
      * Refreshes the log table/list with latest diagnostic messages
      */
     virtual void updateLogScreen() = 0;
+    
+    /**
+     * @brief Show the settings screen
+     * Provides access to maintenance mode and configuration
+     */
+    virtual void showSettingsScreen() = 0;
+    
+    /**
+     * @brief Show the maintenance mode entry modal
+     * Displays safety checklist for entering maintenance mode
+     * @return true if user confirmed entry, false if cancelled
+     */
+    virtual bool showMaintenanceModeEntryModal() = 0;
+    
+    /**
+     * @brief Show the maintenance mode screen
+     * Displays save button and configuration status
+     */
+    virtual void showMaintenanceModeScreen() = 0;
+    
+    /**
+     * @brief Update the maintenance mode screen with current status
+     * Refreshes unsaved changes indicator
+     */
+    virtual void updateMaintenanceModeScreen(bool has_unsaved) = 0;
+    
+    /**
+     * @brief Show unsaved changes warning modal on exit
+     * @return true if user wants to discard, false to cancel exit
+     */
+    virtual bool showUnsavedChangesModal() = 0;
 };
 
 #endif // I_DISPLAY_RENDERER_H

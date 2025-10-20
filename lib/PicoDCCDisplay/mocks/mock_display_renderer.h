@@ -24,6 +24,13 @@ public:
     void tick() override;
     void setController(class PicoDccController* controller) override;
     
+    // Layout Maintenance Mode UI (stubs for test mode)
+    void showSettingsScreen() override;
+    bool showMaintenanceModeEntryModal() override;
+    void showMaintenanceModeScreen() override;
+    void updateMaintenanceModeScreen(bool has_unsaved_changes) override;
+    bool showUnsavedChangesModal() override;
+    
     // Test inspection methods
     bool wasInitCalled() const { return init_called_; }
     bool wasTestPatternShown() const { return test_pattern_shown_; }

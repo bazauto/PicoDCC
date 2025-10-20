@@ -48,6 +48,17 @@ LvglRenderer::LvglRenderer(LcdDriver& lcd, TouchDriver& touch)
     , btn_back_to_main_(nullptr)
     , btn_view_logs_(nullptr)
     , log_count_label_(nullptr)
+    , settings_screen_(nullptr)
+    , btn_settings_(nullptr)
+    , btn_maintenance_mode_(nullptr)
+    , maintenance_screen_(nullptr)
+    , unsaved_indicator_label_(nullptr)
+    , btn_save_config_(nullptr)
+    , btn_exit_maintenance_(nullptr)
+    , modal_box_(nullptr)
+    , modal_btn_yes_(nullptr)
+    , modal_btn_no_(nullptr)
+    , modal_result_(false)
 {
     instance_ = this;
 }
@@ -224,15 +235,25 @@ void LvglRenderer::createTouchButtons() {
     lv_obj_center(label4);
     lv_obj_add_event_cb(btn_calibrate_, onCalibrateClicked, LV_EVENT_CLICKED, nullptr);
     
-    // Button 5: VIEW LOGS (centered at bottom)
+    // Button 5: VIEW LOGS (bottom left)
     btn_view_logs_ = lv_btn_create(screen_);
-    lv_obj_set_size(btn_view_logs_, 100, 30);
-    lv_obj_align(btn_view_logs_, LV_ALIGN_BOTTOM_MID, 0, -5);
+    lv_obj_set_size(btn_view_logs_, 80, 30);
+    lv_obj_align(btn_view_logs_, LV_ALIGN_BOTTOM_LEFT, 80, -5);
     lv_obj_t* label5 = lv_label_create(btn_view_logs_);
-    lv_label_set_text(label5, "View Logs");
+    lv_label_set_text(label5, "Logs");
     lv_obj_set_style_text_font(label5, &lv_font_montserrat_12, 0);
     lv_obj_center(label5);
     lv_obj_add_event_cb(btn_view_logs_, onViewLogsClicked, LV_EVENT_CLICKED, nullptr);
+    
+    // Button 6: SETTINGS (bottom right)
+    btn_settings_ = lv_btn_create(screen_);
+    lv_obj_set_size(btn_settings_, 80, 30);
+    lv_obj_align(btn_settings_, LV_ALIGN_BOTTOM_RIGHT, -80, -5);
+    lv_obj_t* label6 = lv_label_create(btn_settings_);
+    lv_label_set_text(label6, "Settings");
+    lv_obj_set_style_text_font(label6, &lv_font_montserrat_12, 0);
+    lv_obj_center(label6);
+    lv_obj_add_event_cb(btn_settings_, onSettingsClicked, LV_EVENT_CLICKED, nullptr);
 }
 
 void LvglRenderer::updateDiagnosticScreen(const TrackStatus& status) {
@@ -576,6 +597,297 @@ lv_color_t LvglRenderer::severityToColor(int level) {
         case DIAG_ERROR: return lv_color_hex(0xFF8000);   // Orange
         case DIAG_CRITICAL: return lv_color_hex(0xFF0000); // Red
         default: return lv_color_hex(0x808080);            // Gray
+    }
+}
+
+// ============================================================================
+// SETTINGS AND MAINTENANCE MODE SCREENS
+// ============================================================================
+
+void LvglRenderer::showSettingsScreen() {
+    if (!settings_screen_) {
+        createSettingsScreen();
+    }
+    lv_scr_load(settings_screen_);
+}
+
+void LvglRenderer::createSettingsScreen() {
+    // Create settings screen
+    settings_screen_ = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(settings_screen_, lv_color_hex(0x000000), 0);
+    
+    // Title
+    lv_obj_t* title = lv_label_create(settings_screen_);
+    lv_label_set_text(title, "Settings");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    
+    // Maintenance Mode button
+    btn_maintenance_mode_ = lv_btn_create(settings_screen_);
+    lv_obj_set_size(btn_maintenance_mode_, 220, 50);
+    lv_obj_align(btn_maintenance_mode_, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_add_event_cb(btn_maintenance_mode_, onMaintenanceModeClicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* mm_label = lv_label_create(btn_maintenance_mode_);
+    lv_label_set_text(mm_label, "Layout Maintenance\nMode");
+    lv_obj_set_style_text_font(mm_label, &lv_font_montserrat_14, 0);
+    lv_obj_center(mm_label);
+    
+    // Back button
+    lv_obj_t* btn_back = lv_btn_create(settings_screen_);
+    lv_obj_set_size(btn_back, 80, 30);
+    lv_obj_align(btn_back, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+    lv_obj_add_event_cb(btn_back, onBackToMainClicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* back_label = lv_label_create(btn_back);
+    lv_label_set_text(back_label, "Back");
+    lv_obj_center(back_label);
+}
+
+bool LvglRenderer::showMaintenanceModeEntryModal() {
+    // Show safety checklist modal
+    bool result = showModal(
+        "Layout Maintenance Mode",
+        "SAFETY CHECKLIST:\n\n"
+        "1. All locomotives stopped\n"
+        "2. Track power will be OFF\n"
+        "3. Remote commands disabled\n\n"
+        "Enter maintenance mode?"
+    );
+    return result;
+}
+
+void LvglRenderer::showMaintenanceModeScreen() {
+    if (!maintenance_screen_) {
+        createMaintenanceModeScreen();
+    }
+    lv_scr_load(maintenance_screen_);
+}
+
+void LvglRenderer::createMaintenanceModeScreen() {
+    // Create maintenance mode screen
+    maintenance_screen_ = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(maintenance_screen_, lv_color_hex(0x000000), 0);
+    
+    // Title
+    lv_obj_t* title = lv_label_create(maintenance_screen_);
+    lv_label_set_text(title, "Layout Maintenance");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFF00), 0);  // Yellow warning
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
+    
+    // Status label
+    lv_obj_t* status_label = lv_label_create(maintenance_screen_);
+    lv_label_set_text(status_label, 
+        "Main track: OFF (locked)\n"
+        "Config changes: Runtime only\n"
+        "Use <D ACK> commands to adjust\n"
+        "Save to flash with <E> or button"
+    );
+    lv_obj_set_style_text_color(status_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(status_label, &lv_font_montserrat_12, 0);
+    lv_obj_align(status_label, LV_ALIGN_TOP_LEFT, 10, 50);
+    
+    // Unsaved changes indicator
+    unsaved_indicator_label_ = lv_label_create(maintenance_screen_);
+    lv_label_set_text(unsaved_indicator_label_, "");
+    lv_obj_set_style_text_color(unsaved_indicator_label_, lv_color_hex(0xFFFF00), 0);
+    lv_obj_set_style_text_font(unsaved_indicator_label_, &lv_font_montserrat_14, 0);
+    lv_obj_align(unsaved_indicator_label_, LV_ALIGN_CENTER, 0, 10);
+    
+    // Save Config button
+    btn_save_config_ = lv_btn_create(maintenance_screen_);
+    lv_obj_set_size(btn_save_config_, 150, 40);
+    lv_obj_align(btn_save_config_, LV_ALIGN_CENTER, 0, 60);
+    lv_obj_add_event_cb(btn_save_config_, onSaveConfigClicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* save_label = lv_label_create(btn_save_config_);
+    lv_label_set_text(save_label, "Save to Flash");
+    lv_obj_set_style_text_font(save_label, &lv_font_montserrat_14, 0);
+    lv_obj_center(save_label);
+    
+    // Exit Maintenance button
+    btn_exit_maintenance_ = lv_btn_create(maintenance_screen_);
+    lv_obj_set_size(btn_exit_maintenance_, 150, 40);
+    lv_obj_align(btn_exit_maintenance_, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_add_event_cb(btn_exit_maintenance_, onExitMaintenanceClicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* exit_label = lv_label_create(btn_exit_maintenance_);
+    lv_label_set_text(exit_label, "Exit Maintenance");
+    lv_obj_set_style_text_font(exit_label, &lv_font_montserrat_14, 0);
+    lv_obj_center(exit_label);
+}
+
+void LvglRenderer::updateMaintenanceModeScreen(bool has_unsaved_changes) {
+    if (!unsaved_indicator_label_) return;
+    
+    if (has_unsaved_changes) {
+        lv_label_set_text(unsaved_indicator_label_, "* UNSAVED CHANGES *");
+        lv_obj_set_style_text_color(unsaved_indicator_label_, lv_color_hex(0xFF8000), 0);  // Orange
+    } else {
+        lv_label_set_text(unsaved_indicator_label_, "No unsaved changes");
+        lv_obj_set_style_text_color(unsaved_indicator_label_, lv_color_hex(0x00FF00), 0);  // Green
+    }
+}
+
+bool LvglRenderer::showUnsavedChangesModal() {
+    bool result = showModal(
+        "Unsaved Changes",
+        "You have unsaved configuration\n"
+        "changes in RAM.\n\n"
+        "Exit without saving?"
+    );
+    return result;
+}
+
+bool LvglRenderer::showModal(const char* title, const char* message) {
+    // Create modal container (dark overlay)
+    modal_box_ = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(modal_box_, 280, 180);
+    lv_obj_center(modal_box_);
+    lv_obj_set_style_bg_color(modal_box_, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_border_color(modal_box_, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_border_width(modal_box_, 2, 0);
+    
+    // Title
+    lv_obj_t* title_label = lv_label_create(modal_box_);
+    lv_label_set_text(title_label, title);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_14, 0);
+    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 10);
+    
+    // Message
+    lv_obj_t* msg_label = lv_label_create(modal_box_);
+    lv_label_set_text(msg_label, message);
+    lv_obj_set_style_text_color(msg_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(msg_label, &lv_font_montserrat_12, 0);
+    lv_obj_set_width(msg_label, 260);
+    lv_label_set_long_mode(msg_label, LV_LABEL_LONG_WRAP);
+    lv_obj_align(msg_label, LV_ALIGN_TOP_MID, 0, 40);
+    
+    // Yes button
+    modal_btn_yes_ = lv_btn_create(modal_box_);
+    lv_obj_set_size(modal_btn_yes_, 100, 40);
+    lv_obj_align(modal_btn_yes_, LV_ALIGN_BOTTOM_LEFT, 20, -10);
+    lv_obj_add_event_cb(modal_btn_yes_, onModalYesClicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* yes_label = lv_label_create(modal_btn_yes_);
+    lv_label_set_text(yes_label, "Yes");
+    lv_obj_center(yes_label);
+    
+    // No button
+    modal_btn_no_ = lv_btn_create(modal_box_);
+    lv_obj_set_size(modal_btn_no_, 100, 40);
+    lv_obj_align(modal_btn_no_, LV_ALIGN_BOTTOM_RIGHT, -20, -10);
+    lv_obj_add_event_cb(modal_btn_no_, onModalNoClicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* no_label = lv_label_create(modal_btn_no_);
+    lv_label_set_text(no_label, "No");
+    lv_obj_center(no_label);
+    
+    // Reset result flag
+    modal_result_ = false;
+    
+    // Block until user responds (process LVGL events)
+    bool waiting = true;
+    while (waiting) {
+        lv_timer_handler();
+        lv_refr_now(nullptr);
+        sleep_ms(10);
+        
+        // Check if modal was closed (object deleted by event handler)
+        if (!modal_box_) {
+            waiting = false;
+        }
+    }
+    
+    return modal_result_;
+}
+
+void LvglRenderer::onSettingsClicked(lv_event_t* e) {
+    if (!instance_) return;
+    instance_->showSettingsScreen();
+}
+
+void LvglRenderer::onMaintenanceModeClicked(lv_event_t* e) {
+    if (!instance_ || !instance_->controller_ref_) return;
+    
+    // Check if can enter maintenance mode
+    if (!instance_->controller_ref_->canEnterMaintenanceMode()) {
+        // Show error modal (reuse showModal with single button)
+        // For now, just return - would need a showErrorModal() helper
+        LOG_ERROR("Display", "Cannot enter maintenance mode");
+        return;
+    }
+    
+    // Show entry confirmation modal
+    bool confirmed = instance_->showMaintenanceModeEntryModal();
+    if (confirmed) {
+        // Enter maintenance mode
+        instance_->controller_ref_->enterMaintenanceMode();
+        instance_->showMaintenanceModeScreen();
+    } else {
+        // User cancelled, return to settings
+        // Already on settings screen, no action needed
+    }
+}
+
+void LvglRenderer::onSaveConfigClicked(lv_event_t* e) {
+    if (!instance_ || !instance_->controller_ref_) return;
+    
+    // Save config to flash (410ms blocking operation)
+    instance_->controller_ref_->getConfigStorage()->save();
+    
+    // Update screen to show no unsaved changes
+    instance_->updateMaintenanceModeScreen(false);
+    
+    LOG_INFO("Display", "Configuration saved to flash");
+}
+
+void LvglRenderer::onExitMaintenanceClicked(lv_event_t* e) {
+    if (!instance_ || !instance_->controller_ref_) return;
+    
+    // Check for unsaved changes
+    bool has_unsaved = instance_->controller_ref_->getConfigStorage()->hasUnsavedChanges();
+    
+    if (has_unsaved) {
+        // Show warning modal
+        bool confirmed = instance_->showUnsavedChangesModal();
+        if (!confirmed) {
+            // User cancelled exit
+            return;
+        }
+        // User confirmed exit, discard changes
+        instance_->controller_ref_->getConfigStorage()->discardChanges();
+    }
+    
+    // Exit maintenance mode
+    instance_->controller_ref_->exitMaintenanceMode();
+    
+    // Return to main diagnostic screen
+    if (instance_->screen_) {
+        lv_scr_load(instance_->screen_);
+    }
+    
+    LOG_INFO("Display", "Exited maintenance mode");
+}
+
+void LvglRenderer::onModalYesClicked(lv_event_t* e) {
+    if (!instance_) return;
+    
+    // Set result and close modal
+    instance_->modal_result_ = true;
+    
+    if (instance_->modal_box_) {
+        lv_obj_del(instance_->modal_box_);
+        instance_->modal_box_ = nullptr;
+    }
+}
+
+void LvglRenderer::onModalNoClicked(lv_event_t* e) {
+    if (!instance_) return;
+    
+    // Set result and close modal
+    instance_->modal_result_ = false;
+    
+    if (instance_->modal_box_) {
+        lv_obj_del(instance_->modal_box_);
+        instance_->modal_box_ = nullptr;
     }
 }
 
