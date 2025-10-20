@@ -13,16 +13,19 @@ class PicoDccTrack;
 #endif
 
 // Platform abstraction for timing
-namespace {
 #ifdef TEST_BUILD
-    // Test mode uses external timing control (see test files)
+    // Test mode: External timing control provided by test file
     extern uint32_t mock_time_ms;
-    uint32_t get_time_ms() { return mock_time_ms; }
+    
+    namespace {
+        uint32_t get_time_ms() { return mock_time_ms; }
+    }
 #else
-    // Hardware mode uses Pico SDK timer
-    uint32_t get_time_ms() { return time_us_32() / 1000; }
+    // Hardware mode: Use Pico SDK timer
+    namespace {
+        uint32_t get_time_ms() { return time_us_32() / 1000; }
+    }
 #endif
-}
 
 PicoDCCDisplay::PicoDCCDisplay(LcdDriver& lcd, IDisplayRenderer& renderer)
     : lcd_(lcd)

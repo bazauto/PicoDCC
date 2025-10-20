@@ -16,9 +16,16 @@ extern "C" {
 class PicoDccController;
 struct track_settings_t;
 
-// Test helper functions
-extern void test_advance_time_ms(uint32_t ms);
-extern void test_reset_time();
+// Mock timing control for tests (external linkage for pico_dcc_display.cpp)
+uint32_t mock_time_ms = 0;
+
+void test_advance_time_ms(uint32_t ms) {
+    mock_time_ms += ms;
+}
+
+void test_reset_time() {
+    mock_time_ms = 0;
+}
 
 /**
  * Test: Display initialization
