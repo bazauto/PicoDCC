@@ -228,14 +228,34 @@ These features are **NOT** planned for implementation:
 **Approach**: Return empty lists or error responses to clarify limitations.
 
 ### PicoDCC-Specific Extensions
-These extensions are safe additions that don't break JMRI compatibility:
+Based on JMRI testing (October 20, 2025):
+- Random text is **silently ignored** by JMRI
+- `<U ...>` shows as **unrecognized command** in JMRI log (could be used for debug)
+- `<X>` correctly interpreted as **operation failed** 
+- Protocol extensions require **Java driver fork** (not worth the effort)
 
-1. **`<iM>` in `<s>` response**: Layout Maintenance Mode indicator
-2. **`<u>` in `<s>` response**: Unsaved configuration changes indicator
-3. **`<D ACK ...>` commands**: Runtime ACK parameter adjustment
-4. **`<E>` command**: Save configuration (maintenance mode only)
+**Implemented Extensions**:
+1. **`<D ACK LIMIT/MIN/MAX>` commands**: Runtime ACK parameter adjustment
+   - Uses diagnostic namespace (`<D ...>`)
+   - JMRI ignores diagnostic commands
+   - No JMRI log pollution
 
-**Rationale**: These use DCC-EX info message format (`<i...>`) or diagnostic namespace (`<D ...>`), so JMRI ignores them safely.
+2. **`<E>` command**: Save configuration (maintenance mode only)
+   - Simple command, unlikely to conflict
+   - Returns standard `<X>` error or custom `<e SAVED>` response
+
+**Rejected Extensions** (originally planned, now removed):
+- ~~`<iM>`/`<iN>` mode indicators~~ - Removed from `<s>` response
+- ~~`<u>` unsaved changes indicator~~ - Removed from `<s>` response
+- ~~ACK config display in `<s>`~~ - Removed from `<s>` response
+
+**Design Decision**: 
+- Mode and unsaved changes displayed **on LCD only**
+- No DCC-EX protocol pollution
+- Maintains clean JMRI compatibility
+- No Java driver modifications required
+
+**Rationale**: Keep JMRI logs clean, avoid confusion, maintain standard protocol compliance where possible.
 
 ---
 
