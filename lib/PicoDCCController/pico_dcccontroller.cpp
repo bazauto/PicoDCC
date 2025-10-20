@@ -436,41 +436,24 @@ void PicoDccController::handleSaveCommand()
 
 void PicoDccController::handleStatusCommand()
 {
-    // Send version info
+    // Send version info (standard DCC-EX format)
     DCCEX_RESPONSE("<iDCC-EX V-5.0.0 / PICODCC / BUILD Oct 20 2025>");
     
-    // Send main track power status
+    // Send main track power status (standard DCC-EX format)
     if (main_track->getPower()) {
         DCCEX_RESPONSE("<p1 MAIN>");
     } else {
         DCCEX_RESPONSE("<p0 MAIN>");
     }
     
-    // Send programming track power status
+    // Send programming track power status (standard DCC-EX format)
     if (prog_track->getPower()) {
         DCCEX_RESPONSE("<p1 PROG>");
     } else {
         DCCEX_RESPONSE("<p0 PROG>");
     }
     
-    // Send operation mode (PicoDCC extension)
-    if (operation_mode == OperationMode::LAYOUT_MAINTENANCE) {
-        DCCEX_RESPONSE("<iM>");  // Maintenance mode indicator
-    } else {
-        DCCEX_RESPONSE("<iN>");  // Normal mode indicator
-    }
-    
-    // Send unsaved changes indicator (PicoDCC extension)
-    if (config_storage.hasUnsavedChanges()) {
-        DCCEX_RESPONSE("<u>");  // Unsaved changes
-    }
-    
-    // Send current ACK configuration
-    char ack_config[64];
-    snprintf(ack_config, sizeof(ack_config), "<D ACK LIMIT %.0f> <D ACK MIN %.0f> <D ACK MAX %.0f>",
-             config_storage.getACKThreshold(),
-             config_storage.getACKMinDuration() * 1000.0f,  // Convert to microseconds
-             config_storage.getACKMaxDuration() * 1000.0f);
-    DCCEX_RESPONSE(ack_config);
+    // Note: Mode and unsaved changes displayed on LCD only (not in DCC-EX protocol)
+    // This avoids polluting JMRI logs and doesn't require Java driver modifications
 }
 
