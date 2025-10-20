@@ -5,6 +5,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef TEST_BUILD
+#include "hardware/i2c.h"
+#include "hardware/gpio.h"
+#include <hardware/uart.h>
+#include "pico/time.h"
+#endif
+
 // CST328 capacitive touch controller driver (I2C)
 // Hardware: GP8 (SDA), GP9 (SCL), GP10 (INT), GP11 (RST)
 

@@ -10,6 +10,9 @@
 #include "../lib/PicoDCCEX/pico_dccex.h"
 #include "../lib/PicoDCCController/pico_dcccontroller.h"
 #include "../lib/PicoDCCDisplay/pico_dcc_display.h"
+#include "../lib/PicoDCCDisplay/lcd_driver.h"
+#include "../lib/PicoDCCDisplay/touch_driver.h"
+#include "../lib/PicoDCCDisplay/lvgl_renderer.h"
 
 #define TRACK_MAIN_SHORT_LED 16
 #define TRACK_MAIN_SIGNAL_PIN 17
@@ -47,15 +50,17 @@ int main() {
 
 	stdio_init_all();
 
-#ifndef TEST_BUILD
-	// Initialize and show boot sequence on LCD
-	PicoDCCDisplay display;
+	// Initialize LCD display with dependency injection (hardware mode only)
+	LcdDriver lcd;
+	TouchDriver touch;
+	LvglRenderer renderer(lcd, touch);
+	PicoDCCDisplay display(lcd, renderer);
+	
 	if (!display.init()) {
 		printf("ERROR: LCD initialization failed\n");
 	} else {
 		display.runBootSequence();
 	}
-#endif
 
 	// Start our core 1 loop
     multicore_launch_core1(main_core1);
@@ -64,11 +69,7 @@ int main() {
 	while (true)
 	{
 		pico_controller.dccexLoop();
-		
-#ifndef TEST_BUILD
-		// Update LCD display (10Hz refresh, handled internally)
 		display.loop(&pico_controller);
-#endif
 	}
 }
 

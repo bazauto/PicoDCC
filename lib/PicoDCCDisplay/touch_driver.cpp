@@ -4,13 +4,6 @@
 #include <cstring>
 #include <cstdio>
 
-#ifndef TEST_BUILD
-#include "hardware/i2c.h"
-#include "hardware/gpio.h"
-#include <hardware/uart.h>
-#include "pico/time.h"
-#endif
-
 // CST328 I2C configuration
 #define CST328_I2C_ADDR     0x1A        // 7-bit I2C address
 #define CST328_I2C_FREQ     400000      // 400kHz I2C clock

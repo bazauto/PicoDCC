@@ -14,7 +14,6 @@
 #include "dcc.pio.h"
 #endif
 
-
 PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings, PicoDccLocos *locos)
 {
     is_prog = is_prog_in;

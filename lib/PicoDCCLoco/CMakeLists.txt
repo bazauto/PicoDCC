@@ -12,7 +12,7 @@ if(TEST_BUILD)
 
   # pass -D TEST_BUILD when compiling
   target_compile_definitions(${PROJECT_NAME} PUBLIC -D TEST_BUILD)
-  target_link_libraries(${PROJECT_NAME} mocks)
+  target_link_libraries(${PROJECT_NAME} mocks PicoDCCEX)
 
 else()
 
