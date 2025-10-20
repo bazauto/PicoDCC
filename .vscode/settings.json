@@ -40,5 +40,29 @@
     "files.associations": {
         "*.h": "cpp",
         "system_error": "cpp"
-    }
+    },
+    
+    // CMake Test Explorer Configuration
+    "cmake.ctest.parallelJobs": 0,
+    "cmake.buildBeforeRun": true,
+    "cmake.ctest.allowParallelJobs": false,
+    
+    // C++ TestMate Configuration (for gcov coverage integration)
+    "testMate.cpp.test.advancedExecutables": [
+        {
+            "pattern": "build/test/*_tests{.exe,}",
+            "cwd": "${workspaceFolder}/build/test",
+            "env": {}
+        }
+    ],
+    "testMate.cpp.test.workingDirectory": "${workspaceFolder}/build/test",
+    "testMate.cpp.discovery.testListCaching": false,
+    
+    // Coverage settings for gcov
+    "coverage-gutters.coverageFileNames": [
+        "lcov.info"
+    ],
+    "coverage-gutters.showGutterCoverage": true,
+    "coverage-gutters.showLineCoverage": true,
+    "coverage-gutters.showRulerCoverage": true
 }

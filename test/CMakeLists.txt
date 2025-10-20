@@ -26,6 +26,8 @@ list(APPEND TEST_LIBS cmocka::cmocka)
 
 list(APPEND TEST_DIRS "${CMOCKA_INCLUDE_DIRS}")
 
+# Enable CTest for VS Code Test Explorer integration
+enable_testing()
 
 foreach(TEST_TARGET IN LISTS TEST_TARGETS)
     # Display tests have different dependencies (no controller, no global mocks)
@@ -59,4 +61,10 @@ foreach(TEST_TARGET IN LISTS TEST_TARGETS)
     if(MSVC)
         target_compile_options(${TEST_TARGET} PRIVATE /w14005)
     endif()
+    
+    # Set test properties for better output (test already registered by add_cmocka_test)
+    set_tests_properties(${TEST_TARGET} PROPERTIES
+        TIMEOUT 30
+        LABELS "unit"
+    )
 endforeach()

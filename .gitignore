@@ -5,3 +5,10 @@
 .vscode/ipch
 build
 CircuitDesign
+
+# Coverage files (generated)
+*.gcov
+*.gcda
+*.gcno
+lcov.info
+coverage/
