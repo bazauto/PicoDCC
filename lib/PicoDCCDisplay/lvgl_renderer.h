@@ -25,6 +25,10 @@ public:
     void tick() override;
     void setController(class PicoDccController* controller) override;
     
+    // Log viewer screen methods
+    void showLogScreen() override;
+    void updateLogScreen() override;
+    
 private:
     LcdDriver& lcd_;
     TouchDriver& touch_;
@@ -46,6 +50,15 @@ private:
     lv_obj_t* btn_reset_trips_;
     lv_obj_t* btn_calibrate_;
     
+    // Log viewer screen objects
+    lv_obj_t* log_screen_;
+    lv_obj_t* log_title_label_;
+    lv_obj_t* log_table_;
+    lv_obj_t* btn_clear_logs_;
+    lv_obj_t* btn_back_to_main_;
+    lv_obj_t* btn_view_logs_;       // Button on main screen to open log viewer
+    lv_obj_t* log_count_label_;     // Indicator showing log count on main screen
+    
     // LVGL display driver buffer
     static lv_disp_draw_buf_t disp_buf_;
     static lv_color_t buf1_[LV_HOR_RES_MAX * 20];  // 20 lines buffer
@@ -65,10 +78,18 @@ private:
     static void onResetTripsClicked(lv_event_t* e);
     static void onCalibrateClicked(lv_event_t* e);
     
+    // Log viewer event handlers
+    static void onViewLogsClicked(lv_event_t* e);
+    static void onClearLogsClicked(lv_event_t* e);
+    static void onBackToMainClicked(lv_event_t* e);
+    
     // Helper methods
     void initLVGL();
     void createDiagnosticScreen();
     void createTouchButtons();
+    void createLogScreen();
+    const char* severityToString(int level);
+    lv_color_t severityToColor(int level);
 };
 
 #endif // LVGL_RENDERER_H

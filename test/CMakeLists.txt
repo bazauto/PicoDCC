@@ -8,6 +8,7 @@ list(APPEND TEST_TARGETS pico_dcc_locos_tests)
 list(APPEND TEST_TARGETS pico_dcc_controller_tests)
 list(APPEND TEST_TARGETS pico_dcc_track_tests)
 list(APPEND TEST_TARGETS pico_dcc_display_tests)
+list(APPEND TEST_TARGETS pico_diagnostic_tests)
 
 list(APPEND TEST_LIBS "${CMOCKA_LIBRARIES}")
 list(APPEND TEST_LIBS mocks)
@@ -16,6 +17,7 @@ list(APPEND TEST_LIBS PicoDCCLoco)
 list(APPEND TEST_LIBS PicoDCCTrack)
 list(APPEND TEST_LIBS PicoDCCController)
 list(APPEND TEST_LIBS PicoDCCDisplay)
+list(APPEND TEST_LIBS PicoDiagnostic)
 
 # Ensure cmocka is linked to all test targets
 list(APPEND TEST_LIBS cmocka::cmocka)
@@ -32,6 +34,14 @@ foreach(TEST_TARGET IN LISTS TEST_TARGETS)
             SOURCES "${TEST_TARGET}.cpp"
             COMPILE_OPTIONS ${DEFAULT_C_COMPILE_FLAGS}
             LINK_LIBRARIES "${DISPLAY_TEST_LIBS}")
+    # Diagnostic tests have different dependencies (no controller, no global mocks)
+    elseif(TEST_TARGET STREQUAL "pico_diagnostic_tests")
+        set(DIAGNOSTIC_TEST_LIBS "${CMOCKA_LIBRARIES}" PicoDiagnostic mocks cmocka::cmocka)
+        add_cmocka_test(
+            ${TEST_TARGET}
+            SOURCES "${TEST_TARGET}.cpp"
+            COMPILE_OPTIONS ${DEFAULT_C_COMPILE_FLAGS}
+            LINK_LIBRARIES "${DIAGNOSTIC_TEST_LIBS}")
     else()
         add_cmocka_test(
             ${TEST_TARGET}

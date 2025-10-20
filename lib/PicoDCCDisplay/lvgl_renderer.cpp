@@ -4,6 +4,7 @@
 #include "pico/stdlib.h"
 #include "../PicoDCCController/pico_dcccontroller.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
+#include "../pico_diagnostic.h"
 #include <cstdio>
 #include <cstdlib>  // For abs()
 
@@ -40,6 +41,13 @@ LvglRenderer::LvglRenderer(LcdDriver& lcd, TouchDriver& touch)
     , btn_prog_power_(nullptr)
     , btn_reset_trips_(nullptr)
     , btn_calibrate_(nullptr)
+    , log_screen_(nullptr)
+    , log_title_label_(nullptr)
+    , log_table_(nullptr)
+    , btn_clear_logs_(nullptr)
+    , btn_back_to_main_(nullptr)
+    , btn_view_logs_(nullptr)
+    , log_count_label_(nullptr)
 {
     instance_ = this;
 }
@@ -147,14 +155,21 @@ void LvglRenderer::createDiagnosticScreen() {
     lv_label_set_text(packets_label_, "Packets: 0");
     lv_obj_set_style_text_color(packets_label_, lv_color_white(), 0);
     lv_obj_set_style_text_font(packets_label_, &lv_font_montserrat_12, 0);
-    lv_obj_align(packets_label_, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+    lv_obj_align(packets_label_, LV_ALIGN_BOTTOM_LEFT, 10, -35);
+    
+    // BOTTOM CENTER: Log count
+    log_count_label_ = lv_label_create(screen_);
+    lv_label_set_text(log_count_label_, "Logs: 0");
+    lv_obj_set_style_text_color(log_count_label_, lv_color_white(), 0);
+    lv_obj_set_style_text_font(log_count_label_, &lv_font_montserrat_12, 0);
+    lv_obj_align(log_count_label_, LV_ALIGN_BOTTOM_MID, 0, -35);
     
     // BOTTOM RIGHT: Locomotive count
     locos_label_ = lv_label_create(screen_);
     lv_label_set_text(locos_label_, "Locos: 0");
     lv_obj_set_style_text_color(locos_label_, lv_color_white(), 0);
     lv_obj_set_style_text_font(locos_label_, &lv_font_montserrat_12, 0);
-    lv_obj_align(locos_label_, LV_ALIGN_BOTTOM_RIGHT, -10, -10);
+    lv_obj_align(locos_label_, LV_ALIGN_BOTTOM_RIGHT, -10, -35);
     
     // Create interactive touch buttons
     createTouchButtons();
@@ -208,6 +223,16 @@ void LvglRenderer::createTouchButtons() {
     lv_obj_set_style_text_font(label4, &lv_font_montserrat_12, 0);
     lv_obj_center(label4);
     lv_obj_add_event_cb(btn_calibrate_, onCalibrateClicked, LV_EVENT_CLICKED, nullptr);
+    
+    // Button 5: VIEW LOGS (centered at bottom)
+    btn_view_logs_ = lv_btn_create(screen_);
+    lv_obj_set_size(btn_view_logs_, 100, 30);
+    lv_obj_align(btn_view_logs_, LV_ALIGN_BOTTOM_MID, 0, -5);
+    lv_obj_t* label5 = lv_label_create(btn_view_logs_);
+    lv_label_set_text(label5, "View Logs");
+    lv_obj_set_style_text_font(label5, &lv_font_montserrat_12, 0);
+    lv_obj_center(label5);
+    lv_obj_add_event_cb(btn_view_logs_, onViewLogsClicked, LV_EVENT_CLICKED, nullptr);
 }
 
 void LvglRenderer::updateDiagnosticScreen(const TrackStatus& status) {
@@ -245,6 +270,18 @@ void LvglRenderer::updateDiagnosticScreen(const TrackStatus& status) {
              (unsigned long)status.packets_sent, 
              (unsigned long)status.idle_packets_sent);
     lv_label_set_text(packets_label_, buf);
+    
+    // Update log count
+    uint32_t log_count = diag_log_get_count();
+    snprintf(buf, sizeof(buf), "Logs: %lu", (unsigned long)log_count);
+    lv_label_set_text(log_count_label_, buf);
+    
+    // Change log count color based on severity (optional: check for critical logs)
+    if (log_count > 0) {
+        lv_obj_set_style_text_color(log_count_label_, lv_color_make(255, 255, 100), 0); // Yellow
+    } else {
+        lv_obj_set_style_text_color(log_count_label_, lv_color_white(), 0);
+    }
     
     // Update locomotive count
     snprintf(buf, sizeof(buf), "Locos: %u", status.loco_count);
@@ -383,3 +420,133 @@ void LvglRenderer::onResetTripsClicked(lv_event_t* e) {
 void LvglRenderer::onCalibrateClicked(lv_event_t* e) {
     // TODO: Implement programming track calibration
 }
+
+void LvglRenderer::createLogScreen() {
+    // Create the log screen
+    log_screen_ = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(log_screen_, lv_color_hex(0x000000), 0);
+    
+    // Create title label
+    log_title_label_ = lv_label_create(log_screen_);
+    lv_label_set_text(log_title_label_, "Diagnostic Logs");
+    lv_obj_set_style_text_color(log_title_label_, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_font(log_title_label_, &lv_font_montserrat_16, 0);
+    lv_obj_align(log_title_label_, LV_ALIGN_TOP_MID, 0, 5);
+    
+    // Create scrollable textarea for log entries
+    log_table_ = lv_textarea_create(log_screen_);
+    lv_obj_set_size(log_table_, 310, 180);
+    lv_obj_align(log_table_, LV_ALIGN_TOP_MID, 0, 30);
+    lv_obj_set_style_bg_color(log_table_, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_border_color(log_table_, lv_color_hex(0x404040), 0);
+    lv_obj_set_style_text_color(log_table_, lv_color_hex(0xFFFFFF), 0);
+    lv_textarea_set_text(log_table_, "");
+    
+    // Create Back button
+    btn_back_to_main_ = lv_btn_create(log_screen_);
+    lv_obj_set_size(btn_back_to_main_, 80, 30);
+    lv_obj_align(btn_back_to_main_, LV_ALIGN_BOTTOM_LEFT, 10, -5);
+    lv_obj_add_event_cb(btn_back_to_main_, onBackToMainClicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* back_label = lv_label_create(btn_back_to_main_);
+    lv_label_set_text(back_label, "Back");
+    lv_obj_center(back_label);
+    
+    // Create Clear button
+    btn_clear_logs_ = lv_btn_create(log_screen_);
+    lv_obj_set_size(btn_clear_logs_, 80, 30);
+    lv_obj_align(btn_clear_logs_, LV_ALIGN_BOTTOM_RIGHT, -10, -5);
+    lv_obj_add_event_cb(btn_clear_logs_, onClearLogsClicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* clear_label = lv_label_create(btn_clear_logs_);
+    lv_label_set_text(clear_label, "Clear");
+    lv_obj_center(clear_label);
+}
+
+void LvglRenderer::showLogScreen() {
+    if (!log_screen_) {
+        createLogScreen();
+    }
+    
+    // Populate the log table with current entries
+    updateLogScreen();
+    
+    // Switch to log screen
+    lv_scr_load(log_screen_);
+}
+
+void LvglRenderer::updateLogScreen() {
+    if (!log_table_) return;
+    
+    // Get current log count
+    uint32_t log_count = diag_log_get_count();
+    
+    // Build formatted log text
+    char log_text[4096] = "";  // Static buffer for all log entries
+    char entry_line[256];
+    
+    for (uint32_t i = 0; i < log_count; i++) {
+        const diagnostic_msg_t* entry = diag_log_get_entry(i);
+        if (!entry) continue;
+        
+        // Format: [TIME] LEVEL COMPONENT: message
+        const char* severity_str = severityToString(entry->level);
+        uint32_t timestamp_sec = entry->timestamp / 1000;
+        uint32_t timestamp_ms = entry->timestamp % 1000;
+        
+        snprintf(entry_line, sizeof(entry_line), "[%lu.%03lu] %s %s: %s\n",
+                 timestamp_sec, timestamp_ms, severity_str, entry->component, entry->message);
+        
+        // Append to log text (check buffer space)
+        if (strlen(log_text) + strlen(entry_line) < sizeof(log_text) - 1) {
+            strcat(log_text, entry_line);
+        }
+    }
+    
+    // Update the textarea with all log entries
+    lv_textarea_set_text(log_table_, log_text);
+    
+    // Scroll to end to show newest entries
+    lv_textarea_set_cursor_pos(log_table_, LV_TEXTAREA_CURSOR_LAST);
+}
+
+void LvglRenderer::onViewLogsClicked(lv_event_t* e) {
+    if (!instance_) return;
+    instance_->showLogScreen();
+}
+
+void LvglRenderer::onClearLogsClicked(lv_event_t* e) {
+    if (!instance_) return;
+    
+    // Clear the diagnostic log buffer
+    diag_log_clear();
+    
+    // Refresh the display
+    instance_->updateLogScreen();
+}
+
+void LvglRenderer::onBackToMainClicked(lv_event_t* e) {
+    if (!instance_ || !instance_->screen_) return;
+    
+    // Return to diagnostic screen
+    lv_scr_load(instance_->screen_);
+}
+
+const char* LvglRenderer::severityToString(int level) {
+    switch (level) {
+        case DIAG_INFO: return "INFO";
+        case DIAG_WARNING: return "WARN";
+        case DIAG_ERROR: return "ERROR";
+        case DIAG_CRITICAL: return "CRIT";
+        default: return "???";
+    }
+}
+
+lv_color_t LvglRenderer::severityToColor(int level) {
+    switch (level) {
+        case DIAG_INFO: return lv_color_hex(0xFFFFFF);    // White
+        case DIAG_WARNING: return lv_color_hex(0xFFFF00); // Yellow
+        case DIAG_ERROR: return lv_color_hex(0xFF8000);   // Orange
+        case DIAG_CRITICAL: return lv_color_hex(0xFF0000); // Red
+        default: return lv_color_hex(0x808080);            // Gray
+    }
+}
+

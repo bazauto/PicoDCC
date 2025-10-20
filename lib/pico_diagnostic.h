@@ -35,9 +35,30 @@ typedef struct {
     const char* message;
 } diagnostic_msg_t;
 
+// Log buffer configuration
+#define DIAG_LOG_BUFFER_SIZE 30  // Number of log entries to store (30 × ~64 bytes = ~2KB)
+
+// Circular buffer for diagnostic log storage
+typedef struct {
+    diagnostic_msg_t entries[DIAG_LOG_BUFFER_SIZE];
+    uint8_t head;           // Next write position
+    uint8_t count;          // Number of valid entries (0 to DIAG_LOG_BUFFER_SIZE)
+    bool initialized;       // Buffer initialization flag
+} diagnostic_log_buffer_t;
+
+// Global log buffer (initialized in diag_log_init)
+extern diagnostic_log_buffer_t g_diag_log_buffer;
+
+// Log buffer management functions
+void diag_log_init(void);
+void diag_log_add(diagnostic_msg_t msg);
+uint8_t diag_log_get_count(void);
+diagnostic_msg_t* diag_log_get_entry(uint8_t index);
+void diag_log_clear(void);
+
 /**
  * Core diagnostic logging function
- * Currently silent, but provides extension point for future output methods
+ * Now stores messages in circular buffer for LCD display
  * 
  * FUTURE LCD IMPLEMENTATION GUIDE:
  * ================================
@@ -55,8 +76,19 @@ typedef struct {
  * - INFO: Brief flash, clear after 1 second
  */
 inline void log_diagnostic(diagnostic_level_t level, const char* component, const char* message) {
-    // Current implementation: Silent operation for safety-first approach
-    // This ensures no interference with DCC-EX protocol compliance
+    // Store message in circular buffer for LCD display
+    if (g_diag_log_buffer.initialized) {
+        diagnostic_msg_t msg;
+        msg.level = level;
+#ifdef TEST_BUILD
+        msg.timestamp = mock_time_ms;  // Use mock time in test mode
+#else
+        msg.timestamp = time_us_32() / 1000;  // Convert to milliseconds
+#endif
+        msg.component = component;
+        msg.message = message;
+        diag_log_add(msg);
+    }
     
 #ifdef TEST_BUILD
     // For testing: Output critical messages to UART for test validation
@@ -67,20 +99,6 @@ inline void log_diagnostic(diagnostic_level_t level, const char* component, cons
         uart_puts(uart0, diagnostic_output);
     }
 #endif
-    
-    // TODO: Future LCD implementation goes here
-    // Example structure:
-    // if (lcd_initialized && lcd_available()) {
-    //     lcd_display_error(level, component, message);
-    //     if (level >= DIAG_CRITICAL) {
-    //         lcd_set_backlight_color(LCD_RED);
-    //         buzzer_alert();
-    //     }
-    // }
-    
-    (void)level;      // Suppress unused parameter warnings  
-    (void)component;
-    (void)message;
 }
 
 // Convenience macros for different severity levels

@@ -13,6 +13,7 @@
 #include "../lib/PicoDCCDisplay/lcd_driver.h"
 #include "../lib/PicoDCCDisplay/touch_driver.h"
 #include "../lib/PicoDCCDisplay/lvgl_renderer.h"
+#include "../lib/pico_diagnostic.h"
 
 #define TRACK_MAIN_SHORT_LED 16
 #define TRACK_MAIN_SIGNAL_PIN 17
@@ -49,6 +50,9 @@ static void main_core1()
 int main() {
 
 	stdio_init_all();
+	
+	// Initialize diagnostic log buffer
+	diag_log_init();
 
 	// Initialize LCD display with dependency injection (hardware mode only)
 	LcdDriver lcd;

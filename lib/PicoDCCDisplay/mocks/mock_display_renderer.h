@@ -19,6 +19,8 @@ public:
     void showTestPattern() override;
     void showDiagnosticScreen() override;
     void updateDiagnosticScreen(const TrackStatus& status) override;
+    void showLogScreen() override;
+    void updateLogScreen() override;
     void tick() override;
     void setController(class PicoDccController* controller) override;
     
@@ -26,7 +28,9 @@ public:
     bool wasInitCalled() const { return init_called_; }
     bool wasTestPatternShown() const { return test_pattern_shown_; }
     bool wasDiagnosticScreenShown() const { return diagnostic_screen_shown_; }
+    bool wasLogScreenShown() const { return log_screen_shown_; }
     int getUpdateCount() const { return update_count_; }
+    int getLogUpdateCount() const { return log_update_count_; }
     int getTickCount() const { return tick_count_; }
     const TrackStatus* getLastStatus() const { return last_status_; }
     class PicoDccController* getController() const { return controller_ref_; }
@@ -40,7 +44,9 @@ private:
     bool init_result_;
     bool test_pattern_shown_;
     bool diagnostic_screen_shown_;
+    bool log_screen_shown_;
     int update_count_;
+    int log_update_count_;
     int tick_count_;
     const TrackStatus* last_status_;
     class PicoDccController* controller_ref_;

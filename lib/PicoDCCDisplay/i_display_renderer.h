@@ -51,6 +51,18 @@ public:
      * @param controller Pointer to the DCC controller
      */
     virtual void setController(class PicoDccController* controller) = 0;
+    
+    /**
+     * @brief Show the diagnostic log viewer screen
+     * Displays log entries from the diagnostic buffer
+     */
+    virtual void showLogScreen() = 0;
+    
+    /**
+     * @brief Update the log screen with current entries
+     * Refreshes the log table/list with latest diagnostic messages
+     */
+    virtual void updateLogScreen() = 0;
 };
 
 #endif // I_DISPLAY_RENDERER_H

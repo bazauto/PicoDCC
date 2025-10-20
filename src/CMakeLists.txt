@@ -7,6 +7,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         PicoDCCTrack
         PicoDCCLoco
         PicoDCCDisplay
+        PicoDiagnostic
         pico_stdlib
         hardware_pio
         hardware_adc
