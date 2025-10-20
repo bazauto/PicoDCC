@@ -538,6 +538,169 @@ static void test_emergency_power_cutoff(void **state)
     assert_true(found_emergency);
 }
 
+// Test Layout Maintenance Mode entry requirements
+static void test_maintenance_mode_entry_requirements(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    // Initially in NORMAL mode
+    assert_false(controller.isMaintenanceModeActive());
+
+    // Try to enter maintenance mode with main track powered ON - should fail
+    uart_test_write("<1 MAIN>");
+    controller.dccexLoop();
+    assert_true(controller.isTrackPowerOn(false)); // Main track ON
+
+    bool can_enter = controller.canEnterMaintenanceMode();
+    assert_false(can_enter); // Cannot enter with main track powered
+
+    // Turn off main track
+    uart_test_write("<0 MAIN>");
+    controller.dccexLoop();
+    assert_false(controller.isTrackPowerOn(false)); // Main track OFF
+
+    // Now should be able to enter
+    can_enter = controller.canEnterMaintenanceMode();
+    assert_true(can_enter);
+
+    // Enter maintenance mode
+    controller.enterMaintenanceMode();
+    assert_true(controller.isMaintenanceModeActive());
+}
+
+// Test maintenance mode power lockout
+static void test_maintenance_mode_power_lockout(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    // Enter maintenance mode (main track must be OFF)
+    controller.enterMaintenanceMode();
+    assert_true(controller.isMaintenanceModeActive());
+
+    // Try to power on main track - should be rejected with <X>
+    uart_output_log.clear();
+    uart_test_write("<1 MAIN>");
+    controller.dccexLoop();
+    
+    // Main track should still be OFF
+    assert_false(controller.isTrackPowerOn(false));
+    
+    // Should receive <X> error response
+    bool found_error = false;
+    for (const auto& output : uart_output_log) {
+        if (output.find("<X>") != std::string::npos) {
+            found_error = true;
+            break;
+        }
+    }
+    assert_true(found_error);
+
+    // Programming track should still work
+    uart_test_write("<1 PROG>");
+    controller.dccexLoop();
+    assert_true(controller.isTrackPowerOn(true)); // Prog track can be enabled
+}
+
+// Test maintenance mode command rejection
+static void test_maintenance_mode_command_rejection(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    // Enter maintenance mode
+    controller.enterMaintenanceMode();
+    assert_true(controller.isMaintenanceModeActive());
+
+    // Try throttle command - should be silently rejected
+    int initial_loco_count = controller.getLocoCount();
+    uart_test_write("<t 1 3 50 1>");
+    controller.dccexLoop();
+    assert_int_equal(controller.getLocoCount(), initial_loco_count); // No new loco
+
+    // Try function command - should be silently rejected
+    uart_test_write("<f 3 128>");
+    controller.dccexLoop();
+    // No assertions needed - just verifying no crash
+
+    // Try accessory command - should be silently rejected
+    uart_test_write("<a 10 1>");
+    controller.dccexLoop();
+    // No assertions needed - just verifying no crash
+}
+
+// NOTE: Config command tests (<D ACK>, <E>, <s>) omitted pending Phase 2 implementation
+// These will be added once DCC-EX config command handlers are implemented
+
+// Test maintenance mode exit
+static void test_maintenance_mode_exit(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    // Enter maintenance mode
+    controller.enterMaintenanceMode();
+    assert_true(controller.isMaintenanceModeActive());
+
+    // Exit maintenance mode
+    controller.exitMaintenanceMode();
+    assert_false(controller.isMaintenanceModeActive());
+
+    // Main track should still be OFF after exit
+    assert_false(controller.isTrackPowerOn(false));
+
+    // Should now accept throttle commands again
+    int initial_loco_count = controller.getLocoCount();
+    uart_test_write("<t 1 3 50 1>");
+    controller.dccexLoop();
+    assert_int_equal(controller.getLocoCount(), initial_loco_count + 1); // Loco added
+}
+
 // Add all tests to the test suite
 int main(void)
 {
@@ -553,6 +716,10 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_core_health_monitoring, setup, teardown),
         cmocka_unit_test_setup_teardown(test_queue_timeout_safety, setup, teardown),
         cmocka_unit_test_setup_teardown(test_emergency_power_cutoff, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_maintenance_mode_entry_requirements, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_maintenance_mode_power_lockout, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_maintenance_mode_command_rejection, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_maintenance_mode_exit, setup, teardown),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
