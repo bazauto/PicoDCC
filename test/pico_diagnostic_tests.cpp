@@ -69,13 +69,13 @@ static void test_log_buffer_add_single(void **state) {
     // Should have 1 entry
     assert_int_equal(diag_log_get_count(), 1);
     
-    // Retrieve and verify
-    diagnostic_msg_t* retrieved = diag_log_get_entry(0);
-    assert_non_null(retrieved);
-    assert_int_equal(retrieved->level, DIAG_ERROR);
-    assert_int_equal(retrieved->timestamp, 1000);
-    assert_string_equal(retrieved->component, COMPONENT_TRACK);
-    assert_string_equal(retrieved->message, "Test error message");
+    // Retrieve and verify (using new thread-safe copy API)
+    diagnostic_msg_t retrieved;
+    assert_true(diag_log_get_entry(0, &retrieved));
+    assert_int_equal(retrieved.level, DIAG_ERROR);
+    assert_int_equal(retrieved.timestamp, 1000);
+    assert_string_equal(retrieved.component, COMPONENT_TRACK);
+    assert_string_equal(retrieved.message, "Test error message");
 }
 
 /**
@@ -99,9 +99,9 @@ static void test_log_buffer_add_multiple(void **state) {
     
     // Verify order (oldest to newest)
     for (int i = 0; i < 5; i++) {
-        diagnostic_msg_t* entry = diag_log_get_entry(i);
-        assert_non_null(entry);
-        assert_int_equal(entry->timestamp, 1000 + i);
+        diagnostic_msg_t entry;
+        assert_true(diag_log_get_entry(i, &entry));
+        assert_int_equal(entry.timestamp, 1000 + i);
     }
 }
 
@@ -125,14 +125,14 @@ static void test_log_buffer_wraparound(void **state) {
     assert_int_equal(diag_log_get_count(), DIAG_LOG_BUFFER_SIZE);
     
     // Oldest entry should be at index 0, which is now entry #5 (0-4 were overwritten)
-    diagnostic_msg_t* oldest = diag_log_get_entry(0);
-    assert_non_null(oldest);
-    assert_int_equal(oldest->timestamp, 1000 + 5);  // Entry 5 is now oldest
+    diagnostic_msg_t oldest;
+    assert_true(diag_log_get_entry(0, &oldest));
+    assert_int_equal(oldest.timestamp, 1000 + 5);  // Entry 5 is now oldest
     
     // Newest entry should be at index 29, which is entry #34
-    diagnostic_msg_t* newest = diag_log_get_entry(DIAG_LOG_BUFFER_SIZE - 1);
-    assert_non_null(newest);
-    assert_int_equal(newest->timestamp, 1000 + (DIAG_LOG_BUFFER_SIZE + 5 - 1));  // Entry 34
+    diagnostic_msg_t newest;
+    assert_true(diag_log_get_entry(DIAG_LOG_BUFFER_SIZE - 1, &newest));
+    assert_int_equal(newest.timestamp, 1000 + (DIAG_LOG_BUFFER_SIZE + 5 - 1));  // Entry 34
 }
 
 /**
@@ -154,14 +154,15 @@ static void test_log_buffer_invalid_index(void **state) {
     assert_int_equal(diag_log_get_count(), 3);
     
     // Valid indices: 0, 1, 2
-    assert_non_null(diag_log_get_entry(0));
-    assert_non_null(diag_log_get_entry(1));
-    assert_non_null(diag_log_get_entry(2));
+    diagnostic_msg_t entry;
+    assert_true(diag_log_get_entry(0, &entry));
+    assert_true(diag_log_get_entry(1, &entry));
+    assert_true(diag_log_get_entry(2, &entry));
     
     // Invalid indices: 3, 4, 255
-    assert_null(diag_log_get_entry(3));
-    assert_null(diag_log_get_entry(4));
-    assert_null(diag_log_get_entry(255));
+    assert_false(diag_log_get_entry(3, &entry));
+    assert_false(diag_log_get_entry(4, &entry));
+    assert_false(diag_log_get_entry(255, &entry));
 }
 
 /**
@@ -188,8 +189,9 @@ static void test_log_buffer_clear(void **state) {
     // Should be empty
     assert_int_equal(diag_log_get_count(), 0);
     
-    // Should return NULL for any index
-    assert_null(diag_log_get_entry(0));
+    // Should return false for any index
+    diagnostic_msg_t entry;
+    assert_false(diag_log_get_entry(0, &entry));
 }
 
 /**
@@ -208,10 +210,15 @@ static void test_log_macros(void **state) {
     assert_int_equal(diag_log_get_count(), 4);
     
     // Verify severity levels
-    assert_int_equal(diag_log_get_entry(0)->level, DIAG_INFO);
-    assert_int_equal(diag_log_get_entry(1)->level, DIAG_WARNING);
-    assert_int_equal(diag_log_get_entry(2)->level, DIAG_ERROR);
-    assert_int_equal(diag_log_get_entry(3)->level, DIAG_CRITICAL);
+    diagnostic_msg_t entry;
+    assert_true(diag_log_get_entry(0, &entry));
+    assert_int_equal(entry.level, DIAG_INFO);
+    assert_true(diag_log_get_entry(1, &entry));
+    assert_int_equal(entry.level, DIAG_WARNING);
+    assert_true(diag_log_get_entry(2, &entry));
+    assert_int_equal(entry.level, DIAG_ERROR);
+    assert_true(diag_log_get_entry(3, &entry));
+    assert_int_equal(entry.level, DIAG_CRITICAL);
 }
 
 /**
@@ -231,12 +238,19 @@ static void test_component_identifiers(void **state) {
     assert_int_equal(diag_log_get_count(), 6);
     
     // Verify components
-    assert_string_equal(diag_log_get_entry(0)->component, "CONTROLLER");
-    assert_string_equal(diag_log_get_entry(1)->component, "TRACK");
-    assert_string_equal(diag_log_get_entry(2)->component, "POWER");
-    assert_string_equal(diag_log_get_entry(3)->component, "QUEUE");
-    assert_string_equal(diag_log_get_entry(4)->component, "CORE");
-    assert_string_equal(diag_log_get_entry(5)->component, "DCCEX");
+    diagnostic_msg_t entry;
+    assert_true(diag_log_get_entry(0, &entry));
+    assert_string_equal(entry.component, "CONTROLLER");
+    assert_true(diag_log_get_entry(1, &entry));
+    assert_string_equal(entry.component, "TRACK");
+    assert_true(diag_log_get_entry(2, &entry));
+    assert_string_equal(entry.component, "POWER");
+    assert_true(diag_log_get_entry(3, &entry));
+    assert_string_equal(entry.component, "QUEUE");
+    assert_true(diag_log_get_entry(4, &entry));
+    assert_string_equal(entry.component, "CORE");
+    assert_true(diag_log_get_entry(5, &entry));
+    assert_string_equal(entry.component, "DCCEX");
 }
 
 /**
@@ -261,8 +275,9 @@ static void test_uninitialized_buffer(void **state) {
     // Count should return 0
     assert_int_equal(diag_log_get_count(), 0);
     
-    // Get entry should return NULL
-    assert_null(diag_log_get_entry(0));
+    // Get entry should return false
+    diagnostic_msg_t entry;
+    assert_false(diag_log_get_entry(0, &entry));
     
     // Clear should be safe
     diag_log_clear();  // Should do nothing

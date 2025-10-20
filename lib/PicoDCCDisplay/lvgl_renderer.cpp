@@ -479,32 +479,61 @@ void LvglRenderer::updateLogScreen() {
     // Get current log count
     uint32_t log_count = diag_log_get_count();
     
-    // Build formatted log text
-    char log_text[4096] = "";  // Static buffer for all log entries
-    char entry_line[256];
+    // Safety limit to prevent buffer issues
+    if (log_count > 20) {
+        log_count = 20;  // Cap at 20 entries max
+    }
     
-    for (uint32_t i = 0; i < log_count; i++) {
-        const diagnostic_msg_t* entry = diag_log_get_entry(i);
-        if (!entry) continue;
+    // Build formatted log text with very conservative buffer
+    static char log_text[2048];  // Static to avoid stack issues
+    log_text[0] = '\0';
+    
+    for (uint32_t i = 0; i < log_count && i < 20; i++) {
+        diagnostic_msg_t entry;
         
-        // Format: [TIME] LEVEL COMPONENT: message
-        const char* severity_str = severityToString(entry->level);
-        uint32_t timestamp_sec = entry->timestamp / 1000;
-        uint32_t timestamp_ms = entry->timestamp % 1000;
+        // Try to get entry - skip if fails
+        if (!diag_log_get_entry(i, &entry)) {
+            continue;
+        }
         
-        snprintf(entry_line, sizeof(entry_line), "[%lu.%03lu] %s %s: %s\n",
-                 timestamp_sec, timestamp_ms, severity_str, entry->component, entry->message);
+        // CRITICAL: Force null termination immediately after copy
+        entry.component[DIAG_COMPONENT_MAX_LEN - 1] = '\0';
+        entry.message[DIAG_MESSAGE_MAX_LEN - 1] = '\0';
         
-        // Append to log text (check buffer space)
-        if (strlen(log_text) + strlen(entry_line) < sizeof(log_text) - 1) {
-            strcat(log_text, entry_line);
+        // Map level to string
+        const char* level_str = "INFO";
+        if (entry.level == DIAG_WARNING) level_str = "WARN";
+        else if (entry.level == DIAG_ERROR) level_str = "ERROR";
+        else if (entry.level == DIAG_CRITICAL) level_str = "CRIT";
+        
+        // Calculate current length
+        size_t current_len = 0;
+        while (log_text[current_len] != '\0' && current_len < sizeof(log_text)) {
+            current_len++;
+        }
+        
+        // Check if we have space (need at least 128 bytes for one entry)
+        if (current_len + 128 >= sizeof(log_text)) {
+            break;  // Buffer almost full, stop adding entries
+        }
+        
+        // Format directly into the output buffer at current position
+        int written = snprintf(log_text + current_len, sizeof(log_text) - current_len,
+                              "[%lu.%03lu] %s %s: %s\n",
+                              entry.timestamp / 1000, entry.timestamp % 1000,
+                              level_str, entry.component, entry.message);
+        
+        // Safety check for snprintf failure
+        if (written < 0 || written >= (int)(sizeof(log_text) - current_len)) {
+            break;  // Stop if formatting failed or would overflow
         }
     }
     
-    // Update the textarea with all log entries
-    lv_textarea_set_text(log_table_, log_text);
+    // Ensure final null termination
+    log_text[sizeof(log_text) - 1] = '\0';
     
-    // Scroll to end to show newest entries
+    // Update the textarea
+    lv_textarea_set_text(log_table_, log_text);
     lv_textarea_set_cursor_pos(log_table_, LV_TEXTAREA_CURSOR_LAST);
 }
 

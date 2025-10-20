@@ -1,5 +1,6 @@
 
 #include <vector>
+#include <string>
 #include <cstdint>
 // For test validation: record all 64-bit packets sent to the track
 extern std::vector<uint64_t> sent_track_packets;

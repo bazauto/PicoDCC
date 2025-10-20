@@ -1,11 +1,15 @@
 #ifndef PICO_DCC_DIAGNOSTIC_H
 #define PICO_DCC_DIAGNOSTIC_H
 
+#include <string.h>
+
 #ifdef TEST_BUILD
 #include "../test/mocks.h"
 #else
 #include <pico/stdlib.h>
 #include <pico/time.h>
+#include <pico/sem.h>
+#include <pico/sync.h>
 #endif
 
 /**
@@ -28,15 +32,20 @@ typedef enum {
 } diagnostic_level_t;
 
 // Diagnostic message structure (for future LCD/storage use)
+#define DIAG_COMPONENT_MAX_LEN 16  // e.g., "CONTROLLER"
+#define DIAG_MESSAGE_MAX_LEN 64     // e.g., "Overcurrent protection activated"
+
 typedef struct {
     diagnostic_level_t level;
     uint32_t timestamp;
-    const char* component;
-    const char* message;
+    char component[DIAG_COMPONENT_MAX_LEN];  // Fixed-size buffer for thread-safety
+    char message[DIAG_MESSAGE_MAX_LEN];      // Fixed-size buffer for thread-safety
 } diagnostic_msg_t;
 
 // Log buffer configuration
-#define DIAG_LOG_BUFFER_SIZE 30  // Number of log entries to store (30 × ~64 bytes = ~2KB)
+#define DIAG_LOG_BUFFER_SIZE 30  // Number of log entries to store
+                                  // Each entry: 4 (level) + 4 (timestamp) + 16 (component) + 64 (message) = 88 bytes
+                                  // Total: 30 × 88 = ~2.6KB
 
 // Circular buffer for diagnostic log storage
 typedef struct {
@@ -44,6 +53,9 @@ typedef struct {
     uint8_t head;           // Next write position
     uint8_t count;          // Number of valid entries (0 to DIAG_LOG_BUFFER_SIZE)
     bool initialized;       // Buffer initialization flag
+#ifndef TEST_BUILD
+    semaphore_t sem;        // Multi-core synchronization
+#endif
 } diagnostic_log_buffer_t;
 
 // Global log buffer (initialized in diag_log_init)
@@ -53,53 +65,25 @@ extern diagnostic_log_buffer_t g_diag_log_buffer;
 void diag_log_init(void);
 void diag_log_add(diagnostic_msg_t msg);
 uint8_t diag_log_get_count(void);
-diagnostic_msg_t* diag_log_get_entry(uint8_t index);
+bool diag_log_get_entry(uint8_t index, diagnostic_msg_t* out_entry);  // Thread-safe copy
 void diag_log_clear(void);
 
 /**
  * Core diagnostic logging function
- * Now stores messages in circular buffer for LCD display
+ * Stores messages in circular buffer for LCD display
  * 
- * FUTURE LCD IMPLEMENTATION GUIDE:
- * ================================
- * To add LCD display support:
- * 1. Add LCD library includes at top of this file
- * 2. Add LCD initialization function to be called from main()
- * 3. Replace the silent implementation below with LCD output calls
- * 4. Consider adding error history/scrolling for multiple messages
- * 5. Use severity levels for different display styles (colors, icons, etc.)
+ * Implementation notes:
+ * - Uses static allocation with 8-byte alignment to prevent ARM UNALIGNED faults
+ * - Byte-by-byte string copy instead of strncpy() to avoid alignment issues
+ * - Non-blocking semaphore (sem_try_acquire) prevents Core 1 blocking
+ * - Display reads are limited to 20 entries max with conservative buffer management
  * 
- * Example LCD integration:
- * - CRITICAL: Red background, immediate display, beep
- * - ERROR: Yellow background, hold for 5 seconds  
- * - WARNING: Normal display, clear after 3 seconds
- * - INFO: Brief flash, clear after 1 second
+ * Thread-safety:
+ * - Writer (Core 1) uses blocking semaphore
+ * - Reader (Core 0 display) uses non-blocking semaphore
+ * - Prevents Core 1 DCC timing disruption during display updates
  */
-inline void log_diagnostic(diagnostic_level_t level, const char* component, const char* message) {
-    // Store message in circular buffer for LCD display
-    if (g_diag_log_buffer.initialized) {
-        diagnostic_msg_t msg;
-        msg.level = level;
-#ifdef TEST_BUILD
-        msg.timestamp = mock_time_ms;  // Use mock time in test mode
-#else
-        msg.timestamp = time_us_32() / 1000;  // Convert to milliseconds
-#endif
-        msg.component = component;
-        msg.message = message;
-        diag_log_add(msg);
-    }
-    
-#ifdef TEST_BUILD
-    // For testing: Output critical messages to UART for test validation
-    if (level >= DIAG_CRITICAL) {
-        // Format: "CRITICAL:<COMPONENT>:<MESSAGE>"
-        char diagnostic_output[256];
-        snprintf(diagnostic_output, sizeof(diagnostic_output), "CRITICAL:%s:%s", component, message);
-        uart_puts(uart0, diagnostic_output);
-    }
-#endif
-}
+void log_diagnostic(diagnostic_level_t level, const char* component, const char* message);
 
 // Convenience macros for different severity levels
 #define LOG_INFO(component, message)     log_diagnostic(DIAG_INFO, component, message)

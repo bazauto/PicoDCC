@@ -3,6 +3,7 @@
 #define LCD_DRIVER_H
 
 #include <stdint.h>
+#include <stddef.h>
 #include <stdbool.h>
 
 #ifndef TEST_BUILD
