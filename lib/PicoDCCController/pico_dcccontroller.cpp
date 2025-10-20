@@ -46,7 +46,7 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
 void PicoDccController::dccexLoop()
 {
     // Core 1 health monitoring - check every 50ms
-    uint32_t current_time = to_ms_since_boot(get_absolute_time());
+    uint32_t current_time = time_us_32() / 1000;  // Multicore-safe timer
     if (current_time - last_core1_check >= 50) {
         if (core1_heartbeat == last_core1_heartbeat_value) {
             // Core 1 appears dead - emergency cutoff
@@ -182,7 +182,7 @@ void PicoDccController::dccLoop()
 {
     static uint32_t last_command_check = 0;
     static uint32_t heartbeat_counter = 0;
-    uint32_t current_time = to_ms_since_boot(get_absolute_time());
+    uint32_t current_time = time_us_32() / 1000;  // Multicore-safe timer
     
     // Update Core 1 heartbeat for health monitoring
     core1_heartbeat = ++heartbeat_counter;

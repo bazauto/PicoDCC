@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string>
 #include <mutex>
 #include <array>
 #include <vector>
