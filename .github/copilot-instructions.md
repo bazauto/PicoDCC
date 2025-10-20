@@ -11,6 +11,8 @@ PicoDCC is a project designed for managing and controlling Digital Command Contr
   - `PicoDCCLoco`: Focuses on locomotive-specific operations including throttle commands, function control, and CV programming support.
   - `PicoDCCTrack`: Deals with track-related functionalities, packet transmission via PIO, hardware queue management (single-buffered design), and **locomotive reminder generation on Core 1**.
   - `PicoDCCLocos`: Collection management for multiple locomotives with semaphore-protected operations for thread-safe access from both cores.
+  - `PicoDCCDisplay`: LCD display management (Waveshare WAV-27579, ST7789T3 controller, LVGL graphics). Self-contained component handles all display logic including boot sequence, periodic updates, and data gathering. **See LCD Code Organization section below.**
+  - `PicoConfigStorage`: Non-volatile configuration storage in flash memory for calibration values and tunable parameters (last 4KB sector).
 - **Testing**:
   - Unit tests are located in the `test/` directory, with comprehensive test coverage including `pico_dcc_controller_tests.cpp`, `pico_dcc_loco_tests.cpp`, `pico_dcc_locos_tests.cpp`, and `pico_dcc_packet_tests.cpp`.
 - **Circuit Design**:
@@ -114,6 +116,25 @@ This script directly addresses the need to ensure that changes in one build mode
   gdb ./build/PicoDCC.elf
   ```
 
+### Hardware Debugging
+- **Hardware test machine**: Linux with physical Raspberry Pi Pico attached
+  - OpenOCD debugger available via telnet (port 50002)
+  - Can perform live hardware debugging with GDB
+  - Example: `echo -e "targets rp2350.cm1\nreg" | nc localhost 50002 -q 1`
+  - Required for debugging hard faults, multicore issues, timing problems
+  
+- **Main development machine**: Windows without hardware
+  - Used for code editing and test mode builds
+  - Unit tests run in TEST_BUILD mode with mocks
+  - Cannot perform hardware-level debugging
+  
+- **When hardware debugging is needed**:
+  - Hard faults (UNALIGNED, memory violations)
+  - Multicore synchronization issues
+  - Timing-critical problems (PIO, DCC signal generation)
+  - ADC/hardware peripheral issues
+  - Must switch to Linux hardware test machine
+
 ## Project-Specific Conventions
 - **File Organization**:
   - Source files are in `src/`.
@@ -124,6 +145,57 @@ This script directly addresses the need to ensure that changes in one build mode
   - Use `CamelCase` for class names.
 - **Testing Framework**:
   - The project uses `cmocka` for unit testing.
+
+## Main Application Entry Point (`src/pico_dcc.cpp`)
+- **CRITICAL RULE**: Keep `main()` function minimal and clean.
+  - `main()` should ONLY contain high-level initialization and the main loop.
+  - **NEVER** add complex logic, data gathering, or update loops directly in `main()`.
+  - **ALWAYS** delegate functionality to component classes (e.g., `PicoDCCDisplay::loop()`).
+  
+- **Current Structure** (DO NOT violate):
+  ```cpp
+  int main() {
+      stdio_init_all();
+      
+      // Initialize components (keep to 5-10 lines max)
+      #ifndef TEST_BUILD
+      PicoDCCDisplay display;
+      display.init();
+      display.runBootSequence();
+      #endif
+      
+      // Start multi-core
+      multicore_launch_core1(main_core1);
+      
+      // Main loop (keep to 3-5 lines max)
+      while (true) {
+          pico_controller.dccexLoop();
+          #ifndef TEST_BUILD
+          display.loop(&pico_controller);  // Component handles its own logic
+          #endif
+      }
+  }
+  ```
+
+- **Pattern to Follow**:
+  - Component initialization: `component.init()`
+  - Component boot/setup: `component.runBootSequence()`
+  - Component periodic updates: `component.loop(controller)` (NOT in main!)
+  - Each component manages its own timing, data gathering, and update logic internally
+
+- **What NOT to Do**:
+  - ❌ Adding timer variables in `main()` (e.g., `last_update_time`)
+  - ❌ Gathering data from other components in `main()` (e.g., `getTrack()`, `getCurrent()`)
+  - ❌ Complex conditional logic or calculations in `main()`
+  - ❌ Long blocks of update code (>5 lines per component)
+
+## LCD Code Organization
+- **PicoDCCDisplay** is a self-contained component (lib/PicoDCCDisplay/)
+  - Handles ALL display logic internally: boot sequence, updates, data gathering
+  - Main application ONLY calls: `init()`, `runBootSequence()`, `loop(controller)`
+  - Component manages: timing, track data queries, LVGL updates, screen rendering
+- **Integration Pattern**: See main() structure above - 3 simple calls, no embedded logic
+- **Documentation**: `docs/lcd-*.md` for LCD-specific design and implementation details
 
 ## Diagnostic Logging System
 - **CRITICAL RULE**: Never pollute the DCC-EX command UART with diagnostic messages. 
@@ -137,11 +209,41 @@ This script directly addresses the need to ensure that changes in one build mode
   - `LOG_WARNING()`: Non-critical issues  
   - `LOG_INFO()`: Status information
   - Include `#include "pico_diagnostic.h"` in components that need logging
-  - Current implementation is silent to avoid UART pollution, ready for future LCD integration
+  - Messages stored in 30-entry circular buffer (~2KB RAM)
+  - LCD display shows logs via "View Logs" button on main screen
+
+- **LCD Integration**:
+  - Diagnostic logs displayed on dedicated log viewer screen
+  - Format: `[TIME] LEVEL COMPONENT: message`
+  - User can view, scroll, and clear logs via touch interface
+  - Main screen shows live log count indicator
 
 - **Protocol Compliance**:
   - No conditional compilation (`#ifdef TEST_BUILD`) in diagnostic messages
   - Clean separation between protocol communication and internal diagnostics
+
+- **CRITICAL: ARM Cortex-M Memory Safety Patterns**:
+  - **NEVER use `strncpy()` on ARM Cortex-M** - causes UNALIGNED faults. Use byte-by-byte copy instead.
+  - **Avoid large stack allocations** - Use static buffers for frequently-called functions (especially in multicore code).
+  - **Use `memcpy()` for struct copies** - Struct assignment (`a = b`) can trigger unaligned operations.
+  - **Align critical structures** - Use `__attribute__((aligned(8)))` for structures accessed from multiple cores.
+  - **Non-blocking semaphores for display** - Use `sem_try_acquire()` for Core 0 display reads to prevent Core 1 blocking.
+  - **Conservative buffer limits** - Cap iterations and buffer sizes (e.g., max 20 log entries, 2KB display buffer).
+  - **Manual length tracking** - Avoid repeated `strlen()` calls in loops; calculate once and track manually.
+  
+  **Example of Safe Pattern**:
+  ```cpp
+  static char buffer[2048] __attribute__((aligned(8)));  // Static + aligned
+  
+  // Byte-by-byte copy instead of strncpy
+  for (size_t i = 0; i < max_len - 1 && src[i] != '\0'; i++) {
+      dest[i] = src[i];
+  }
+  dest[max_len - 1] = '\0';
+  
+  // memcpy for structs instead of assignment
+  memcpy(&dest_struct, &src_struct, sizeof(my_struct_t));
+  ```
 
 ## Test Investigation Best Practices
 - **Always compile and run the tests when investigating test issues.**
@@ -165,10 +267,18 @@ This script directly addresses the need to ensure that changes in one build mode
   - Emergency stop is implemented as a DCC broadcast command (address 0x00, instruction 0x41).
   - The system uses a single broadcast packet rather than per-locomotive emergency stop commands.
   - Emergency stop clears the main queue, hardware queue, and all locomotive states.
+- **Service Mode Programming (Programming Track)**:
+  - Reference: [DCC Wiki - Service Mode Programming](https://dccwiki.com/Service_Mode_Programming)
+  - Implementation plan documented in `docs/service-mode-programming-plan.md`
+  - DCC-EX commands: `<W cv value>`, `<V cv value>`, `<R cv>`, `<B cv bit value>`
+  - ACK detection: Decoder responds with 60mA pulse for 6ms, must detect within 8ms window
+  - Programming track: Separate from main track, lower current limits, 20-bit preamble (vs 14-bit for main)
+  - Direct Mode (NMRA S-9.2.3): Primary method for CV read/write/verify operations
+  - Key CVs: CV1 (short address), CV17/18 (long address), CV29 (configuration)
 - **CV Programming Support**:
-  - The `PicoDccLoco` class includes CV (Configuration Variable) methods for future decoder programming.
+  - The `PicoDccLoco` class includes CV (Configuration Variable) method stubs for future decoder programming.
   - Methods include `verifyCV()`, `readCVByte()`, `readCVBit()`, `writeCVBytes()`, and `writeCVBit()`.
-  - These are preserved for planned programming track functionality.
+  - Full implementation planned with dedicated `PicoDccProgrammer` component.
 - **Queue Management**:
   - Main command queue operates on Core 0 for explicit commands with repeat logic.
   - Hardware queue operates on Core 1 with single-buffered design.
@@ -251,6 +361,20 @@ This script directly addresses the need to ensure that changes in one build mode
   - **Thread Safety**: `PicoDccLocos` collection is updated by Core 0, read by Core 1 with semaphore protection.
   - **Benefits**: Eliminates queue overflow, simpler flow, hardware-paced reminder generation.
   - **Implementation**: `PicoDccTrack` constructor takes optional `PicoDccLocos*` parameter (main track only).
+
+- **Diagnostic Log Display Implementation (ARM Cortex-M Memory Safety)**:
+  - **Problem**: Hard fault (UNALIGNED, CFSR=0x00020000) when displaying diagnostic logs on LCD.
+  - **Root Cause**: `strncpy()` caused unaligned memory access on ARM Cortex-M33; 4KB+ stack allocation in display update.
+  - **Investigation**: Used GDB via OpenOCD on Linux hardware test machine (`echo -e "targets rp2350.cm1\nreg" | nc localhost 50002 -q 1`) to analyze fault registers.
+  - **Note**: This type of hardware-level debugging requires physical Pico access, not possible on Windows development machine.
+  - **Solution**: 
+    - Replaced `strncpy()` with manual byte-by-byte copy in `log_diagnostic()`
+    - Changed from stack to static allocation for 88-byte diagnostic struct
+    - Used `memcpy()` instead of struct assignment for entry copying
+    - Reduced display buffer from 4KB to 2KB static buffer
+    - Changed from blocking to non-blocking semaphore (`sem_try_acquire()`) for display reads
+    - Added conservative limits (20 entries max, 128 bytes/entry buffer space check)
+  - **Lessons**: ARM Cortex-M has strict alignment requirements; always test with actual hardware; multicore semaphore blocking can corrupt timing-critical code; hardware debugging requires Linux test machine with OpenOCD access.
 
 ## Key Files and Directories
 - `CMakeLists.txt`: Build configuration.

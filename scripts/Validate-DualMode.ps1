@@ -31,7 +31,23 @@ function Test-BuildMode {
         Write-Host "Configuring CMake for $Mode mode..." -ForegroundColor Gray
         
         if ($Mode -eq "TEST") {
-            $result = cmake -B build -DTEST_BUILD=ON 2>&1
+            # Test mode: Use Ninja generator with default compiler detection
+            # This matches how the Pico IDE extension builds in test mode
+            $ninjaAvailable = $false
+            try {
+                $null = Get-Command ninja -ErrorAction Stop
+                $ninjaAvailable = $true
+            } catch {
+                Write-Warning "Ninja not available, using default generator"
+            }
+
+            if ($ninjaAvailable) {
+                Write-Host "Using Ninja generator for test build (matching IDE configuration)..." -ForegroundColor Cyan
+                $result = cmake -B build -G "Ninja" -DTEST_BUILD=ON 2>&1
+            } else {
+                # Fallback to default generator (likely MSVC on Windows)
+                $result = cmake -B build -DTEST_BUILD=ON 2>&1
+            }
         } else {
             # Configure for hardware build with proper ARM GCC toolchain
             $toolchainPath = "C:\Program Files\Raspberry Pi\Pico SDK v1.5.1\gcc-arm-none-eabi"
@@ -91,7 +107,21 @@ function Run-TestSuite {
     Write-Host ""
     Write-Host "--- Running Test Suite ---" -ForegroundColor Green
     
-    $testDir = Join-Path $BuildDir "test\Debug"
+    # Test executables can be in different locations depending on generator
+    # Ninja: build/test/*.exe
+    # Visual Studio: build/test/Debug/*.exe
+    $testDirNinja = Join-Path $BuildDir "test"
+    $testDirVS = Join-Path $BuildDir "test\Debug"
+    
+    # Determine which directory contains the test executables
+    $testDir = $testDirNinja
+    if (-not (Test-Path $testDirNinja\*.exe) -and (Test-Path $testDirVS)) {
+        $testDir = $testDirVS
+        Write-Host "Using Visual Studio build output directory" -ForegroundColor Gray
+    } else {
+        Write-Host "Using Ninja build output directory" -ForegroundColor Gray
+    }
+    
     $testExes = @(
         "pico_dcc_dccex_tests.exe",
         "pico_dcc_controller_tests.exe", 

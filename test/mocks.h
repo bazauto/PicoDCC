@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string>
 #include <mutex>
 #include <array>
 #include <vector>
@@ -86,6 +87,7 @@ uint32_t to_ms_since_boot(absolute_time_t t);
 absolute_time_t make_timeout_time_ms(uint32_t ms);
 bool time_reached(absolute_time_t t);
 void sleep_us(uint64_t us);
+uint32_t time_us_32(void);
 
 #ifdef __cplusplus
 }

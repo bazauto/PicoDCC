@@ -1,5 +1,6 @@
 
 #include <vector>
+#include <string>
 #include <cstdint>
 // For test validation: record all 64-bit packets sent to the track
 extern std::vector<uint64_t> sent_track_packets;
@@ -154,6 +155,11 @@ void sleep_us(uint64_t us) {
     // In test mode, just advance mock time instead of actual sleep
     // This prevents tests from running slowly
     mock_time_ms += static_cast<uint32_t>(us / 1000);
+}
+
+uint32_t time_us_32(void) {
+    // Return mock time in microseconds (mock_time_ms is in milliseconds)
+    return mock_time_ms * 1000;
 }
 
 } // extern "C"
