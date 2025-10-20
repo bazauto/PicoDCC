@@ -1,6 +1,6 @@
 # Custom Linker Script Implementation Summary
 
-**Date**: October 20, 2025  
+**Date**: October 20, 2025 (Updated: January 2025)  
 **Status**: ✅ IMPLEMENTED AND TESTED  
 **Purpose**: Automatic configuration preservation during firmware updates
 
@@ -8,7 +8,7 @@
 
 ## Problem Addressed
 
-**Original Issue**: Firmware updates (via UF2, OpenOCD, picotool, or VS Code Pico extension) erased the entire 2MB flash, including the configuration sector at 0x101FF000-0x101FFFFF. This required manual backup/restore of calibration values and saved settings after every firmware update, which was tedious during development iterations.
+**Original Issue**: Firmware updates (via UF2, OpenOCD, picotool, or VS Code Pico extension) erased the entire flash, including the configuration sector. This required manual backup/restore of calibration values and saved settings after every firmware update, which was tedious during development iterations.
 
 ---
 
@@ -17,18 +17,18 @@
 ### Custom Linker Script (`memmap_picodcc.ld`)
 
 Created a custom linker script that:
-1. **Reserves last 4KB of flash** (0x101FF000-0x101FFFFF) for configuration storage
-2. **Limits firmware to 2044 KB** (0x10000000-0x101FEFFF)
-3. **Enforces protection at link time** - build fails if firmware exceeds 2044 KB
+1. **Reserves last 4KB of flash** (0x103FF000-0x103FFFFF) for configuration storage
+2. **Limits firmware to 4092 KB** (0x10000000-0x103FEFFF) for RP2350A 4MB flash
+3. **Enforces protection at link time** - build fails if firmware exceeds 4092 KB
 4. **Works with all flash methods** - UF2, OpenOCD, picotool, VS Code Pico extension
 
 ### Implementation Files
 
 1. **memmap_picodcc.ld** (project root):
-   - Based on Pico SDK RP2350 default linker script
-   - MEMORY block: `FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 2044k`
-   - Config region: 0x101FF000-0x101FFFFF (reserved, not included in firmware)
-   - ASSERT statement: Fails build if `__flash_binary_end > 0x101FF000`
+   - Based on Pico SDK RP2350 default linker script (memmap_default.ld)
+   - MEMORY block: `FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 4092k`
+   - Config region: 0x103FF000-0x103FFFFF (reserved, not included in firmware)
+   - ASSERT statement: Fails build if `__flash_binary_end > 0x103FF000`
    - KEEP directives: Prevents linker from removing critical sections
 
 2. **src/CMakeLists.txt** (line 21):
@@ -48,20 +48,20 @@ Created a custom linker script that:
 
 ### Firmware Size Analysis
 ```
-text    data     bss     dec     hex filename
-416408  2048   60056  478512   74d30 PicoDCC.elf
+Firmware binary end: 0x1006d490
+Firmware size: 447,632 bytes = 437.1 KB = 0.43 MB
 ```
 
-- **Firmware size**: 418,456 bytes (406.65 KB)
-- **Size limit**: 2,093,056 bytes (2044 KB)
-- **Safety margin**: 1,676,648 bytes (1637.35 KB)
-- **Usage**: 19.89% of available space
+- **Firmware size**: 447,632 bytes (437.1 KB)
+- **Size limit**: 4,190,208 bytes (4092 KB)
+- **Safety margin**: 3,742,576 bytes (3654.9 KB / 3.57 MB)
+- **Usage**: 10.7% of available space
 - **Plenty of room for growth** ✅
 
 ### Memory Layout Verification
-- **Firmware ends at**: 0x10065288 (~405 KB from flash start)
-- **Config starts at**: 0x101FF000 (2044 KB from flash start)
-- **Gap**: 1,678,712 bytes (1639.37 KB safety margin)
+- **Firmware ends at**: 0x1006d490 (~437 KB from flash start)
+- **Config starts at**: 0x103FF000 (4092 KB from flash start)
+- **Gap**: 3,742,576 bytes (3654.9 KB safety margin)
 - **No overlap** ✅
 
 ---
