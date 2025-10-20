@@ -16,4 +16,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 pico_enable_stdio_usb(${PROJECT_NAME} 1)
 pico_enable_stdio_uart(${PROJECT_NAME} 0)
 
+# Use custom linker script to reserve last 4KB of flash for configuration storage
+# This prevents firmware updates from erasing the config sector (0x101FF000-0x101FFFFF)
+pico_set_linker_script(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/memmap_picodcc.ld)
+
 pico_add_extra_outputs(${PROJECT_NAME})
