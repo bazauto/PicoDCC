@@ -65,19 +65,13 @@ bool PicoDccEx::processCommand(pico_dccex_packet* packet)
                         processState = DCCEX_PACKET;
 
                         // Process packet immediately
-                        if (currentPacket->isVersionCommand())
+                        // Note: <s> and <#> are now handled in PicoDCCController for enhanced status
+                        if (currentPacket->isVersionCommand() || currentPacket->isNumCabsCommand())
                         {
-                            DCCEX_RESPONSE("<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>\n");
+                            // Let controller handle these for full status reporting
+                            *packet = *currentPacket->getPacketData();
                             reset();
-                            return false;
-                        }
-                        else if (currentPacket->isNumCabsCommand())
-                        {
-                            char s[10];
-                            snprintf(s, sizeof(s), "<# %d>", maxSupportedCabs);
-                            DCCEX_RESPONSE(s);
-                            reset();
-                            return false;
+                            return true;
                         }
                         else if (currentPacket->isPowerCommand())
                         {

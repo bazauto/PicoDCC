@@ -65,6 +65,12 @@ void PicoDccController::dccexLoop()
     
     pico_dccex_packet packetData;
     bool hasCommand = pico_dccex->processCommand(&packetData);
+    
+    // Check for configuration commands first (before packet processing)
+    if (hasCommand && handleConfigCommand(pico_dccex->getBuffer())) {
+        // Configuration command handled, don't process as DCC packet
+        return;
+    }
 
     if (hasCommand)
     {
@@ -322,5 +328,149 @@ void PicoDccController::exitMaintenanceMode()
     operation_mode = OperationMode::NORMAL;
     // Note: Main track power stays OFF after exit (user must explicitly re-enable)
     LOG_INFO(COMPONENT_SYSTEM, "Exited to NORMAL mode (main track power remains OFF)");
+}
+
+// Configuration command handlers
+bool PicoDccController::handleConfigCommand(const char* buffer)
+{
+    // Check for <D ACK LIMIT value>
+    if (strncmp(buffer, "D ACK LIMIT ", 12) == 0) {
+        float value = atof(buffer + 12);
+        handleACKLimitCommand(value);
+        return true;
+    }
+    
+    // Check for <D ACK MIN value>
+    if (strncmp(buffer, "D ACK MIN ", 10) == 0) {
+        float value = atof(buffer + 10);
+        handleACKMinCommand(value);
+        return true;
+    }
+    
+    // Check for <D ACK MAX value>
+    if (strncmp(buffer, "D ACK MAX ", 10) == 0) {
+        float value = atof(buffer + 10);
+        handleACKMaxCommand(value);
+        return true;
+    }
+    
+    // Check for <E> save command
+    if (strcmp(buffer, "E") == 0) {
+        handleSaveCommand();
+        return true;
+    }
+    
+    // Check for <s> status command
+    if (strcmp(buffer, "s") == 0) {
+        handleStatusCommand();
+        return true;
+    }
+    
+    // Check for <#> capacity command
+    if (strcmp(buffer, "#") == 0) {
+        DCCEX_RESPONSE("<# 50>");  // Report 50 locomotive capacity
+        return true;
+    }
+    
+    return false;  // Not a config command
+}
+
+void PicoDccController::handleACKLimitCommand(float value)
+{
+    config_storage.setACKThreshold(value);
+    
+    // Send acknowledgment
+    char response[32];
+    snprintf(response, sizeof(response), "<D ACK LIMIT %.0f>", value);
+    DCCEX_RESPONSE(response);
+    
+    LOG_INFO(COMPONENT_SYSTEM, "ACK threshold updated (runtime)");
+}
+
+void PicoDccController::handleACKMinCommand(float value)
+{
+    // Convert microseconds to milliseconds for internal storage
+    config_storage.setACKMinDuration(value / 1000.0f);
+    
+    // Send acknowledgment
+    char response[32];
+    snprintf(response, sizeof(response), "<D ACK MIN %.0f>", value);
+    DCCEX_RESPONSE(response);
+    
+    LOG_INFO(COMPONENT_SYSTEM, "ACK min duration updated (runtime)");
+}
+
+void PicoDccController::handleACKMaxCommand(float value)
+{
+    // Convert microseconds to milliseconds for internal storage
+    config_storage.setACKMaxDuration(value / 1000.0f);
+    
+    // Send acknowledgment
+    char response[32];
+    snprintf(response, sizeof(response), "<D ACK MAX %.0f>", value);
+    DCCEX_RESPONSE(response);
+    
+    LOG_INFO(COMPONENT_SYSTEM, "ACK max duration updated (runtime)");
+}
+
+void PicoDccController::handleSaveCommand()
+{
+    // Check if in maintenance mode
+    if (operation_mode != OperationMode::LAYOUT_MAINTENANCE) {
+        DCCEX_RESPONSE("<X>");
+        LOG_WARNING(COMPONENT_SYSTEM, "Save command rejected: not in LAYOUT_MAINTENANCE mode");
+        return;
+    }
+    
+    // Save configuration to flash
+    bool success = config_storage.save();
+    
+    if (success) {
+        DCCEX_RESPONSE("<e SAVED>");
+        LOG_INFO(COMPONENT_SYSTEM, "Configuration saved to flash (410ms blocking)");
+    } else {
+        DCCEX_RESPONSE("<e FAILED>");
+        LOG_ERROR(COMPONENT_SYSTEM, "Configuration save failed");
+    }
+}
+
+void PicoDccController::handleStatusCommand()
+{
+    // Send version info
+    DCCEX_RESPONSE("<iDCC-EX V-5.0.0 / PICODCC / BUILD Oct 20 2025>");
+    
+    // Send main track power status
+    if (main_track->getPower()) {
+        DCCEX_RESPONSE("<p1 MAIN>");
+    } else {
+        DCCEX_RESPONSE("<p0 MAIN>");
+    }
+    
+    // Send programming track power status
+    if (prog_track->getPower()) {
+        DCCEX_RESPONSE("<p1 PROG>");
+    } else {
+        DCCEX_RESPONSE("<p0 PROG>");
+    }
+    
+    // Send operation mode (PicoDCC extension)
+    if (operation_mode == OperationMode::LAYOUT_MAINTENANCE) {
+        DCCEX_RESPONSE("<iM>");  // Maintenance mode indicator
+    } else {
+        DCCEX_RESPONSE("<iN>");  // Normal mode indicator
+    }
+    
+    // Send unsaved changes indicator (PicoDCC extension)
+    if (config_storage.hasUnsavedChanges()) {
+        DCCEX_RESPONSE("<u>");  // Unsaved changes
+    }
+    
+    // Send current ACK configuration
+    char ack_config[64];
+    snprintf(ack_config, sizeof(ack_config), "<D ACK LIMIT %.0f> <D ACK MIN %.0f> <D ACK MAX %.0f>",
+             config_storage.getACKThreshold(),
+             config_storage.getACKMinDuration() * 1000.0f,  // Convert to microseconds
+             config_storage.getACKMaxDuration() * 1000.0f);
+    DCCEX_RESPONSE(ack_config);
 }
 

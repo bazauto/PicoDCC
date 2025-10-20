@@ -40,6 +40,7 @@ public:
 
     enum pico_dccex_state getProcessState() { return processState; }
     int getMaxSupportedCabs() { return maxSupportedCabs; }
+    const char* getBuffer() const { return buffer; }
 };
 
 #endif

@@ -73,6 +73,14 @@ public:
     // Configuration management
     PicoConfigStorage* getConfigStorage() { return &config_storage; }
     
+    // Configuration command handlers
+    bool handleConfigCommand(const char* buffer);
+    void handleACKLimitCommand(float value);
+    void handleACKMinCommand(float value);
+    void handleACKMaxCommand(float value);
+    void handleSaveCommand();
+    void handleStatusCommand();
+    
     // Display/status accessors (used by PicoDCCDisplay and tests)
     bool isTrackPowerOn(bool isProg) { return isProg ? prog_track->getPower() : main_track->getPower(); }
     size_t getLocoCount() { return pico_locos->getLocoCount(); }
