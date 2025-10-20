@@ -40,6 +40,12 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     core1_heartbeat = 0;
     last_core1_check = 0;
     last_core1_heartbeat_value = 0;
+    
+    // Initialize operation mode and configuration
+    operation_mode = OperationMode::NORMAL;
+    config_storage.load();  // Load configuration from flash
+    
+    LOG_INFO(COMPONENT_SYSTEM, "PicoDCCController initialized in NORMAL mode");
 }
 
 // This is the Core 0 loop
@@ -69,14 +75,25 @@ void PicoDccController::dccexLoop()
             
             if (packet.isPowerCommand())
             {
+                // Programming track power always controllable
                 if (packet.getTrack() == DCCEX_TRACK_ALL || packet.getTrack() == DCCEX_TRACK_PROG)
                     prog_track->setPower(packet.getPowerOn());
 
-                if (packet.getTrack() == DCCEX_TRACK_ALL || packet.getTrack() == DCCEX_TRACK_MAIN)
-                    main_track->setPower(packet.getPowerOn());
-                
-                // Send power status acknowledgment
-                DCCEX_RESPONSE(packet.getDccExPowerUpdate());
+                // Main track power lockout in maintenance mode
+                if (packet.getTrack() == DCCEX_TRACK_ALL || packet.getTrack() == DCCEX_TRACK_MAIN) {
+                    if (operation_mode == OperationMode::LAYOUT_MAINTENANCE && packet.getPowerOn()) {
+                        // Reject main track power-on in maintenance mode
+                        DCCEX_RESPONSE("<X>");
+                        LOG_WARNING(COMPONENT_POWER, "Main track power-on rejected: LAYOUT_MAINTENANCE mode active");
+                    } else {
+                        main_track->setPower(packet.getPowerOn());
+                        // Send power status acknowledgment
+                        DCCEX_RESPONSE(packet.getDccExPowerUpdate());
+                    }
+                } else {
+                    // Programming track only - send acknowledgment
+                    DCCEX_RESPONSE(packet.getDccExPowerUpdate());
+                }
             }
 
             if (packet.isEmergencyStopCommand())
@@ -112,29 +129,39 @@ void PicoDccController::dccexLoop()
 
             if (packet.isThrottleCommand() || packet.isFunctionCommand())
             {
-                // Try to update existing loco, or add new one if not found
-                if (!pico_locos->updateLocoThrottle(packet.getCab(), &packet, cmd))
-                {
-                    // Loco not found in collection, add it
-                    pico_locos->addLoco(&packet, cmd);
+                // Silently reject throttle/function commands in maintenance mode
+                if (operation_mode == OperationMode::LAYOUT_MAINTENANCE) {
+                    // Do nothing - command ignored
+                } else {
+                    // Try to update existing loco, or add new one if not found
+                    if (!pico_locos->updateLocoThrottle(packet.getCab(), &packet, cmd))
+                    {
+                        // Loco not found in collection, add it
+                        pico_locos->addLoco(&packet, cmd);
+                    }
+                    
+                    if (cmd.length > 0) // Only queue if we have a valid command
+                    {
+                        main_cmd_queue.push(cmd);
+                    }
+                    
+                    // Send locomotive status acknowledgment
+                    DCCEX_RESPONSE(packet.getDccExCabUpdate());
                 }
-                
-                if (cmd.length > 0) // Only queue if we have a valid command
-                {
-                    main_cmd_queue.push(cmd);
-                }
-                
-                // Send locomotive status acknowledgment
-                DCCEX_RESPONSE(packet.getDccExCabUpdate());
             }
 
             if (packet.isAccesoryCommand())
             {
-                cmd = *packet.getRawDccAccessoryCmd();
-                main_cmd_queue.push(cmd);
-                
-                // Send accessory acknowledgment
-                DCCEX_RESPONSE("<O>");
+                // Silently reject accessory commands in maintenance mode
+                if (operation_mode == OperationMode::LAYOUT_MAINTENANCE) {
+                    // Do nothing - command ignored
+                } else {
+                    cmd = *packet.getRawDccAccessoryCmd();
+                    main_cmd_queue.push(cmd);
+                    
+                    // Send accessory acknowledgment
+                    DCCEX_RESPONSE("<O>");
+                }
             }
 
         }
@@ -270,5 +297,30 @@ void PicoDccController::emergencyPowerCutoff()
     
     // Log emergency event
     LOG_CRITICAL(COMPONENT_POWER, "Emergency power cutoff activated");
+}
+
+// Layout Maintenance Mode management
+bool PicoDccController::canEnterMaintenanceMode() const
+{
+    // Can only enter maintenance mode if main track power is OFF
+    return !main_track->getPower();
+}
+
+void PicoDccController::enterMaintenanceMode()
+{
+    if (!canEnterMaintenanceMode()) {
+        LOG_ERROR(COMPONENT_SYSTEM, "Cannot enter maintenance mode: main track power is ON");
+        return;
+    }
+    
+    operation_mode = OperationMode::LAYOUT_MAINTENANCE;
+    LOG_INFO(COMPONENT_SYSTEM, "Entered LAYOUT_MAINTENANCE mode");
+}
+
+void PicoDccController::exitMaintenanceMode()
+{
+    operation_mode = OperationMode::NORMAL;
+    // Note: Main track power stays OFF after exit (user must explicitly re-enable)
+    LOG_INFO(COMPONENT_SYSTEM, "Exited to NORMAL mode (main track power remains OFF)");
 }
 

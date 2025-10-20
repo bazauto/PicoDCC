@@ -11,7 +11,7 @@
 #include <pico/stdlib.h>
 #endif
 
-PicoConfigStorage::PicoConfigStorage() : config_valid(false) {
+PicoConfigStorage::PicoConfigStorage() : config_valid(false), unsaved_changes(false) {
     resetToDefaults();
 }
 
@@ -31,7 +31,14 @@ void PicoConfigStorage::resetToDefaults() {
     
     config.checksum = calculateCRC32((const uint8_t*)&config, 
                                      sizeof(pico_config_t) - sizeof(uint32_t));
+    
+    // Initialize runtime configuration from flash defaults
+    runtime.ack_threshold_ma = config.ack_threshold_ma;
+    runtime.ack_min_duration_ms = config.ack_min_duration_ms;
+    runtime.ack_max_duration_ms = config.ack_max_duration_ms;
+    
     config_valid = true;
+    unsaved_changes = false;
 }
 
 bool PicoConfigStorage::load() {
@@ -49,7 +56,14 @@ bool PicoConfigStorage::load() {
     // Validate configuration from flash
     if (validateConfig(flash_config)) {
         memcpy(&config, flash_config, sizeof(pico_config_t));
+        
+        // Initialize runtime configuration from loaded flash values
+        runtime.ack_threshold_ma = config.ack_threshold_ma;
+        runtime.ack_min_duration_ms = config.ack_min_duration_ms;
+        runtime.ack_max_duration_ms = config.ack_max_duration_ms;
+        
         config_valid = true;
+        unsaved_changes = false;
         LOG_INFO(COMPONENT_SYSTEM, "Configuration loaded from flash");
         return true;
     } else {
@@ -60,15 +74,35 @@ bool PicoConfigStorage::load() {
 #endif
 }
 
+void PicoConfigStorage::discardChanges() {
+    // Restore runtime configuration from flash
+    runtime.ack_threshold_ma = config.ack_threshold_ma;
+    runtime.ack_min_duration_ms = config.ack_min_duration_ms;
+    runtime.ack_max_duration_ms = config.ack_max_duration_ms;
+    unsaved_changes = false;
+    LOG_INFO(COMPONENT_SYSTEM, "Discarded unsaved configuration changes");
+}
+
 bool PicoConfigStorage::save() {
 #ifdef TEST_BUILD
     // In test mode, pretend to save successfully
+    // Persist runtime values to flash config
+    config.ack_threshold_ma = runtime.ack_threshold_ma;
+    config.ack_min_duration_ms = runtime.ack_min_duration_ms;
+    config.ack_max_duration_ms = runtime.ack_max_duration_ms;
+    
     config.checksum = calculateCRC32((const uint8_t*)&config, 
                                      sizeof(pico_config_t) - sizeof(uint32_t));
     config_valid = true;
+    unsaved_changes = false;
     LOG_INFO(COMPONENT_SYSTEM, "Test mode: Configuration saved (mock)");
     return true;
 #else
+    // Persist runtime values to flash config
+    config.ack_threshold_ma = runtime.ack_threshold_ma;
+    config.ack_min_duration_ms = runtime.ack_min_duration_ms;
+    config.ack_max_duration_ms = runtime.ack_max_duration_ms;
+    
     // Update checksum before saving
     config.checksum = calculateCRC32((const uint8_t*)&config, 
                                      sizeof(pico_config_t) - sizeof(uint32_t));
@@ -107,6 +141,7 @@ bool PicoConfigStorage::save() {
         multicore_lockout_end_blocking();
     }
     
+    unsaved_changes = false;
     LOG_INFO(COMPONENT_SYSTEM, "Configuration saved to flash");
     
     // Verify write by re-loading and comparing checksums
@@ -181,21 +216,9 @@ uint32_t PicoConfigStorage::calculateCRC32(const uint8_t *data, size_t length) {
     return ~crc;
 }
 
-// Getter implementations with fallback to defaults
+// Getter implementations for flash-only values (calibration, limits)
 float PicoConfigStorage::getADCToMAConversion() const {
     return config_valid ? config.adc_to_ma_conversion : DEFAULT_ADC_TO_MA;
-}
-
-float PicoConfigStorage::getACKThreshold() const {
-    return config_valid ? config.ack_threshold_ma : DEFAULT_ACK_THRESHOLD;
-}
-
-float PicoConfigStorage::getACKMinDuration() const {
-    return config_valid ? config.ack_min_duration_ms : DEFAULT_ACK_MIN_DURATION;
-}
-
-float PicoConfigStorage::getACKMaxDuration() const {
-    return config_valid ? config.ack_max_duration_ms : DEFAULT_ACK_MAX_DURATION;
 }
 
 float PicoConfigStorage::getBaselineCurrent() const {
@@ -210,38 +233,48 @@ uint16_t PicoConfigStorage::getProgTrackCurrentLimit() const {
     return config_valid ? config.prog_track_current_limit_ma : DEFAULT_PROG_CURRENT_LIMIT;
 }
 
-// Setter implementations
-void PicoConfigStorage::setADCToMAConversion(float value) {
-    config.adc_to_ma_conversion = value;
-    config_valid = true;
-}
+// Note: Runtime getters (ACK threshold/durations) are inline in header
 
+// Runtime setters (immediate effect, marks unsaved)
 void PicoConfigStorage::setACKThreshold(float value) {
-    config.ack_threshold_ma = value;
+    runtime.ack_threshold_ma = value;
+    unsaved_changes = true;
     config_valid = true;
 }
 
 void PicoConfigStorage::setACKMinDuration(float value) {
-    config.ack_min_duration_ms = value;
+    runtime.ack_min_duration_ms = value;
+    unsaved_changes = true;
     config_valid = true;
 }
 
 void PicoConfigStorage::setACKMaxDuration(float value) {
-    config.ack_max_duration_ms = value;
+    runtime.ack_max_duration_ms = value;
+    unsaved_changes = true;
+    config_valid = true;
+}
+
+// Flash setters (requires save() to persist)
+void PicoConfigStorage::setADCToMAConversion(float value) {
+    config.adc_to_ma_conversion = value;
+    unsaved_changes = true;
     config_valid = true;
 }
 
 void PicoConfigStorage::setBaselineCurrent(float value) {
     config.baseline_current_ma = value;
+    unsaved_changes = true;
     config_valid = true;
 }
 
 void PicoConfigStorage::setMainTrackCurrentLimit(uint16_t value) {
     config.main_track_current_limit_ma = value;
+    unsaved_changes = true;
     config_valid = true;
 }
 
 void PicoConfigStorage::setProgTrackCurrentLimit(uint16_t value) {
     config.prog_track_current_limit_ma = value;
+    unsaved_changes = true;
     config_valid = true;
 }

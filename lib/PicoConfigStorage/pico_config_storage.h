@@ -46,11 +46,20 @@ typedef struct {
     uint32_t checksum;           // CRC32 of all data above
 } pico_config_t;
 
-// Configuration management class
+// Runtime configuration (RAM-based, volatile)
+typedef struct {
+    float ack_threshold_ma;         // ACK detection threshold
+    float ack_min_duration_ms;      // Minimum ACK pulse duration
+    float ack_max_duration_ms;      // Maximum ACK pulse duration
+} runtime_config_t;
+
+// Configuration management class with hybrid architecture
 class PicoConfigStorage {
 private:
-    pico_config_t config;
+    pico_config_t config;           // Persistent flash configuration
+    runtime_config_t runtime;       // Runtime adjustable parameters
     bool config_valid;
+    bool unsaved_changes;           // Track if runtime differs from flash
     
     uint32_t calculateCRC32(const uint8_t *data, size_t length);
     bool validateConfig(const pico_config_t *cfg);
@@ -58,35 +67,45 @@ private:
 public:
     PicoConfigStorage();
     
-    // Load configuration from flash
+    // Load configuration from flash (initializes runtime from flash)
     bool load();
     
-    // Save configuration to flash (blocks ~410ms, halts both cores)
+    // Save configuration to flash (persists runtime to flash)
+    // REQUIRES: Layout Maintenance Mode with main track power OFF
+    // Blocks ~410ms, halts both cores
     bool save();
     
     // Reset to factory defaults
     void resetToDefaults();
     
-    // Getters with defaults if config invalid
+    // Discard unsaved runtime changes (restore from flash)
+    void discardChanges();
+    
+    // Getters - runtime values (may differ from flash if changed)
+    float getACKThreshold() const { return runtime.ack_threshold_ma; }
+    float getACKMinDuration() const { return runtime.ack_min_duration_ms; }
+    float getACKMaxDuration() const { return runtime.ack_max_duration_ms; }
+    
+    // Getters - flash-only values (calibration, limits)
     float getADCToMAConversion() const;
-    float getACKThreshold() const;
-    float getACKMinDuration() const;
-    float getACKMaxDuration() const;
     float getBaselineCurrent() const;
     uint16_t getMainTrackCurrentLimit() const;
     uint16_t getProgTrackCurrentLimit() const;
     
-    // Setters (call save() after to persist)
-    void setADCToMAConversion(float value);
+    // Runtime setters (immediate effect, marks unsaved)
     void setACKThreshold(float value);
     void setACKMinDuration(float value);
     void setACKMaxDuration(float value);
+    
+    // Flash setters (requires save() to persist)
+    void setADCToMAConversion(float value);
     void setBaselineCurrent(float value);
     void setMainTrackCurrentLimit(uint16_t value);
     void setProgTrackCurrentLimit(uint16_t value);
     
     // Status
     bool isValid() const { return config_valid; }
+    bool hasUnsavedChanges() const { return unsaved_changes; }
     
     // Get raw config for diagnostic/export
     const pico_config_t* getConfig() const { return &config; }

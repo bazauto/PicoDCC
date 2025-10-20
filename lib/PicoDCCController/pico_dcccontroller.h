@@ -18,8 +18,15 @@
 #include "../PicoDCCLoco/pico_dccloco.h"
 #include "../PicoDCCLoco/pico_dcclocos.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
+#include "../PicoConfigStorage/pico_config_storage.h"
 
 #define CMD_QUEUE_LENGTH 5
+
+// Operation modes for the controller
+enum class OperationMode {
+    NORMAL,              // Standard DCC operation
+    LAYOUT_MAINTENANCE   // Safe mode for flash writes (main track power OFF)
+};
 
 class PicoDccController
 {
@@ -44,6 +51,9 @@ private:
     uint32_t last_core1_check;
     uint32_t last_core1_heartbeat_value;
 
+    // Operation mode and configuration
+    OperationMode operation_mode;
+    PicoConfigStorage config_storage;
 
 public:
     PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s, uint8_t timing_led_pin);
@@ -53,6 +63,15 @@ public:
     
     // Safety functions
     void emergencyPowerCutoff();
+    
+    // Layout Maintenance Mode management
+    bool canEnterMaintenanceMode() const;
+    void enterMaintenanceMode();
+    void exitMaintenanceMode();
+    bool isMaintenanceModeActive() const { return operation_mode == OperationMode::LAYOUT_MAINTENANCE; }
+    
+    // Configuration management
+    PicoConfigStorage* getConfigStorage() { return &config_storage; }
     
     // Display/status accessors (used by PicoDCCDisplay and tests)
     bool isTrackPowerOn(bool isProg) { return isProg ? prog_track->getPower() : main_track->getPower(); }
