@@ -51,6 +51,40 @@ The project supports two distinct build modes controlled by the `TEST_BUILD` fla
 - **Important**: Use `cmake --build .` instead of `make` for better cross-platform compatibility and proper target building.
 - **PowerShell Limitation**: When using PowerShell on Windows, avoid using `&&` to chain commands as it's not supported. Use separate commands or `;` for single-line command chaining.
 
+### Pre-Approved Build/Test Commands (ALWAYS USE THESE)
+To minimize flow interruptions, AI agents should ONLY use these exact command patterns:
+
+**Building (from project root):**
+```powershell
+cmake --build build
+```
+
+**Running a specific test (from project root):**
+```powershell
+.\build\test\pico_dcc_programmer_tests.exe
+.\build\test\pico_dcc_controller_tests.exe
+.\build\test\pico_dcc_packet_tests.exe
+```
+
+**Build + Test (single command, from project root):**
+```powershell
+cmake --build build ; .\build\test\pico_dcc_programmer_tests.exe
+```
+
+**AVOID:**
+- ❌ Using `cd` commands (work from project root)
+- ❌ Using grep/Select-String with pipes (`|`) - causes approval issues
+- ❌ Chaining multiple tests in one command
+- ❌ Using `&&` (not supported in PowerShell)
+- ❌ Complex regex patterns in command line
+- ❌ Multiple directory changes in one command
+
+**For searching/filtering test output:**
+Use separate tool calls instead of piping:
+1. Run test normally
+2. Read output from terminal
+3. Analyze in code, not via grep/Select-String
+
 ### Running Tests (TEST_BUILD=ON)
 - Tests are compiled into executables like `pico_dcc_packet_tests.exe` in the `build/test/` directory.
 - Run tests directly from the build directory:

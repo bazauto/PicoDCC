@@ -19,6 +19,7 @@
 #include "../PicoDCCLoco/pico_dcclocos.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
 #include "../PicoConfigStorage/pico_config_storage.h"
+#include "../PicoDCCProgrammer/pico_dcc_programmer.h"
 
 #define CMD_QUEUE_LENGTH 5
 
@@ -54,6 +55,9 @@ private:
     // Operation mode and configuration
     OperationMode operation_mode;
     PicoConfigStorage config_storage;
+    
+    // CV programming support
+    PicoDccProgrammer programmer;
 
 public:
     PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s, uint8_t timing_led_pin);
@@ -80,6 +84,7 @@ public:
     void handleACKMaxCommand(float value);
     void handleSaveCommand();
     void handleStatusCommand();
+    void handleReadAddressCommand();
     
     // Display/status accessors (used by PicoDCCDisplay and tests)
     bool isTrackPowerOn(bool isProg) { return isProg ? prog_track->getPower() : main_track->getPower(); }

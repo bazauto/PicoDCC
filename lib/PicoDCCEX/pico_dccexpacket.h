@@ -54,6 +54,7 @@ public:
     bool isAccesoryCommand() { return packet.opcode == 'a'; }
     bool isConfigCommand() { return packet.opcode == 'D' || packet.opcode == 'E'; }
     bool isSaveCommand() { return packet.opcode == 'E'; }
+    bool isReadAddressCommand() { return packet.opcode == 'R'; }
 
     bool getPowerOn() { return packet.power_on; }
     pico_dccex_track_select getTrack() { return packet.power_track; }

@@ -99,6 +99,7 @@ void log_diagnostic(diagnostic_level_t level, const char* component, const char*
 #define COMPONENT_CORE       "CORE"
 #define COMPONENT_DCCEX      "DCCEX"
 #define COMPONENT_SYSTEM     "SYSTEM"
+#define COMPONENT_PROGRAMMER "PROGRAMMER"
 
 /**
  * Current Error Conditions Logged:

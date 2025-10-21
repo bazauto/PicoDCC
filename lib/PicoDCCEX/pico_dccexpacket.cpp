@@ -205,6 +205,11 @@ void PicoDccExPacket::validatePacket() {
         valid_packet = true;
         break;
 
+    // Read address command - no parameters
+    case ('R'):
+        valid_packet = true;
+        break;
+
     // These opcodes are validated through having successfully parsed parameters
     case ('t'):
     case ('F'):
