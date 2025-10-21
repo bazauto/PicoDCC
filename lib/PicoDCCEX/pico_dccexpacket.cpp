@@ -110,6 +110,47 @@ void PicoDccExPacket::decodePacket(char *buffer)
     case ('!'):
         // No parameters
         break;
+
+    // Config commands
+    case ('D'):  // <D ACK ...> commands
+        // Parse: <D ACK LIMIT value>, <D ACK MIN value>, <D ACK MAX value>
+        {
+            char subcommand[16] = {0};
+            char param_name[16] = {0};
+            int value = 0;
+            
+            if (sscanf(buffer, "D %15s %15s %d", subcommand, param_name, &value) == 3) {
+                // Check for ACK subcommand
+                if (strcmp(subcommand, "ACK") == 0) {
+                    packet.addr = 1;  // ACK subcommand = 1
+                    
+                    // Parse parameter type
+                    if (strcmp(param_name, "LIMIT") == 0) {
+                        packet.param1 = 1;  // LIMIT = 1
+                    } else if (strcmp(param_name, "MIN") == 0) {
+                        packet.param1 = 2;  // MIN = 2
+                    } else if (strcmp(param_name, "MAX") == 0) {
+                        packet.param1 = 3;  // MAX = 3
+                    } else {
+                        packet.addr = -1;  // Invalid parameter name
+                        break;
+                    }
+                    
+                    packet.param2 = value;
+                } else {
+                    packet.addr = -1;  // Unknown subcommand
+                }
+            } else {
+                packet.addr = -1;  // Failed to parse
+            }
+        }
+        break;
+        
+    case ('E'):  // <E> save command
+    case ('s'):  // <s> status command
+    case ('#'):  // <#> capacity command
+        // These commands have no parameters, just validate opcode
+        break;
     }
 }
 
@@ -129,6 +170,38 @@ void PicoDccExPacket::validatePacket() {
     // Version and Num supported cabs
     case ('s'):
     case ('#'):
+        valid_packet = true;
+        break;
+
+    // Config commands with parameters - validated through parsing
+    case ('D'):
+        // <D ACK ...> commands validated if addr != -1 (successful parse)
+        if (packet.addr != -1) {
+            // Additional range validation based on parameter type
+            int param_type = packet.param1;
+            int value = packet.param2;
+            
+            if (param_type == 1) {  // LIMIT (ACK threshold in mA)
+                // NMRA S-9.2.3 specifies 60mA, allow 30-100mA range
+                if (value >= 30 && value <= 100) {
+                    valid_packet = true;
+                }
+            } else if (param_type == 2) {  // MIN (duration in microseconds)
+                // Minimum ACK pulse: 3000-8000µs (3-8ms)
+                if (value >= 3000 && value <= 8000) {
+                    valid_packet = true;
+                }
+            } else if (param_type == 3) {  // MAX (duration in microseconds)
+                // Maximum ACK pulse: 6000-10000µs (6-10ms)
+                if (value >= 6000 && value <= 10000) {
+                    valid_packet = true;
+                }
+            }
+        }
+        break;
+
+    // Save command - no parameters
+    case ('E'):
         valid_packet = true;
         break;
 

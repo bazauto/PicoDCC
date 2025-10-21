@@ -52,6 +52,8 @@ public:
     bool isFunctionCommand() { return packet.opcode == 'F'; }
     bool isEmergencyStopCommand() { return packet.opcode == '!'; }
     bool isAccesoryCommand() { return packet.opcode == 'a'; }
+    bool isConfigCommand() { return packet.opcode == 'D' || packet.opcode == 'E'; }
+    bool isSaveCommand() { return packet.opcode == 'E'; }
 
     bool getPowerOn() { return packet.power_on; }
     pico_dccex_track_select getTrack() { return packet.power_track; }
@@ -65,6 +67,15 @@ public:
     int getAccessoryAddr() { return packet.addr; }
     int getAccessorySubAddr() { return packet.param1; }
     int getAccessoryActivate() { return packet.param2; }
+    
+    // Config command accessors (D commands)
+    // Valid ranges enforced in validatePacket():
+    //   LIMIT (param1=1): 30-100mA (ACK threshold, NMRA S-9.2.3 specifies 60mA)
+    //   MIN (param1=2): 3000-8000µs (minimum ACK pulse duration)
+    //   MAX (param1=3): 6000-10000µs (maximum ACK pulse duration)
+    int getConfigSubcommand() { return packet.addr; }      // ACK = 1
+    int getConfigParamType() { return packet.param1; }     // LIMIT=1, MIN=2, MAX=3
+    int getConfigValue() { return packet.param2; }         // Numeric value
 
     raw_dcc_cmd_t *getRawDccAccessoryCmd();
     char *getDccExCabUpdate();

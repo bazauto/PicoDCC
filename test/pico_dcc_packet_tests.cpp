@@ -304,6 +304,114 @@ void test_estop_packet(void **state)
   assert_int_equal(packet.getDirection(), 0);
 }
 
+void test_config_ack_limit_valid(void **state)
+{
+  char buffer[32] = "D ACK LIMIT 60";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_int_equal((int)packet.getOpcode(), (int)'D');
+  assert_int_equal(packet.getConfigSubcommand(), 1);  // ACK
+  assert_int_equal(packet.getConfigParamType(), 1);   // LIMIT
+  assert_int_equal(packet.getConfigValue(), 60);
+}
+
+void test_config_ack_limit_too_low(void **state)
+{
+  char buffer[32] = "D ACK LIMIT 20";
+  PicoDccExPacket packet(buffer);
+
+  assert_false(packet.isValid());  // Below minimum of 30mA
+  assert_int_equal((int)packet.getOpcode(), (int)'D');
+}
+
+void test_config_ack_limit_too_high(void **state)
+{
+  char buffer[32] = "D ACK LIMIT 150";
+  PicoDccExPacket packet(buffer);
+
+  assert_false(packet.isValid());  // Above maximum of 100mA
+  assert_int_equal((int)packet.getOpcode(), (int)'D');
+}
+
+void test_config_ack_min_valid(void **state)
+{
+  char buffer[32] = "D ACK MIN 5000";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_int_equal((int)packet.getOpcode(), (int)'D');
+  assert_int_equal(packet.getConfigSubcommand(), 1);  // ACK
+  assert_int_equal(packet.getConfigParamType(), 2);   // MIN
+  assert_int_equal(packet.getConfigValue(), 5000);
+}
+
+void test_config_ack_min_too_low(void **state)
+{
+  char buffer[32] = "D ACK MIN 2000";
+  PicoDccExPacket packet(buffer);
+
+  assert_false(packet.isValid());  // Below minimum of 3000µs
+  assert_int_equal((int)packet.getOpcode(), (int)'D');
+}
+
+void test_config_ack_min_too_high(void **state)
+{
+  char buffer[32] = "D ACK MIN 9000";
+  PicoDccExPacket packet(buffer);
+
+  assert_false(packet.isValid());  // Above maximum of 8000µs
+  assert_int_equal((int)packet.getOpcode(), (int)'D');
+}
+
+void test_config_ack_max_valid(void **state)
+{
+  char buffer[32] = "D ACK MAX 7000";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_int_equal((int)packet.getOpcode(), (int)'D');
+  assert_int_equal(packet.getConfigSubcommand(), 1);  // ACK
+  assert_int_equal(packet.getConfigParamType(), 3);   // MAX
+  assert_int_equal(packet.getConfigValue(), 7000);
+}
+
+void test_config_ack_max_too_low(void **state)
+{
+  char buffer[32] = "D ACK MAX 5000";
+  PicoDccExPacket packet(buffer);
+
+  assert_false(packet.isValid());  // Below minimum of 6000µs
+  assert_int_equal((int)packet.getOpcode(), (int)'D');
+}
+
+void test_config_ack_max_too_high(void **state)
+{
+  char buffer[32] = "D ACK MAX 15000";
+  PicoDccExPacket packet(buffer);
+
+  assert_false(packet.isValid());  // Above maximum of 10000µs
+  assert_int_equal((int)packet.getOpcode(), (int)'D');
+}
+
+void test_config_save_command(void **state)
+{
+  char buffer[10] = "E";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_int_equal((int)packet.getOpcode(), (int)'E');
+}
+
+void test_config_malformed_ack(void **state)
+{
+  char buffer[32] = "D ACK INVALID 60";
+  PicoDccExPacket packet(buffer);
+
+  assert_false(packet.isValid());  // Unknown parameter type
+  assert_int_equal((int)packet.getOpcode(), (int)'D');
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -323,7 +431,18 @@ int main(int argc, char *argv[])
       cmocka_unit_test(test_acc_2_packet),
       cmocka_unit_test(test_throttle_packet),
       cmocka_unit_test(test_function_packet),
-      cmocka_unit_test(test_estop_packet)
+      cmocka_unit_test(test_estop_packet),
+      cmocka_unit_test(test_config_ack_limit_valid),
+      cmocka_unit_test(test_config_ack_limit_too_low),
+      cmocka_unit_test(test_config_ack_limit_too_high),
+      cmocka_unit_test(test_config_ack_min_valid),
+      cmocka_unit_test(test_config_ack_min_too_low),
+      cmocka_unit_test(test_config_ack_min_too_high),
+      cmocka_unit_test(test_config_ack_max_valid),
+      cmocka_unit_test(test_config_ack_max_too_low),
+      cmocka_unit_test(test_config_ack_max_too_high),
+      cmocka_unit_test(test_config_save_command),
+      cmocka_unit_test(test_config_malformed_ack)
   };
 
   return cmocka_run_group_tests(tests, NULL, NULL);

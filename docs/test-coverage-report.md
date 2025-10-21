@@ -9,8 +9,8 @@
 
 - **Total Lines Covered**: 445 / 685
 - **Overall Coverage**: 64.96%
-- **Test Suites Run**: 6 (all passing)
-- **Total Tests**: 64 tests (all passing)
+- **Test Suites Run**: 9 (all passing)
+- **Total Tests**: 113 tests (all passing)
 
 ## Component Coverage Breakdown
 
@@ -92,7 +92,14 @@ The following maintenance mode features have full test coverage:
 - **Track Tests**: 21 tests (all passing)
 - **Loco Tests**: 11 tests (all passing)
 - **Locos Tests**: 11 tests (all passing)
-- **Packet Tests**: 14 tests (all passing)
+- **Packet Tests**: 25 tests (all passing) - *11 new config validation tests added*
+  - Valid range tests for ACK LIMIT, MIN, MAX parameters
+  - Boundary validation tests (too low/too high)
+  - Malformed input tests
+  - Save command (E) tests
+- **Config Storage Tests**: 11 tests (all passing)
+- **Display Tests**: 9 tests (all passing)
+- **Diagnostic Tests**: 9 tests (all passing)
 - **DCCEX Tests**: 3 tests (all passing)
 
 ## Coverage Gaps Analysis

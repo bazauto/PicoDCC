@@ -17,22 +17,22 @@ The project now uses a custom linker script that **automatically preserves confi
 ### How It Works
 
 1. **Memory Layout**:
-   - **Firmware region**: 0x10000000 - 0x101FEFFF (2044 KB)
-   - **Config region**: 0x101FF000 - 0x101FFFFF (4 KB, **reserved and protected**)
+   - **Firmware region**: 0x10000000 - 0x103FEFFF (4092 KB)
+   - **Config region**: 0x103FF000 - 0x103FFFFF (4 KB, **reserved and protected**)
 
 2. **Linker Protection**:
-   - Firmware is limited to 2044 KB by `memmap_picodcc.ld`
+   - Firmware is limited to 4092 KB by `memmap_picodcc.ld`
    - Linker will **fail the build** if firmware exceeds this limit
-   - Build error: *"ERROR: Firmware exceeds 2044KB and would overwrite config sector at 0x101FF000!"*
+   - Build error: *"ERROR: Firmware exceeds 4092KB and would overwrite config sector at 0x103FF000!"*
 
 3. **Automatic Preservation**:
    - VS Code Pico extension respects the custom linker script
-   - UF2/ELF files only include firmware (0x10000000-0x101FEFFF)
-   - Config sector (0x101FF000-0x101FFFFF) is **NOT** included in firmware images
+   - UF2/ELF files only include firmware (0x10000000-0x103FEFFF)
+   - Config sector (0x103FF000-0x103FFFFF) is **NOT** included in firmware images
    - OpenOCD/picotool/debugger flashing preserves config sector automatically
 
 4. **Current Firmware Size**:
-   - **Firmware**: 406.65 KB (19.89% of 2044 KB limit)
+   - **Firmware**: ~437 KB (10.68% of 4092 KB limit)
    - **Safety margin**: 1639.37 KB (plenty of room for growth)
    - **Config sector**: Safe and protected ✅
 
@@ -83,7 +83,7 @@ arm-none-eabi-nm PicoDCC.elf | grep "__flash_binary_end"
 
 - **Linker Script**: `memmap_picodcc.ld` (project root)
 - **CMake Integration**: `src/CMakeLists.txt` (line 21: `pico_set_linker_script()`)
-- **Config Storage**: `lib/PicoConfigStorage/pico_configstorage.cpp` (uses 0x101FF000)
+- **Config Storage**: `lib/PicoConfigStorage/pico_configstorage.cpp` (uses 0x103FF000)
 
 ---
 
@@ -131,13 +131,13 @@ The following solutions were documented before the custom linker script was impl
 #### Option A: Picotool with Preserve Flag
 ```bash
 # Read config before update
-picotool save -r 0x101FF000 0x101FFFFF config_backup.bin
+picotool save -r 0x103FF000 0x103FFFFF config_backup.bin
 
 # Flash new firmware (erases everything)
 picotool load PicoDCC.uf2
 
 # Restore config
-picotool load -o 0x101FF000 config_backup.bin
+picotool load -o 0x103FF000 config_backup.bin
 ```
 
 **Pros**:
@@ -170,8 +170,8 @@ pico_set_linker_script(${PROJECT_NAME} ${CMAKE_SOURCE_DIR}/memmap_config.ld)
 ```ld
 MEMORY
 {
-    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 2044k  /* Firmware only */
-    CONFIG(r) : ORIGIN = 0x101FF000, LENGTH = 4k     /* Reserved for config */
+    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 4092k  /* Firmware only */
+    CONFIG(r) : ORIGIN = 0x103FF000, LENGTH = 4k     /* Reserved for config */
     RAM(rwx)  : ORIGIN = 0x20000000, LENGTH = 520k
 }
 
@@ -259,7 +259,7 @@ Application-level firmware update that:
 1. Create `memmap_picodcc.ld` linker script
 2. Reserve last 4KB for configuration
 3. Modify `src/CMakeLists.txt` to use custom linker script
-4. Test firmware size limits (must fit in 2044KB)
+4. Test firmware size limits (must fit in 4092KB)
 5. Validate configuration preservation across updates
 
 **Estimated Effort**: 2-3 hours
@@ -268,7 +268,7 @@ Application-level firmware update that:
 
 ## 🔍 Current Firmware Size Check
 
-**How to check if we're close to 2044KB limit**:
+**How to check if we're close to 4092KB limit**:
 
 After building firmware:
 ```bash
@@ -282,7 +282,7 @@ arm-none-eabi-size build/src/PicoDCC.elf
  123456    5678   12345  141479   22857 build/src/PicoDCC.elf
 ```
 
-**Safe Zone**: text + data < 2,093,056 bytes (2044KB)
+**Safe Zone**: text + data < 4,190,208 bytes (4092KB)
 
 **Current Status**: Firmware is well under limit (typical: 200-400KB)
 
@@ -323,7 +323,7 @@ Update "Known Limitations" section:
 1. ✅ Document manual backup/restore procedure
 2. ✅ Add firmware update section to hardware test plan
 3. ✅ Update calibration guide with warning
-4. ✅ Test firmware size (verify << 2044KB)
+4. ✅ Test firmware size (verify << 4092KB)
 
 ### Future (After ACK Detection Phase)
 1. Create custom linker script (`memmap_picodcc.ld`)

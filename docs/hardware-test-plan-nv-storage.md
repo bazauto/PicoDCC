@@ -10,7 +10,7 @@
 ## ✅ What's Ready for Testing
 
 ### Phase 1: Configuration Storage ✅
-- Flash memory storage (last 4KB sector @ 0x101FF000)
+- Flash memory storage (last 4KB sector @ 0x103FF000)
 - CRC32 validation and corruption detection
 - Factory default fallback
 - Load/save operations with ~410ms blocking
@@ -354,7 +354,7 @@
 
 **Steps** (Manual Flash Corruption):
 1. Save valid config to flash (Test 6)
-2. Using debugger, write garbage to config sector (0x101FF000)
+2. Using debugger, write garbage to config sector (0x103FF000)
 3. Power cycle the Pico
 4. Check diagnostic logs via LCD
 
@@ -566,7 +566,7 @@
 **Notes**:
 - This tests the **current** custom linker script approach ✅
 - **NO manual backup/restore needed** - fully automatic
-- Config sector (0x101FF000-0x101FFFFF) is **reserved** by `memmap_picodcc.ld`
+- Config sector (0x103FF000-0x103FFFFF) is **reserved** by `memmap_picodcc.ld`
 - Firmware limited to 2044 KB (currently using only 406 KB, plenty of margin)
 - Time: ~5 minutes (2 min save, 2 min flash, 1 min verify)
 
@@ -631,7 +631,7 @@
    - Check for error messages in diagnostic log
 
 5. **⚠️ FIRMWARE UPDATES ERASE CONFIGURATION**
-   - Standard flash process erases entire 2MB flash including config sector
+   - Standard flash process erases entire 4MB flash including config sector
    - **ALWAYS backup configuration before firmware updates**
    - See "Firmware Update Procedure" section below
 
@@ -641,7 +641,7 @@
 
 ### ⚠️ Critical: Configuration is NOT Preserved During Updates
 
-**Default Behavior**: Flashing new firmware erases the entire flash, including the configuration sector (0x101FF000-0x101FFFFF)
+**Default Behavior**: Flashing new firmware erases the entire flash, including the configuration sector (0x103FF000-0x103FFFFF)
 
 **Impact**: Your calibration values and saved settings will be **LOST**
 
@@ -713,8 +713,8 @@ After restore:
 ## 🔮 Future Enhancement (Not Implemented Yet)
 
 **Custom Linker Script**: Reserve last 4KB of flash for configuration
-- Firmware limited to 2044KB (0x10000000-0x101FEFFF)
-- Configuration sector protected (0x101FF000-0x101FFFFF)
+- Firmware limited to 4092KB (0x10000000-0x103FEFFF)
+- Configuration sector protected (0x103FF000-0x103FFFFF)
 - UF2 generation excludes config sector
 - Automatic configuration preservation during updates
 

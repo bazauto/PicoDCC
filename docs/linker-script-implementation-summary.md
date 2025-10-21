@@ -112,7 +112,7 @@ Firmware size: 447,632 bytes = 437.1 KB = 0.43 MB
 ## Technical Details
 
 ### Linker Script Features
-- **Memory regions**: FLASH (2044KB), RAM (512KB), SCRATCH_X (4KB), SCRATCH_Y (4KB)
+- **Memory regions**: FLASH (4092KB), RAM (512KB), SCRATCH_X (4KB), SCRATCH_Y (4KB)
 - **Config region**: Documented in comments, not used by firmware sections
 - **Sections**: Standard Pico SDK layout (.text, .data, .bss, .vectors, .boot2, etc.)
 - **Stack protection**: ASSERT prevents heap/stack overflow

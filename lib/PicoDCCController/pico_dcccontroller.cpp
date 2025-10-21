@@ -65,18 +65,18 @@ void PicoDccController::dccexLoop()
     
     pico_dccex_packet packetData;
     bool hasCommand = pico_dccex->processCommand(&packetData);
-    
-    // Check for configuration commands first (before packet processing)
-    if (hasCommand && handleConfigCommand(pico_dccex->getBuffer())) {
-        // Configuration command handled, don't process as DCC packet
-        return;
-    }
 
     if (hasCommand)
     {
         PicoDccExPacket packet(packetData);
         if (packet.isValid())
         {
+            // Handle configuration commands (D, E, s, #)
+            if (packet.isConfigCommand() || packet.isVersionCommand() || packet.isNumCabsCommand()) {
+                handleConfigCommand(&packet);
+                return;
+            }
+            
             raw_dcc_cmd_t cmd = {};
             
             if (packet.isPowerCommand())
@@ -331,44 +331,52 @@ void PicoDccController::exitMaintenanceMode()
 }
 
 // Configuration command handlers
-bool PicoDccController::handleConfigCommand(const char* buffer)
+bool PicoDccController::handleConfigCommand(PicoDccExPacket* packet)
 {
-    // Check for <D ACK LIMIT value>
-    if (strncmp(buffer, "D ACK LIMIT ", 12) == 0) {
-        float value = atof(buffer + 12);
-        handleACKLimitCommand(value);
+    char opcode = packet->getOpcode();
+    
+    // Handle <D ACK ...> commands
+    if (opcode == 'D') {
+        int subcommand = packet->getConfigSubcommand();
+        int param_type = packet->getConfigParamType();
+        int value = packet->getConfigValue();
+        
+        // Check for ACK subcommand (subcommand == 1)
+        if (subcommand != 1) {
+            return false;  // Unknown subcommand
+        }
+        
+        // Route to appropriate handler based on param_type
+        if (param_type == 1) {  // LIMIT
+            handleACKLimitCommand(value);
+        } else if (param_type == 2) {  // MIN
+            handleACKMinCommand(value);
+        } else if (param_type == 3) {  // MAX
+            handleACKMaxCommand(value);
+        } else {
+            return false;  // Unknown parameter type
+        }
+        
         return true;
     }
     
-    // Check for <D ACK MIN value>
-    if (strncmp(buffer, "D ACK MIN ", 10) == 0) {
-        float value = atof(buffer + 10);
-        handleACKMinCommand(value);
-        return true;
-    }
-    
-    // Check for <D ACK MAX value>
-    if (strncmp(buffer, "D ACK MAX ", 10) == 0) {
-        float value = atof(buffer + 10);
-        handleACKMaxCommand(value);
-        return true;
-    }
-    
-    // Check for <E> save command
-    if (strcmp(buffer, "E") == 0) {
+    // Handle <E> save command
+    if (opcode == 'E') {
         handleSaveCommand();
         return true;
     }
     
-    // Check for <s> status command
-    if (strcmp(buffer, "s") == 0) {
+    // Handle <s> status command
+    if (opcode == 's') {
         handleStatusCommand();
         return true;
     }
     
-    // Check for <#> capacity command
-    if (strcmp(buffer, "#") == 0) {
-        DCCEX_RESPONSE("<# 50>");  // Report 50 locomotive capacity
+    // Handle <#> capacity command
+    if (opcode == '#') {
+        char response[16];
+        snprintf(response, sizeof(response), "<# %d>", MAX_LOCO);
+        DCCEX_RESPONSE(response);
         return true;
     }
     

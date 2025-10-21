@@ -173,10 +173,11 @@ graph TD
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **64 total tests** across all components: Controller (9), DCCEX (3), Locos (11), Loco (11), Packet (14), Track (16)
+- **113 total tests** across all components: Controller (13), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (21), Config Storage (11), Display (9), Diagnostic (9)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation
+- **Config validation testing**: Parameter range validation for ACK detection settings
 
 ### Mock Infrastructure
 - **GPIO State Tracking**: Verifies power control and LED states

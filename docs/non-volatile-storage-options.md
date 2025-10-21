@@ -52,8 +52,8 @@ The RP2040 has 2MB of flash memory. By reserving the last 4KB sector for configu
 /* Reserve last 4KB sector for configuration */
 MEMORY
 {
-    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 2048k - 4k  /* 2MB - 4KB */
-    CONFIG(r) : ORIGIN = 0x101FF000, LENGTH = 4k          /* Last 4KB sector */
+    FLASH(rx) : ORIGIN = 0x10000000, LENGTH = 4092k     /* Firmware */
+    CONFIG(r) : ORIGIN = 0x103FF000, LENGTH = 4k          /* Last 4KB sector */
     RAM(rwx) : ORIGIN = 0x20000000, LENGTH = 264k
 }
 ```

@@ -317,7 +317,7 @@ Save this output to restore configuration after firmware updates or resets.
 **Cause**: Firmware grew into last 4KB flash sector
 
 **Solution**:
-- Check firmware size: should be < 2044KB (2MB - 4KB)
+- Check firmware size: should be < 4092KB (4MB - 4KB)
 - Re-calibrate using this guide
 - Or: export config before update, import after
 
@@ -345,8 +345,8 @@ For hardware verification, you can read ADC directly:
 
 ### Flash Storage
 
-Configuration is stored in the last 4KB sector of 2MB flash:
-- **Address**: 0x101FF000 (offset 0x1FF000)
+Configuration is stored in the last 4KB sector of 4MB flash:
+- **Address**: 0x103FF000 (offset 0x3FF000)
 - **Size**: 4096 bytes (4KB sector)
 - **Write endurance**: ~10,000 cycles (decades of use)
 - **Write time**: ~410ms (both cores paused)
@@ -384,6 +384,6 @@ Configuration integrity is protected by CRC32 checksum (polynomial 0xEDB88320). 
 7. Verify: `<D CONFIG GET ADC_MA>`
 8. Power down: `<0 PROG>`
 
-Calibration survives power cycles and firmware updates (if firmware < 2044KB).
+Calibration survives power cycles and firmware updates (if firmware < 4092KB).
 
 For questions or issues, refer to `docs/non-volatile-storage-options.md` for technical details.

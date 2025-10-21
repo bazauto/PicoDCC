@@ -74,7 +74,7 @@ public:
     PicoConfigStorage* getConfigStorage() { return &config_storage; }
     
     // Configuration command handlers
-    bool handleConfigCommand(const char* buffer);
+    bool handleConfigCommand(class PicoDccExPacket* packet);
     void handleACKLimitCommand(float value);
     void handleACKMinCommand(float value);
     void handleACKMaxCommand(float value);

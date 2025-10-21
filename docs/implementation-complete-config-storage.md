@@ -59,7 +59,7 @@ The configuration system uses a **two-tier architecture**:
 - `test/pico_config_storage_tests.cpp` - 11 unit tests (all passing)
 
 **Features:**
-- ✅ Non-volatile flash storage (last 4KB sector at 0x101FF000)
+- ✅ Non-volatile flash storage (last 4KB sector at 0x103FF000)
 - ✅ CRC32 data integrity validation
 - ✅ Factory default values with automatic fallback
 - ✅ Safe dual-core flash write (halts Core 1 during write)
@@ -211,8 +211,8 @@ These commands adjust parameters in RAM, effective immediately:
 **Memory Layout:**
 ```
 Flash (2MB):
-├─ 0x10000000 - 0x101FEFFF  Firmware space (2044KB)
-└─ 0x101FF000 - 0x101FFFFF  Configuration sector (4KB)
+├─ 0x10000000 - 0x103FEFFF  Firmware space (4092KB)
+└─ 0x103FF000 - 0x103FFFFF  Configuration sector (4KB)
 ```
 
 **Write Performance:**
@@ -391,7 +391,7 @@ programmer.setACKDuration(
 ## Known Limitations
 
 1. **Linker Script**: Last 4KB sector reservation documented but not enforced
-   - **Mitigation**: Firmware size monitoring (currently << 2044KB limit)
+   - **Mitigation**: Firmware size monitoring (currently << 4092KB limit)
    - **Future**: Add linker script modification to CMakeLists.txt
 
 2. **Flash Write Blocking**: ~410ms pause on both cores

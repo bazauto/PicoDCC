@@ -9,9 +9,9 @@
 #include <stdint.h>
 #include <stddef.h>  // For size_t
 
-// Configuration stored in last 4KB flash sector (0x101FF000)
-// For 2MB flash: 2 * 1024 * 1024 - 4096 = 0x1FF000 offset from flash base
-#define CONFIG_FLASH_OFFSET (2 * 1024 * 1024 - 4096)
+// Configuration stored in last 4KB flash sector (0x103FF000)
+// For 4MB flash: 4 * 1024 * 1024 - 4096 = 0x3FF000 offset from flash base
+#define CONFIG_FLASH_OFFSET (4 * 1024 * 1024 - 4096)
 #define CONFIG_FLASH_SIZE 4096
 #define CONFIG_MAGIC 0x50444343  // "PDCC" in hex
 #define CONFIG_VERSION 1

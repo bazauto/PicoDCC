@@ -644,8 +644,8 @@ void LvglRenderer::createSettingsScreen() {
 }
 
 bool LvglRenderer::showMaintenanceModeEntryModal() {
-    // Show safety checklist modal
-    bool result = showModal(
+    // Show safety checklist modal (NON-BLOCKING)
+    showModal(
         "Layout Maintenance Mode",
         "SAFETY CHECKLIST:\n\n"
         "1. All locomotives stopped\n"
@@ -653,7 +653,7 @@ bool LvglRenderer::showMaintenanceModeEntryModal() {
         "3. Remote commands disabled\n\n"
         "Enter maintenance mode?"
     );
-    return result;
+    return true;  // Modal is displayed, result will come via button callback
 }
 
 void LvglRenderer::showMaintenanceModeScreen() {
@@ -738,65 +738,75 @@ bool LvglRenderer::showUnsavedChangesModal() {
 }
 
 bool LvglRenderer::showModal(const char* title, const char* message) {
-    // Create modal container (dark overlay)
+    LOG_INFO("Display", "Creating maintenance mode entry modal");
+    
+    // Create modal container (dark overlay) - taller to fit content
     modal_box_ = lv_obj_create(lv_scr_act());
-    lv_obj_set_size(modal_box_, 280, 180);
+    lv_obj_set_size(modal_box_, 300, 260);  // Increased height and width
     lv_obj_center(modal_box_);
     lv_obj_set_style_bg_color(modal_box_, lv_color_hex(0x202020), 0);
     lv_obj_set_style_border_color(modal_box_, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_border_width(modal_box_, 2, 0);
+    lv_obj_set_style_pad_all(modal_box_, 15, 0);  // Add padding
+    
+    // Make modal clickable and ensure it's on top
+    lv_obj_clear_flag(modal_box_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(modal_box_, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_move_foreground(modal_box_);  // Ensure it's on top
     
     // Title
     lv_obj_t* title_label = lv_label_create(modal_box_);
     lv_label_set_text(title_label, title);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(0xFFFF00), 0);  // Yellow for visibility
     lv_obj_set_style_text_font(title_label, &lv_font_montserrat_14, 0);
-    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 5);
     
-    // Message
+    // Message - positioned lower to avoid title overlap
     lv_obj_t* msg_label = lv_label_create(modal_box_);
     lv_label_set_text(msg_label, message);
     lv_obj_set_style_text_color(msg_label, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_text_font(msg_label, &lv_font_montserrat_12, 0);
-    lv_obj_set_width(msg_label, 260);
+    lv_obj_set_width(msg_label, 270);
     lv_label_set_long_mode(msg_label, LV_LABEL_LONG_WRAP);
-    lv_obj_align(msg_label, LV_ALIGN_TOP_MID, 0, 40);
+    lv_obj_align(msg_label, LV_ALIGN_TOP_MID, 0, 30);  // More space from title
     
-    // Yes button
+    // Yes button - positioned with more clearance from message
     modal_btn_yes_ = lv_btn_create(modal_box_);
-    lv_obj_set_size(modal_btn_yes_, 100, 40);
-    lv_obj_align(modal_btn_yes_, LV_ALIGN_BOTTOM_LEFT, 20, -10);
+    lv_obj_set_size(modal_btn_yes_, 110, 45);  // Slightly larger for easier touch
+    lv_obj_align(modal_btn_yes_, LV_ALIGN_BOTTOM_LEFT, 15, -15);
+    lv_obj_clear_flag(modal_btn_yes_, LV_OBJ_FLAG_SCROLLABLE);  // Ensure clickable
+    lv_obj_add_flag(modal_btn_yes_, LV_OBJ_FLAG_CLICKABLE);  // Explicitly clickable
+    lv_obj_set_style_bg_color(modal_btn_yes_, lv_color_make(0, 170, 0), LV_STATE_DEFAULT);  // Green
     lv_obj_add_event_cb(modal_btn_yes_, onModalYesClicked, LV_EVENT_CLICKED, NULL);
+    // Also try PRESSED event as fallback
+    lv_obj_add_event_cb(modal_btn_yes_, onModalYesClicked, LV_EVENT_PRESSED, NULL);
     lv_obj_t* yes_label = lv_label_create(modal_btn_yes_);
     lv_label_set_text(yes_label, "Yes");
+    lv_obj_set_style_text_font(yes_label, &lv_font_montserrat_14, 0);
     lv_obj_center(yes_label);
     
     // No button
     modal_btn_no_ = lv_btn_create(modal_box_);
-    lv_obj_set_size(modal_btn_no_, 100, 40);
-    lv_obj_align(modal_btn_no_, LV_ALIGN_BOTTOM_RIGHT, -20, -10);
+    lv_obj_set_size(modal_btn_no_, 110, 45);  // Match Yes button size
+    lv_obj_align(modal_btn_no_, LV_ALIGN_BOTTOM_RIGHT, -15, -15);
+    lv_obj_clear_flag(modal_btn_no_, LV_OBJ_FLAG_SCROLLABLE);  // Ensure clickable
+    lv_obj_add_flag(modal_btn_no_, LV_OBJ_FLAG_CLICKABLE);  // Explicitly clickable
+    lv_obj_set_style_bg_color(modal_btn_no_, lv_color_make(170, 0, 0), LV_STATE_DEFAULT);  // Red
     lv_obj_add_event_cb(modal_btn_no_, onModalNoClicked, LV_EVENT_CLICKED, NULL);
+    // Also try PRESSED event as fallback
+    lv_obj_add_event_cb(modal_btn_no_, onModalNoClicked, LV_EVENT_PRESSED, NULL);
     lv_obj_t* no_label = lv_label_create(modal_btn_no_);
     lv_label_set_text(no_label, "No");
+    lv_obj_set_style_text_font(no_label, &lv_font_montserrat_14, 0);
     lv_obj_center(no_label);
     
     // Reset result flag
     modal_result_ = false;
     
-    // Block until user responds (process LVGL events)
-    bool waiting = true;
-    while (waiting) {
-        lv_timer_handler();
-        lv_refr_now(nullptr);
-        sleep_ms(10);
-        
-        // Check if modal was closed (object deleted by event handler)
-        if (!modal_box_) {
-            waiting = false;
-        }
-    }
+    LOG_INFO("Display", "Modal created (non-blocking)");
     
-    return modal_result_;
+    // NON-BLOCKING: Return immediately, buttons will handle the response
+    return false;  // Return value not used in non-blocking mode
 }
 
 void LvglRenderer::onSettingsClicked(lv_event_t* e) {
@@ -809,22 +819,13 @@ void LvglRenderer::onMaintenanceModeClicked(lv_event_t* e) {
     
     // Check if can enter maintenance mode
     if (!instance_->controller_ref_->canEnterMaintenanceMode()) {
-        // Show error modal (reuse showModal with single button)
-        // For now, just return - would need a showErrorModal() helper
-        LOG_ERROR("Display", "Cannot enter maintenance mode");
+        LOG_ERROR("Display", "Cannot enter maintenance mode - track power must be OFF");
         return;
     }
     
-    // Show entry confirmation modal
-    bool confirmed = instance_->showMaintenanceModeEntryModal();
-    if (confirmed) {
-        // Enter maintenance mode
-        instance_->controller_ref_->enterMaintenanceMode();
-        instance_->showMaintenanceModeScreen();
-    } else {
-        // User cancelled, return to settings
-        // Already on settings screen, no action needed
-    }
+    // Show non-blocking confirmation modal
+    // The modal buttons will handle the actual mode entry
+    instance_->showMaintenanceModeEntryModal();
 }
 
 void LvglRenderer::onSaveConfigClicked(lv_event_t* e) {
@@ -870,24 +871,52 @@ void LvglRenderer::onExitMaintenanceClicked(lv_event_t* e) {
 void LvglRenderer::onModalYesClicked(lv_event_t* e) {
     if (!instance_) return;
     
-    // Set result and close modal
+    lv_event_code_t code = lv_event_get_code(e);
+    
+    // Log any event reaching the button
+    if (code == LV_EVENT_CLICKED) {
+        LOG_INFO("Display", "Modal YES clicked");
+    } else if (code == LV_EVENT_PRESSED) {
+        LOG_INFO("Display", "Modal YES pressed");
+    }
+    
+    // Set result
     instance_->modal_result_ = true;
     
+    // Close modal
     if (instance_->modal_box_) {
         lv_obj_del(instance_->modal_box_);
         instance_->modal_box_ = nullptr;
+    }
+    
+    // Perform the action: Enter maintenance mode
+    if (instance_->controller_ref_) {
+        instance_->controller_ref_->enterMaintenanceMode();
+        instance_->showMaintenanceModeScreen();
     }
 }
 
 void LvglRenderer::onModalNoClicked(lv_event_t* e) {
     if (!instance_) return;
     
-    // Set result and close modal
+    lv_event_code_t code = lv_event_get_code(e);
+    
+    // Log any event reaching the button
+    if (code == LV_EVENT_CLICKED) {
+        LOG_INFO("Display", "Modal NO clicked");
+    } else if (code == LV_EVENT_PRESSED) {
+        LOG_INFO("Display", "Modal NO pressed");
+    }
+    
+    // Set result
     instance_->modal_result_ = false;
     
+    // Close modal
     if (instance_->modal_box_) {
         lv_obj_del(instance_->modal_box_);
         instance_->modal_box_ = nullptr;
     }
+    
+    // Stay on settings screen (no action needed)
 }
 
