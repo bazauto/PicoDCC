@@ -184,7 +184,7 @@ bool PicoConfigStorage::validateConfig(const pico_config_t *cfg) {
         return false;
     }
     
-    if (cfg->ack_threshold_ma < 30.0f || cfg->ack_threshold_ma > 100.0f) {
+    if (cfg->ack_threshold_ma < 2.0f || cfg->ack_threshold_ma > 100.0f) {
         LOG_WARNING(COMPONENT_SYSTEM, "Invalid ACK threshold");
         return false;
     }

@@ -41,10 +41,9 @@ PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings, PicoDccLo
     gpio_set_dir(power_ctrl_pin, GPIO_OUT);
     gpio_put(power_ctrl_pin, 0);
 
-    // Setup for current reading
+    // Setup for current reading (ADC hardware already initialized by controller)
     if (canReadCurrent())
     {
-        adc_init();
         adc_gpio_init(power_adc_pin);
         adc_select_input(power_adc_number);
     }
@@ -90,6 +89,8 @@ void PicoDccTrack::loop()
     // Process current monitoring only if available
     if (canReadCurrent())
     {
+        // Select the correct ADC input for this track before reading
+        adc_select_input(power_adc_number);
         uint reading = adc_read();
         
         // Check for overcurrent condition (short circuit protection)
@@ -130,17 +131,24 @@ void PicoDccTrack::loop()
         pio_health.commands_sent++;
         pio_health.last_activity_time = time_us_32() / 1000;  // Multicore-safe timer
     }
-    else if (locos_collection != nullptr && locos_collection->getNextReminder(cmd))
+    else if (!is_prog && locos_collection != nullptr && locos_collection->getNextReminder(cmd))
     {
         // Priority 2: Locomotive reminder (main track only, when no explicit commands waiting)
         sendCommand(&cmd);
         pio_health.commands_sent++;
         pio_health.last_activity_time = time_us_32() / 1000;  // Multicore-safe timer
     }
-    else
+    else if (send_idle_packets)
     {
         // Priority 3: Idle packet (when no commands or reminders available)
+        // Can be disabled for programming/testing without breaking health monitoring
         sendIdle();
+        pio_health.idle_packets_sent++;
+        pio_health.last_activity_time = time_us_32() / 1000;  // Multicore-safe timer
+    }
+    else
+    {
+        // Idle packets disabled: Update counters for health monitoring but don't transmit
         pio_health.idle_packets_sent++;
         pio_health.last_activity_time = time_us_32() / 1000;  // Multicore-safe timer
     }
@@ -158,17 +166,17 @@ void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
     if (cmd->cmd_data == 0)
     {
         // build the data and checksum to send to the PIO
-        cmd->cmd_data |= ((uint64_t)(is_prog ? DCC_PROG_PREAMBLE : DCC_MAIN_PREAMBLE)) << 56;
+        cmd->cmd_data |= ((uint64_t)(cmd->is_prog ? DCC_PROG_PREAMBLE : DCC_MAIN_PREAMBLE)) << 56;
         cmd->cmd_data |= ((uint64_t)cmd->length + 1) << 48;
         uint8_t cmd_xor = 0x0;
         for (uint8_t i = 0; i < cmd->length; i++)
         {
-            uint8_t shift = (DCC_MAX_DATA_BYTES - 1) - i;
+            uint8_t shift = (DCC_MAX_DATA_BYTES) - i;
             cmd->cmd_data |= ((uint64_t)cmd->data[i] << (shift * 8));
             cmd_xor ^= cmd->data[i];
         }
         // Add the checksum
-        cmd->cmd_data |= ((uint64_t)cmd_xor << (((DCC_MAX_DATA_BYTES - 1) - cmd->length) * 8));
+        cmd->cmd_data |= ((uint64_t)cmd_xor << (((DCC_MAX_DATA_BYTES) - cmd->length) * 8));
     }
 
     // Send command to PIO and track successful transmission
@@ -186,11 +194,10 @@ void PicoDccTrack::sendIdle()
 {
     // This is the Idle packet
     raw_dcc_cmd_t idle_cmd;
-    idle_cmd.is_prog = is_prog;
-    idle_cmd.length = 3;
+    idle_cmd.is_prog = 0;     // Idle packets are always the standard preamble
+    idle_cmd.length = 2;
     idle_cmd.data[0] = 0xFF;  // Idle packet starts with 0xFF
     idle_cmd.data[1] = 0x00;  // No data
-    idle_cmd.data[2] = 0xFF;  // Error detection byte
     idle_cmd.cmd_data = 0;    // Will be computed in sendCommand
     idle_cmd.repeats = 0;
     sendCommand(&idle_cmd);
@@ -201,8 +208,6 @@ void PicoDccTrack::checkPIOHealth()
 {
     uint32_t now = time_us_32() / 1000;  // Multicore-safe timer
     bool was_healthy = pio_health.is_healthy;
-    
-
     
     // Option 3: Check transmission activity (every 50ms check)
     if (now - pio_health.last_pio_check_time >= 50)

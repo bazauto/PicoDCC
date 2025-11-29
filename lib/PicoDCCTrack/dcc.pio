@@ -63,9 +63,9 @@ final_bit:
     nop                     side 1  [3]     ; set output high and wait for high half cycle (one cycle is in byte_end jmp)
     nop                     side 0  [7]     ; set output low and wait for low half cycle
 
-    ; extra half cycle to put gap between packets, with line high to continue powering
-    nop                     side 1  [7]
-    nop                     side 1  [7]
+    ; Minimum inter-packet gap
+    nop                     side 1  [7]     ; Half cycle HIGH (58μs)
+    nop                     side 1  [7]     ; Half cycle HIGH (58μs) - total 1 bit time
 
 .wrap
 
@@ -79,7 +79,7 @@ static inline void dcc_program_init(PIO pio, uint sm, uint offset, uint pin, uin
 
     pio_sm_config c = dcc_program_get_default_config(offset);
     sm_config_set_sideset_pins(&c, pin);
-    sm_config_set_out_shift(&c, false, false, 32);          // LSB first, no autopull
+    sm_config_set_out_shift(&c, false, false, 32);          // shift_right=false means MSB first (shift left), no autopull
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_TX);
 
     float div = clock_get_hz(clk_sys) / (8620.68966 * 16);   // This is frequency (8620.68966) in Hz for a 116uS square wave, times by 16 instructions per full wave cycle

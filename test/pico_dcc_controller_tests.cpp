@@ -701,6 +701,47 @@ static void test_maintenance_mode_exit(void **state)
     assert_int_equal(controller.getLocoCount(), initial_loco_count + 1); // Loco added
 }
 
+// Test V command (verify CV)
+static void test_verify_cv_command(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;  // Prog track has ADC
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    // Power on programming track
+    uart_output_log.clear();
+    uart_test_write("<1 PROG>");
+    controller.dccexLoop();
+    assert_true(controller.isTrackPowerOn(true));
+
+    // Send V command to verify CV1 = 3
+    uart_output_log.clear();
+    uart_test_write("<V 1 3>");
+    controller.dccexLoop();
+
+    // Should send response (either <v 1 3> on success or <v -1> on failure)
+    // Response depends on whether ACK is detected (not fully implemented in test mode)
+    assert_true(uart_output_log.size() > 0);
+    bool has_verify_response = false;
+    for (const auto& msg : uart_output_log) {
+        if (msg.find("<v") != std::string::npos) {
+            has_verify_response = true;
+            break;
+        }
+    }
+    assert_true(has_verify_response);
+}
+
 // Add all tests to the test suite
 int main(void)
 {
@@ -720,6 +761,7 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_maintenance_mode_power_lockout, setup, teardown),
         cmocka_unit_test_setup_teardown(test_maintenance_mode_command_rejection, setup, teardown),
         cmocka_unit_test_setup_teardown(test_maintenance_mode_exit, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_verify_cv_command, setup, teardown),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

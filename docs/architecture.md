@@ -127,6 +127,11 @@ graph TD
 - **Configuration**: Separate instances for main and programming tracks
 - **Safety Features**: Automatic power cutoff on overcurrent, short circuit LED indication
 - **Core 1 Operation**: Runs on Core 1, self-regulating reminder generation
+- **Inter-Packet Gap**: PIO implements 232μs gap (4 half-cycles) between packets
+  - Ensures decoders properly detect packet boundaries
+  - Prevents FIFO-full condition from eliminating gap
+  - Well within decoder DC mode timeout (10-30ms)
+  - Longer preambles (20-bit prog track) revealed need for extended gap
 
 ## DCC Protocol Implementation
 

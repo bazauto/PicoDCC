@@ -15,6 +15,7 @@
 #include <hardware/timer.h>
 #endif
 #include "../PicoDCCEX/pico_dccex.h"
+#include "../PicoDCCEX/pico_dccex_config.h"
 #include "../PicoDCCLoco/pico_dccloco.h"
 #include "../PicoDCCLoco/pico_dcclocos.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
@@ -37,6 +38,7 @@ private:
     PicoDccTrack *prog_track;
 
     PicoDccEx *pico_dccex;
+    PicoDccExConfig *dccex_config;
     uint8_t timing_error_led_pin;
 
     PicoDccLocos *pico_locos;
@@ -79,12 +81,14 @@ public:
     
     // Configuration command handlers
     bool handleConfigCommand(class PicoDccExPacket* packet);
-    void handleACKLimitCommand(float value);
-    void handleACKMinCommand(float value);
-    void handleACKMaxCommand(float value);
+    void handleACKLimitCommand(int value);
+    void handleACKMinCommand(int value);
+    void handleACKMaxCommand(int value);
     void handleSaveCommand();
     void handleStatusCommand();
     void handleReadAddressCommand();
+    void handleVerifyCommand(PicoDccExPacket* packet);
+    void handleWriteCommand(PicoDccExPacket* packet);
     
     // Display/status accessors (used by PicoDCCDisplay and tests)
     bool isTrackPowerOn(bool isProg) { return isProg ? prog_track->getPower() : main_track->getPower(); }

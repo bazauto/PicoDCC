@@ -151,6 +151,43 @@ void PicoDccExPacket::decodePacket(char *buffer)
     case ('#'):  // <#> capacity command
         // These commands have no parameters, just validate opcode
         break;
+    
+    // Verify CV command - <V cv value>
+    case ('V'):
+        if (sscanf(buffer, "V %d %d", &packet.addr, &packet.param1) == 2) {
+            // Parsing successful, validation happens in validatePacket()
+        } else {
+            packet.addr = -1;  // Failed to parse
+        }
+        break;
+    
+    // Write CV command - <W addr> writes to CV1, <W cv value> writes arbitrary CV
+    case ('W'):
+        {
+            int arg1 = 0, arg2 = 0;
+            int num_args = sscanf(buffer, "W %d %d", &arg1, &arg2);
+            
+            if (num_args == 1) {
+                // <W addr> - write address to CV1
+                packet.addr = 1;      // CV1
+                packet.param1 = arg1; // address value
+                packet.param2 = 1;    // Flag: single arg form
+            } else if (num_args == 2) {
+                // <W cv value> - write arbitrary CV
+                packet.addr = arg1;   // CV number
+                packet.param1 = arg2; // value
+                packet.param2 = 2;    // Flag: two arg form
+            } else {
+                packet.addr = -1;  // Failed to parse
+            }
+        }
+        break;
+    
+    // Unsupported commands - parse but mark for rejection
+    case ('T'):  // <T id cab speed dir> - DCC-EX turnout/point command
+    case ('Z'):  // <Z id ...> - DCC-EX output command
+        // These commands are not supported - will be rejected with <X>
+        break;
     }
 }
 
@@ -209,6 +246,35 @@ void PicoDccExPacket::validatePacket() {
     case ('R'):
         valid_packet = true;
         break;
+    
+    // Verify CV command - validated through parsing
+    case ('V'):
+        if (packet.addr != -1) {
+            // CV number (1-1024) and value (0-255) already validated in parsing
+            if (packet.addr >= 1 && packet.addr <= 1024 &&
+                packet.param1 >= 0 && packet.param1 <= 255) {
+                valid_packet = true;
+            }
+        }
+        break;
+    
+    // Write CV command - validated through parsing
+    case ('W'):
+        if (packet.addr != -1) {
+            if (packet.param2 == 1) {
+                // <W addr> form - CV1, address 1-127 (short address)
+                if (packet.param1 >= 1 && packet.param1 <= 127) {
+                    valid_packet = true;
+                }
+            } else if (packet.param2 == 2) {
+                // <W cv value> form - CV 1-1024, value 0-255
+                if (packet.addr >= 1 && packet.addr <= 1024 &&
+                    packet.param1 >= 0 && packet.param1 <= 255) {
+                    valid_packet = true;
+                }
+            }
+        }
+        break;
 
     // These opcodes are validated through having successfully parsed parameters
     case ('t'):
@@ -222,6 +288,13 @@ void PicoDccExPacket::validatePacket() {
     // Emergency Stop
     case ('!'):
         valid_packet = true;
+        break;
+    
+    // Unsupported commands - mark as valid but will be rejected
+    case ('S'):  // Sensor command
+    case ('T'):  // Turnout/point command
+    case ('Z'):  // Output command
+        valid_packet = true;  // Valid packet format, will be rejected in controller
         break;
 
     default:

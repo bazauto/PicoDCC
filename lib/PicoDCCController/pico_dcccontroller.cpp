@@ -4,6 +4,11 @@
 #include "pico_dcccontroller.h"
 #include "../dccex_communication.h"
 #include "../pico_diagnostic.h"
+#include "version.h"
+
+#ifndef TEST_BUILD
+#include <hardware/adc.h>
+#endif
 
 PicoDccController::PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s, uint8_t timing_led_pin)
     : programmer(nullptr, nullptr)  // Temporary initialization, will be set after prog_track is created
@@ -21,6 +26,14 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
 
     // Setup our loco store first (needed by tracks for reminder generation)
     pico_locos = new PicoDccLocos();
+
+    // Initialize ADC hardware once (shared by both tracks)
+    if (main_track_s.adc_num != UNUSED_PIN || prog_track_s.adc_num != UNUSED_PIN)
+    {
+        #ifndef TEST_BUILD
+        adc_init();
+        #endif
+    }
 
     // Setup the tracks
     // Main track gets reference to locos collection for reminder generation on Core 1
@@ -45,6 +58,10 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     // Initialize operation mode and configuration
     operation_mode = OperationMode::NORMAL;
     config_storage.load();  // Load configuration from flash
+    
+    // Initialize configuration/calibration command handler
+    dccex_config = new PicoDccExConfig(&config_storage);
+    pico_dccex->setConfigHandler(dccex_config);  // Wire up the config handler
     
     // Initialize CV programmer with programming track and config storage (after they exist)
     programmer = PicoDccProgrammer(prog_track, &config_storage);
@@ -84,6 +101,24 @@ void PicoDccController::dccexLoop()
             // Handle CV read address command (R)
             if (packet.isReadAddressCommand()) {
                 handleReadAddressCommand();
+                return;
+            }
+            
+            // Handle CV verify command (V)
+            if (packet.isVerifyCommand()) {
+                handleVerifyCommand(&packet);
+                return;
+            }
+            
+            // Handle CV write command (W)
+            if (packet.isWriteCommand()) {
+                handleWriteCommand(&packet);
+                return;
+            }
+            
+            // Reject unsupported commands (T, S, Z) with <X>
+            if (packet.isUnsupportedCommand()) {
+                DCCEX_RESPONSE("<X>");
                 return;
             }
             
@@ -244,7 +279,7 @@ void PicoDccController::dccLoop()
         {
             // Emergency safety measures
             main_track->setPower(false); // Cut power to main track
-            prog_track->setPower(false); // Cut power to prog track
+            //prog_track->setPower(false); // Cut power to prog track
             gpio_put(timing_error_led_pin, 1); // Turn on error LED
             
             if (main_gap >= 100)
@@ -393,7 +428,7 @@ bool PicoDccController::handleConfigCommand(PicoDccExPacket* packet)
     return false;  // Not a config command
 }
 
-void PicoDccController::handleACKLimitCommand(float value)
+void PicoDccController::handleACKLimitCommand(int value)
 {
     config_storage.setACKThreshold(value);
     
@@ -405,7 +440,7 @@ void PicoDccController::handleACKLimitCommand(float value)
     LOG_INFO(COMPONENT_SYSTEM, "ACK threshold updated (runtime)");
 }
 
-void PicoDccController::handleACKMinCommand(float value)
+void PicoDccController::handleACKMinCommand(int value)
 {
     // Convert microseconds to milliseconds for internal storage
     config_storage.setACKMinDuration(value / 1000.0f);
@@ -418,7 +453,7 @@ void PicoDccController::handleACKMinCommand(float value)
     LOG_INFO(COMPONENT_SYSTEM, "ACK min duration updated (runtime)");
 }
 
-void PicoDccController::handleACKMaxCommand(float value)
+void PicoDccController::handleACKMaxCommand(int value)
 {
     // Convert microseconds to milliseconds for internal storage
     config_storage.setACKMaxDuration(value / 1000.0f);
@@ -454,8 +489,9 @@ void PicoDccController::handleSaveCommand()
 
 void PicoDccController::handleStatusCommand()
 {
-    // Send version info (standard DCC-EX format)
-    DCCEX_RESPONSE("<iDCC-EX V-5.0.0 / PICODCC / BUILD Oct 20 2025>");
+    // Send version info (standard DCC-EX format) - git hash is auto-generated at build time
+    // Regex to be matched: i(DCC-EX) V-([\\d\\.]*).*G-(.*)
+    DCCEX_RESPONSE(PICODCC_VERSION_STRING);
     
     // Send main track power status (standard DCC-EX format)
     if (main_track->getPower()) {
@@ -511,5 +547,86 @@ void PicoDccController::handleReadAddressCommand()
     // No valid address found
     DCCEX_RESPONSE("<r -1>");
     LOG_ERROR(COMPONENT_PROGRAMMER, "Failed to read decoder address");
+}
+
+void PicoDccController::handleWriteCommand(PicoDccExPacket* packet)
+{
+    int cv = packet->getCVNumber();
+    int value = packet->getCVValue();
+    int form = packet->getWriteForm();
+    
+    // Check if programming track is powered
+    if (!prog_track->getPower()) {
+        DCCEX_RESPONSE("<w -1>");
+        LOG_WARNING(COMPONENT_PROGRAMMER, "Write CV failed: programming track not powered");
+        return;
+    }
+    
+    LOG_INFO(COMPONENT_PROGRAMMER, "Writing CV value...");
+    
+    // Write CV value (includes verification per NMRA standard)
+    bool success = programmer.writeCV(cv, value);
+    
+    if (success) {
+        // Write and verify successful
+        if (form == 1) {
+            // <W addr> form - respond with <w addr>
+            char response[16];
+            snprintf(response, sizeof(response), "<w %d>", value);
+            DCCEX_RESPONSE(response);
+        } else {
+            // <W cv value> form - respond with <r cv value>
+            char response[32];
+            snprintf(response, sizeof(response), "<r %d %d>", cv, value);
+            DCCEX_RESPONSE(response);
+        }
+        LOG_INFO(COMPONENT_PROGRAMMER, "CV write and verify successful");
+    } else {
+        // Write or verify failed
+        if (form == 1) {
+            // <W addr> form failure
+            DCCEX_RESPONSE("<w -1>");
+        } else {
+            // <W cv value> form failure
+            char response[32];
+            snprintf(response, sizeof(response), "<r %d -1>", cv);
+            DCCEX_RESPONSE(response);
+        }
+        LOG_ERROR(COMPONENT_PROGRAMMER, "CV write/verify failed");
+    }
+}
+
+void PicoDccController::handleVerifyCommand(PicoDccExPacket* packet)
+{
+    int cv = packet->getCVNumber();
+    int value = packet->getCVValue();
+    
+    // Check if programming track is powered
+    if (!prog_track->getPower()) {
+        char response[32];
+        snprintf(response, sizeof(response), "<v %d -1>", cv);
+        DCCEX_RESPONSE(response);
+        LOG_WARNING(COMPONENT_PROGRAMMER, "Verify CV failed: programming track not powered");
+        return;
+    }
+    
+    LOG_INFO(COMPONENT_PROGRAMMER, "Verifying CV value...");
+    
+    // Verify CV value
+    bool verified = programmer.verifyCV(cv, value);
+    
+    if (verified) {
+        // ACK received - value matches
+        char response[32];
+        snprintf(response, sizeof(response), "<v %d %d>", cv, value);
+        DCCEX_RESPONSE(response);
+        LOG_INFO(COMPONENT_PROGRAMMER, "CV verify successful");
+    } else {
+        // No ACK - value doesn't match or no decoder
+        char response[32];
+        snprintf(response, sizeof(response), "<v %d -1>", cv);
+        DCCEX_RESPONSE(response);
+        LOG_INFO(COMPONENT_PROGRAMMER, "CV verify failed - no ACK");
+    }
 }
 

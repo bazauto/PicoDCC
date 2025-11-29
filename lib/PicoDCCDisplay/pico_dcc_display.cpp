@@ -106,14 +106,21 @@ TrackStatus PicoDCCDisplay::gatherTrackStatus(PicoDccController* controller) {
     // Hardware mode: Gather real data from controller
     PicoDccTrack* main_track = controller->getTrack(false);
     PicoDccTrack* prog_track = controller->getTrack(true);
+    PicoConfigStorage* config = controller->getConfigStorage();
+    
+    // Get ADC-to-mA conversion factor from calibrated config
+    float adc_to_ma = 0.0488f;  // Default
+    if (config != nullptr) {
+        adc_to_ma = config->getADCToMAConversion();
+    }
     
     // Power status
     status.main_power_on = main_track->getPower();
     status.prog_power_on = prog_track->getPower();
     
-    // Current readings (convert to milliamps)
-    status.main_current_ma = main_track->getAverageCurrent() * 1000.0f;
-    status.prog_current_ma = prog_track->getAverageCurrent() * 1000.0f;
+    // Current readings (convert ADC counts to milliamps using calibration factor)
+    status.main_current_ma = main_track->getAverageCurrent() * adc_to_ma;
+    status.prog_current_ma = prog_track->getAverageCurrent() * adc_to_ma;
     
     // Packet statistics (use main track stats)
     status.packets_sent = main_track->getCommandsSent();

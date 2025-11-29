@@ -55,6 +55,9 @@ public:
     bool isConfigCommand() { return packet.opcode == 'D' || packet.opcode == 'E'; }
     bool isSaveCommand() { return packet.opcode == 'E'; }
     bool isReadAddressCommand() { return packet.opcode == 'R'; }
+    bool isVerifyCommand() { return packet.opcode == 'V'; }
+    bool isWriteCommand() { return packet.opcode == 'W'; }
+    bool isUnsupportedCommand() { return packet.opcode == 'T' || packet.opcode == 'S' || packet.opcode == 'Z'; }
 
     bool getPowerOn() { return packet.power_on; }
     pico_dccex_track_select getTrack() { return packet.power_track; }
@@ -77,6 +80,11 @@ public:
     int getConfigSubcommand() { return packet.addr; }      // ACK = 1
     int getConfigParamType() { return packet.param1; }     // LIMIT=1, MIN=2, MAX=3
     int getConfigValue() { return packet.param2; }         // Numeric value
+    
+    // CV command accessors (R/V/W commands)
+    int getCVNumber() { return packet.addr; }              // CV number (1-1024)
+    int getCVValue() { return packet.param1; }             // CV value for verify/write
+    int getWriteForm() { return packet.param2; }           // W command: 1=<W addr>, 2=<W cv value>
 
     raw_dcc_cmd_t *getRawDccAccessoryCmd();
     char *getDccExCabUpdate();

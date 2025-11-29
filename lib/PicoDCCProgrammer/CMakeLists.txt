@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.13)
 
 if(TEST_BUILD)
-    # Test mode - create object library for test linking
-    add_library(PicoDccProgrammer OBJECT
+    # Test mode - create static library for test linking
+    add_library(PicoDccProgrammer STATIC
         ${CMAKE_CURRENT_LIST_DIR}/pico_dcc_programmer.cpp
     )
     

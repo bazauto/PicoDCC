@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#ifndef TEST_BUILD
+#include <hardware/adc.h>
+#endif
+
 PicoDccExConfig::PicoDccExConfig(PicoConfigStorage *cfg) : config(cfg) {
 }
 
@@ -268,12 +272,12 @@ void PicoDccExConfig::handleConfigExport() {
 }
 
 void PicoDccExConfig::handleCalStart() {
-    DCCEX_RESPONSE("<D CAL START OK>");
-    DCCEX_RESPONSE("<D CAL MSG Connect 100mA calibration load to programming track>");
-    DCCEX_RESPONSE("<D CAL MSG Enable programming track power: <1 PROG>>");
-    DCCEX_RESPONSE("<D CAL MSG Read ADC value: <D CAL ADC>>");
-    DCCEX_RESPONSE("<D CAL MSG Set calibration: <D CAL SET 100.0 <adc_value>>>");
-    DCCEX_RESPONSE("<D CAL MSG Save calibration: <D CAL SAVE>>");
+    DCCEX_RESPONSE("<D CAL START OK>\n");
+    DCCEX_RESPONSE("<D CAL MSG Connect 100mA calibration load to programming track>\n");
+    DCCEX_RESPONSE("<D CAL MSG Enable programming track power: <1 PROG>>\n");
+    DCCEX_RESPONSE("<D CAL MSG Read ADC value: <D CAL ADC>>\n");
+    DCCEX_RESPONSE("<D CAL MSG Set calibration: <D CAL SET 100.0 <adc_value>>>\n");
+    DCCEX_RESPONSE("<D CAL MSG Save calibration: <D CAL SAVE>>\n");
 }
 
 void PicoDccExConfig::handleCalADC(uint8_t adc_channel) {
@@ -286,8 +290,17 @@ void PicoDccExConfig::handleCalADC(uint8_t adc_channel) {
     DCCEX_RESPONSE(response);
 #else
     // Select and read ADC channel
-    adc_select_input(adc_channel);
-    uint16_t reading = adc_read();
+    // adc_select_input(adc_channel);
+    // uint16_t reading = adc_read();
+
+    float current_sum = 0.0f;
+    uint32_t sample_count = 50;
+    for (uint32_t i = 0; i < sample_count; i++) {
+        adc_select_input(adc_channel);
+        current_sum += adc_read();
+        sleep_us(1000);  // 1ms between samples
+    }
+    uint16_t reading = current_sum / static_cast<float>(sample_count);
     
     char response[64];
     snprintf(response, sizeof(response), "<D CAL ADC %u VALUE %u>",
@@ -313,7 +326,7 @@ void PicoDccExConfig::handleCalSet(float load_ma, uint16_t adc_reading) {
     
     char response[128];
     snprintf(response, sizeof(response),
-            "<D CAL SET OK ADC_MA=%.4f (%.1fmA @ %u counts)>",
+            "<D CAL SET OK ADC_MA=%.4f (%.1fmA @ %u adc_reading)>",
             conversion, load_ma, adc_reading);
     DCCEX_RESPONSE(response);
 }

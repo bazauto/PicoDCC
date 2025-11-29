@@ -159,15 +159,13 @@ static void test_programmer_constructor_without_config(void **state) {
 static void test_programmer_load_config(void **state) {
     struct programmer_test_state *s = (struct programmer_test_state *)*state;
     
-    // Change config storage values (using real setters)
+    // Change config storage values directly (ACK parameters are read dynamically)
     s->config->setACKThreshold(70.0f);           // 70mA
     s->config->setACKMinDuration(5.0f);          // 5.0ms = 5000µs
     s->config->setACKMaxDuration(7.5f);          // 7.5ms = 7500µs
     
-    // Reload configuration
-    s->programmer->loadConfig();
-    
-    // Verify new values loaded (converted to µs internally)
+    // Verify new values are accessible (converted to µs internally)
+    // Programmer reads these dynamically from config_storage during ACK detection
     assert_int_equal(s->programmer->getACKThreshold(), 70);
     assert_int_equal(s->programmer->getACKMinDuration(), 5000);
     assert_int_equal(s->programmer->getACKMaxDuration(), 7500);
@@ -176,15 +174,17 @@ static void test_programmer_load_config(void **state) {
 static void test_programmer_set_ack_threshold(void **state) {
     struct programmer_test_state *s = (struct programmer_test_state *)*state;
     
-    s->programmer->setACKThreshold(80);
+    // Set via config storage (programmer reads dynamically)
+    s->config->setACKThreshold(80.0f);
     assert_int_equal(s->programmer->getACKThreshold(), 80);
 }
 
 static void test_programmer_set_ack_durations(void **state) {
     struct programmer_test_state *s = (struct programmer_test_state *)*state;
     
-    s->programmer->setACKMinDuration(4000);
-    s->programmer->setACKMaxDuration(9000);
+    // Set via config storage (programmer reads dynamically)
+    s->config->setACKMinDuration(4.0f);  // 4.0ms = 4000µs
+    s->config->setACKMaxDuration(9.0f);  // 9.0ms = 9000µs
     
     assert_int_equal(s->programmer->getACKMinDuration(), 4000);
     assert_int_equal(s->programmer->getACKMaxDuration(), 9000);
@@ -528,6 +528,79 @@ static void test_multiple_cv_reads_baseline_not_remeasured(void **state) {
 }
 
 // ============================================================================
+// Group 7: CV Verify Operations
+// ============================================================================
+
+// Test verify CV with matching value (ACK expected)
+static void test_verify_cv_matching_value(void **state) {
+    struct programmer_test_state *s = (struct programmer_test_state *)*state;
+    
+    // Setup: powered track with baseline current
+    set_track_power(s, true);
+    set_baseline_current(s, 30.0f);
+    
+    // Simulate ACK pulse for matching value (CV1 = 3)
+    s->ack_on_byte_value = 3;
+    mock_time_ms = 0;
+    
+    // Test: Verify CV1 value is 3
+    bool result = s->programmer->verifyCV(1, 3);
+    
+    // Verify: Should return true (ACK received)
+    assert_true(result);
+}
+
+// Test verify CV with non-matching value (no ACK expected)
+static void test_verify_cv_non_matching_value(void **state) {
+    struct programmer_test_state *s = (struct programmer_test_state *)*state;
+    
+    // Setup: powered track with baseline current
+    set_track_power(s, true);
+    set_baseline_current(s, 30.0f);
+    
+    // Decoder has value 3, we're verifying wrong value
+    s->ack_on_byte_value = 3;
+    mock_time_ms = 0;
+    
+    // Test: Verify CV1 value is 5 (wrong value)
+    bool result = s->programmer->verifyCV(1, 5);
+    
+    // Verify: Should return false (no ACK)
+    assert_false(result);
+}
+
+// Test verify CV with track not powered
+static void test_verify_cv_track_not_powered(void **state) {
+    struct programmer_test_state *s = (struct programmer_test_state *)*state;
+    
+    // Setup: track is OFF
+    set_track_power(s, false);
+    
+    // Test: Try to verify CV
+    bool result = s->programmer->verifyCV(1, 3);
+    
+    // Verify: Should fail (track not powered)
+    assert_false(result);
+}
+
+// Test verify CV with invalid CV number
+static void test_verify_cv_invalid_cv_number(void **state) {
+    struct programmer_test_state *s = (struct programmer_test_state *)*state;
+    
+    // Setup: powered track
+    set_track_power(s, true);
+    set_baseline_current(s, 30.0f);
+    
+    // Test: Try to verify invalid CV (0 and 1025)
+    bool result1 = s->programmer->verifyCV(0, 3);
+    bool result2 = s->programmer->verifyCV(1025, 3);
+    
+    // Verify: Both should fail
+    assert_false(result1);
+    assert_false(result2);
+}
+
+// ============================================================================
 // Test Suite Definition
 // ============================================================================
 
@@ -570,6 +643,12 @@ int main(void) {
         // Group 6: Integration Scenarios
         cmocka_unit_test_setup_teardown(test_full_cv_read_workflow_cv1, setup, teardown),
         cmocka_unit_test_setup_teardown(test_multiple_cv_reads_baseline_not_remeasured, setup, teardown),
+        
+        // Group 7: CV Verify Operations
+        cmocka_unit_test_setup_teardown(test_verify_cv_matching_value, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_verify_cv_non_matching_value, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_verify_cv_track_not_powered, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_verify_cv_invalid_cv_number, setup, teardown),
     };
     
     return cmocka_run_group_tests(tests, NULL, NULL);

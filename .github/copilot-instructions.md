@@ -323,6 +323,19 @@ This script directly addresses the need to ensure that changes in one build mode
   - Priority system: Explicit commands > locomotive reminders > idle packets.
   - Semaphore protection is used for multi-core synchronization of locomotive collection.
   - **Self-regulating design**: Core 1 only generates reminders when hardware has capacity, preventing queue overflow.
+- **DCC Packet Generation Architecture**:
+  - **Error Byte (XOR Checksum) Handling**: Component classes (`PicoDccProgrammer`, `PicoDccLoco`, etc.) generate packet data bytes ONLY. The error byte is **automatically calculated and appended** by `PicoDccTrack::sendCommand()` (lines 168-179 in `pico_dcctrack.cpp`).
+  - **CRITICAL**: Never manually add error bytes to `raw_dcc_cmd_t.data[]` - the Track class handles this automatically.
+  - **Packet Structure in raw_dcc_cmd_t**: Only populate `data[]` with instruction/address/data bytes. Set `length` to number of data bytes (excluding error byte). Track increments length (`cmd->length + 1`) when sending to PIO.
+  - **Example**: For CV verify packet with 3 data bytes [instruction, cv_low, byte_value], set `length = 3`. Track calculates XOR and sends 4 bytes total to PIO.
+- **DCC Timing and Inter-Packet Gaps**:
+  - PIO state machine generates DCC waveforms with precise timing (116μs bit time)
+  - Inter-packet gap: 232μs (4 half-cycles) implemented in PIO `final_bit` section
+  - **Critical for decoder synchronization**: Decoders need gap to detect packet boundaries
+  - **Prevents DC mode switching**: Decoders enter DC mode after 10-30ms without packets; 232μs gap is safe
+  - **FIFO management consideration**: Tight packet queueing can eliminate gap if not enforced in PIO
+  - Programming track (20-bit preamble) has longer packets, making gap issue more visible
+  - Main track (14-bit preamble) may mask gap issues due to shorter packets
 
 ## Integration Points
 - **External Dependencies**:
@@ -450,7 +463,31 @@ This script directly addresses the need to ensure that changes in one build mode
     - `PicoConfigStorage`: Hybrid runtime/flash config, unsaved changes tracking
     - `PicoDCCEX`: Command parsing, mode-aware `<E>` handling
     - `PicoDCCDisplay`: Mode entry/exit UI, unsaved changes indicators
-  - **Lessons**: Safety-critical operations require explicit user action; hybrid runtime/persistent config provides flexibility; mode state machines prevent dangerous operations; physical presence requirements (LCD-only) prevent remote accidents.
+    - **Lessons**: Safety-critical operations require explicit user action; hybrid runtime/persistent config provides flexibility; mode state machines prevent dangerous operations; physical presence requirements (LCD-only) prevent remote accidents.
+
+- **Programming Track Inter-Packet Gap Issue (PIO Timing)**:
+  - **Problem**: With 20-bit preamble (prog track), inter-packet gaps were too narrow on oscilloscope compared to 14-bit preamble (main track)
+  - **Root Cause**: Tight packet queueing from `PicoDccTrack::loop()` kept PIO FIFO full, eliminating gap beyond minimal PIO instructions
+  - **Symptom**: Longer packets (20-bit preamble ~696μs vs 14-bit ~580μs) consume slower from FIFO, making FIFO-full condition more persistent
+  - **Investigation**: Oscilloscope analysis showed prog track had almost no visible gap, main track had proper gap
+  - **Original Gap**: 2 half-cycles (116μs) in PIO `final_bit` section
+  - **Solution**: Extended to 4 half-cycles (232μs) in PIO `final_bit`
+    ```pio
+    final_bit:
+        nop side 1 [3]    ; End bit HIGH
+        nop side 0 [7]    ; End bit LOW
+        nop side 1 [7]    ; Gap half-cycle 1
+        nop side 1 [7]    ; Gap half-cycle 2
+        nop side 1 [7]    ; Gap half-cycle 3 (new)
+        nop side 1 [7]    ; Gap half-cycle 4 (new)
+    .wrap
+    ```
+  - **Safety Verification**: Decoders enter DC mode after 10-30ms without packets; 232μs gap provides packets every ~1ms (10-30x safety margin)
+  - **DCC Compliance**: Spec requires packet end bit ('1' bit) but doesn't mandate minimum inter-packet gap; 232μs is compliant and provides proper decoder synchronization
+  - **Lessons**: PIO FIFO management affects timing; longer preambles reveal timing issues; oscilloscope validation critical for DCC waveform correctness; inter-packet gaps must be enforced in PIO, not just C code pacing.
+
+## Key Files and Directories
+````
 
 ## Key Files and Directories
 - `CMakeLists.txt`: Build configuration.

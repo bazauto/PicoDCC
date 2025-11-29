@@ -28,7 +28,7 @@ class PicoDccLocos;
 #define DCC_MAIN_PREAMBLE 14
 #define DCC_PROG_PREAMBLE 20
 
-#define TRACK_POWER_CURRENT_SAMPLES 2000
+#define TRACK_POWER_CURRENT_SAMPLES 200
 #define TRACK_POWER_ADC_VREF 3.3
 #define TRACK_POWER_ADC_RANGE (1 << 12)
 #define TRACK_POWER_ADC_CONVERT (TRACK_POWER_ADC_VREF / (TRACK_POWER_ADC_RANGE - 1))
@@ -69,6 +69,7 @@ private:
     uint current_sum = 0;
     uint current_cnt = 0;
     bool power_on = false;
+    bool send_idle_packets = true;  // Flag to control idle packet transmission
 
     // PIO Health Monitoring (Options 1, 3, 4)
     struct {
@@ -106,6 +107,11 @@ public:
     void powerOn() { setPower(true); }
     void powerOff() { setPower(false); }
     void setPower(bool on);
+    
+    // Idle packet control (for programming/testing)
+    void enableIdlePackets() { send_idle_packets = true; }
+    void disableIdlePackets() { send_idle_packets = false; }
+    bool getIdlePacketsEnabled() { return send_idle_packets; }
 
     float getAverageCurrent() { return average_current_reading; }
 

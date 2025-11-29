@@ -14,7 +14,6 @@
 #ifdef TEST_BUILD
 #include "../../test/mocks.h"
 #else
-#include <hardware/adc.h>
 #include <pico/stdlib.h>
 #endif
 

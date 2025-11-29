@@ -7,6 +7,7 @@
 #include <string>
 #include <functional>
 #include "pico_dccex.h"
+#include "pico_dccex_config.h"
 #include "../dccex_communication.h"
 
 PicoDccEx::PicoDccEx(int maxCab)
@@ -59,6 +60,13 @@ bool PicoDccEx::processCommand(pico_dccex_packet* packet)
                 if (newChar == '>')
                 {
                     buffer[bufferLength] = '\0'; // Null-terminate the string
+                    
+                    // Check if this is a CAL or CONFIG command and delegate to PicoDccExConfig
+                    if (configHandler && configHandler->processCommand(buffer)) {
+                        reset();
+                        return false;  // Command handled by config, don't return packet
+                    }
+                    
                     currentPacket = new PicoDccExPacket(buffer);
                     if (currentPacket->isValid())
                     {

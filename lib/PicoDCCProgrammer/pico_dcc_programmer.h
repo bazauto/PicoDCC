@@ -54,13 +54,12 @@ private:
     PicoDccTrack *prog_track;           // Programming track instance
     PicoConfigStorage *config_storage;  // Configuration storage (optional)
     
-    // ACK detection configuration (from NV storage or defaults)
-    uint16_t ack_limit_ma;         // ACK threshold above baseline (default: 60mA)
-    uint16_t ack_min_duration_us;  // Min ACK pulse duration (default: 4500µs)
-    uint16_t ack_max_duration_us;  // Max ACK pulse duration (default: 8000µs)
-    
     // Current monitoring
     float baseline_current_ma;     // Decoder idle current (measured before ACK detection)
+    
+    // Note: ACK detection parameters (threshold, min/max duration) are no longer
+    // cached as member variables. They are read dynamically from config_storage
+    // during ACK detection to support runtime configuration changes via <D ACK> commands.
     
     // Internal helper methods
     
@@ -78,9 +77,12 @@ private:
      * @brief Detect ACK pulse (60mA for 6ms within 8ms window)
      * 
      * Monitors programming track current for ACK pulse:
-     * - Current must exceed baseline + ack_limit_ma
-     * - Pulse duration must be within ack_min_duration_us to ack_max_duration_us
+     * - Current must exceed baseline + threshold (dynamically read from config)
+     * - Pulse duration must be within min/max range (dynamically read from config)
      * - Detection window is timeout_ms
+     * 
+     * ACK parameters are read from config_storage on each call to support
+     * runtime configuration changes via <D ACK> commands.
      * 
      * @param timeout_ms Maximum time to wait for ACK pulse (default: 20ms)
      * @return true if valid ACK detected, false otherwise
@@ -106,10 +108,8 @@ private:
     /**
      * @brief Generate NMRA Direct Mode CV verify packet
      * 
-     * Creates DCC packet for CV verify operation (ACK if match):
-     * - Same format as read packet
-     * - Instruction byte: AA=01 for verify
-     * - Data byte: value to verify
+     * Creates verify byte packet (NMRA S-9.2.3):
+     * - Instruction: 0111CCAA (CC=CV bits 9-8, AA=11)
      * - Decoder sends ACK if CV value matches
      * 
      * @param cv_number CV number (1-1024)
@@ -117,6 +117,21 @@ private:
      * @return DCC packet structure
      */
     raw_dcc_cmd_t generateCVVerifyPacket(uint16_t cv_number, uint8_t byte_value);
+    
+    /**
+     * @brief Generate NMRA Direct Mode CV write packet
+     * 
+     * Creates write byte packet (NMRA S-9.2.3):
+     * - Instruction: 0111CCAA (CC=CV bits 9-8, AA=11)
+     * - Decoder sends ACK, then writes value to CV
+     * 
+     * @param cv_number CV number (1-1024)
+     * @param value Value to write (0-255)
+     * @return DCC packet structure
+     */
+    raw_dcc_cmd_t generateCVWritePacket(uint16_t cv_number, uint8_t value);
+
+    raw_dcc_cmd_t generateResetPacket();
 
 public:
     /**
@@ -146,12 +161,36 @@ public:
     int16_t readCV(uint16_t cv_number);
     
     /**
+     * @brief Write CV value to decoder
+     * 
+     * Sends Direct Mode write byte packet to decoder and waits for ACK.
+     * Decoder acknowledges first, then writes the value to CV.
+     * 
+     * @param cv CV number to write (1-1024)
+     * @param value Value to write (0-255)
+     * @return true if ACK received (write successful), false otherwise
+     */
+    bool writeCV(uint16_t cv, uint8_t value);
+    
+    /**
+     * @brief Verify CV value matches expected value
+     * 
+     * Sends Direct Mode verify packet to decoder and checks for ACK pulse.
+     * JMRI uses this for decoder identification on programming track.
+     * 
+     * @param cv CV number to verify (1-1024)
+     * @param expected_value Expected CV value (0-255)
+     * @return true if ACK received (value matches), false otherwise
+     */
+    bool verifyCV(uint16_t cv, uint8_t expected_value);
+    
+    /**
      * @brief Read short address from decoder (CV1)
      * 
-     * Convenience wrapper for readCV(CV_SHORT_ADDRESS).
-     * Short address range: 1-127
+     * Convenience method that reads CV1 (short address).
+     * Valid range: 1-127
      * 
-     * @return Short address (1-127) on success, -1 on error
+     * @return Short address (1-127), -1 on error or no decoder
      */
     int16_t readShortAddress();
     
@@ -166,40 +205,7 @@ public:
      * @return Long address (128-10239) on success, -1 on error
      */
     int16_t readLongAddress();
-    
-    /**
-     * @brief Load ACK configuration from NV storage
-     * 
-     * Loads ACK parameters from configuration storage:
-     * - ack_limit_ma
-     * - ack_min_duration_us
-     * - ack_max_duration_us
-     * 
-     * Falls back to defaults if config storage not available.
-     */
-    void loadConfig();
-    
-    /**
-     * @brief Set ACK threshold above baseline
-     * 
-     * @param limit_ma ACK threshold in mA (50-100 typical, default 60)
-     */
-    void setACKThreshold(uint16_t limit_ma);
-    
-    /**
-     * @brief Set ACK minimum pulse duration
-     * 
-     * @param duration_us Min duration in µs (4000-5000 typical, default 4500)
-     */
-    void setACKMinDuration(uint16_t duration_us);
-    
-    /**
-     * @brief Set ACK maximum pulse duration
-     * 
-     * @param duration_us Max duration in µs (7000-9000 typical, default 8000)
-     */
-    void setACKMaxDuration(uint16_t duration_us);
-    
+        
     // Diagnostics and status
     
     /**
@@ -212,23 +218,44 @@ public:
     /**
      * @brief Get ACK threshold configuration
      * 
+     * Reads current value from config storage (if available).
+     * 
      * @return ACK threshold in mA
      */
-    uint16_t getACKThreshold() const { return ack_limit_ma; }
+    uint16_t getACKThreshold() const {
+        if (config_storage != nullptr) {
+            return static_cast<uint16_t>(config_storage->getACKThreshold());
+        }
+        return ACK_LIMIT_DEFAULT_MA;
+    }
     
     /**
      * @brief Get ACK min duration configuration
      * 
+     * Reads current value from config storage (if available).
+     * 
      * @return Min duration in µs
      */
-    uint16_t getACKMinDuration() const { return ack_min_duration_us; }
+    uint16_t getACKMinDuration() const {
+        if (config_storage != nullptr) {
+            return static_cast<uint16_t>(config_storage->getACKMinDuration() * 1000.0f);
+        }
+        return ACK_MIN_DURATION_DEFAULT_US;
+    }
     
     /**
      * @brief Get ACK max duration configuration
      * 
+     * Reads current value from config storage (if available).
+     * 
      * @return Max duration in µs
      */
-    uint16_t getACKMaxDuration() const { return ack_max_duration_us; }
+    uint16_t getACKMaxDuration() const {
+        if (config_storage != nullptr) {
+            return static_cast<uint16_t>(config_storage->getACKMaxDuration() * 1000.0f);
+        }
+        return ACK_MAX_DURATION_DEFAULT_US;
+    }
 };
 
 #endif // PICO_DCC_PROGRAMMER_H

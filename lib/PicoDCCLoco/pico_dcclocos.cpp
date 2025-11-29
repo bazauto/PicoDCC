@@ -33,7 +33,7 @@ PicoDccLoco *PicoDccLocos::findLoco(uint16_t address)
 bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
 {
     sem_acquire_blocking(&locos_lock);
-    
+
     if (locos.empty())
     {
         sem_release(&locos_lock);
@@ -72,7 +72,7 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
     // Get the command for the next loco that will be sent to the track
     cmd = locos[nextIndex].getThrottleCommand();
     last_loco_reminder = locos[nextIndex].getAddress();
-    
+
     // Reminder commands should NOT use the repeat mechanism
     // They will be sent once and getNextReminder() will be called again on the next cycle
     cmd.repeats = 0;
@@ -85,7 +85,7 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
 void PicoDccLocos::addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
 {
     PicoDccLoco newLoco(packet);
-    
+
     sem_acquire_blocking(&locos_lock);
 
     locos.push_back(newLoco);
@@ -97,7 +97,7 @@ void PicoDccLocos::addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
 bool PicoDccLocos::updateLocoThrottle(uint16_t address, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
 {
     sem_acquire_blocking(&locos_lock);
-    
+
     // Find the loco and update it while holding the lock
     bool found = false;
     for (size_t i = 0; i < locos.size(); ++i)
@@ -111,7 +111,7 @@ bool PicoDccLocos::updateLocoThrottle(uint16_t address, PicoDccExPacket *packet,
             break;
         }
     }
-    
+
     sem_release(&locos_lock);
     return found;
 }
@@ -158,7 +158,7 @@ size_t PicoDccLocos::getLocoCount()
 void PicoDccLocos::sendEmergencyStopResponses()
 {
     sem_acquire_blocking(&locos_lock);
-    
+
     // Send locomotive status response for each active locomotive
     // This is required by DCC-EX specification for emergency stop
     for (size_t i = 0; i < locos.size(); ++i) {
@@ -172,11 +172,11 @@ void PicoDccLocos::sendEmergencyStopResponses()
                 false,                  // power_on (not used for throttle)
                 DCCEX_TRACK_MAIN       // track (not used for throttle)
             };
-            
+
             PicoDccExPacket response_packet(emergency_status);
             DCCEX_RESPONSE(response_packet.getDccExCabUpdate());
         }
     }
-    
+
     sem_release(&locos_lock);
 }

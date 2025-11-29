@@ -1,0 +1,14 @@
+// Auto-generated version header
+// DO NOT EDIT - Generated at build time by cmake/generate_version.cmake
+
+#ifndef PICODCC_VERSION_H
+#define PICODCC_VERSION_H
+
+#define PICODCC_BUILD_DATE "@BUILD_DATE@"
+#define PICODCC_BUILD_TIME "@BUILD_TIME@"
+#define PICODCC_GIT_HASH "@GIT_HASH@"
+
+// Full version string for DCC-EX protocol
+#define PICODCC_VERSION_STRING "<iDCC-EX V-5.0.0 / PICODCC / BUILD " PICODCC_BUILD_DATE " G-" PICODCC_GIT_HASH ">"
+
+#endif // PICODCC_VERSION_H

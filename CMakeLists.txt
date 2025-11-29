@@ -21,6 +21,19 @@ set(PICO_PLATFORM rp2350)
 
 set(TEST_BUILD OFF CACHE BOOL "Build for testing")
 
+# Generate version header with build timestamp and git hash (for all build modes)
+add_custom_target(generate_version ALL
+  COMMAND ${CMAKE_COMMAND}
+    -DSOURCE_DIR=${CMAKE_SOURCE_DIR}
+    -DBINARY_DIR=${CMAKE_BINARY_DIR}
+    -P ${CMAKE_SOURCE_DIR}/cmake/generate_version.cmake
+  BYPRODUCTS ${CMAKE_BINARY_DIR}/generated/version.h
+  COMMENT "Generating version.h"
+)
+
+# Create generated directory
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/generated)
+
 if(TEST_BUILD)
 
   project(PicoDCCTest
@@ -33,6 +46,7 @@ if(TEST_BUILD)
     ${CMAKE_SOURCE_DIR}/test/mocks
     ${CMAKE_SOURCE_DIR}/lib
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
   )
 
   list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/cmocka)
@@ -71,6 +85,9 @@ else()
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     add_compile_options(-Wno-psabi)
   endif()
+
+  # Add generated directory to include path
+  include_directories(${CMAKE_BINARY_DIR}/generated)
 
   add_subdirectory(./lib)
   add_subdirectory(./src)

@@ -10,6 +10,9 @@
 
 #include "pico_dccexpacket.h"
 
+// Forward declaration
+class PicoDccExConfig;
+
 #ifndef COMMAND_BUFFER_SIZE
  #define COMMAND_BUFFER_SIZE 100
 #endif
@@ -30,11 +33,13 @@ private:
     int bufferLength = 0;
     char buffer[COMMAND_BUFFER_SIZE];
     PicoDccExPacket *currentPacket = nullptr;
+    PicoDccExConfig *configHandler = nullptr;
 
 
 public:
     PicoDccEx(int maxCab);
 
+    void setConfigHandler(PicoDccExConfig *handler) { configHandler = handler; }
     bool processCommand(pico_dccex_packet* packet);
     void reset();
 

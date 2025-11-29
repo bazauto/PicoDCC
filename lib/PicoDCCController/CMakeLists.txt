@@ -12,7 +12,8 @@ if(TEST_BUILD)
 
   # pass -D TEST_BUILD when compiling
   target_compile_definitions(${PROJECT_NAME} PUBLIC -D TEST_BUILD)
-  target_link_libraries(${PROJECT_NAME} PRIVATE mocks PicoDCCTrack PicoDCCEX PicoDCCLoco PicoDCCProgrammer)
+  target_link_libraries(${PROJECT_NAME} PRIVATE mocks PicoDCCTrack PicoDCCEX PicoDCCLoco)
+  # Note: PicoDccProgrammer is linked directly by tests, not through controller dependency
 
 else()
 

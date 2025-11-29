@@ -40,7 +40,8 @@
     "files.associations": {
         "*.h": "cpp",
         "system_error": "cpp",
-        "optional": "cpp"
+        "optional": "cpp",
+        "*.in": "cpp"
     },
     
     // CMake Test Explorer Configuration
