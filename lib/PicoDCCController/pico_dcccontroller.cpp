@@ -196,8 +196,10 @@ void PicoDccController::dccexLoop()
                         main_cmd_queue.push(cmd);
                     }
                     
-                    // Send locomotive status acknowledgment
-                    DCCEX_RESPONSE(packet.getDccExCabUpdate());
+                    // Send locomotive status acknowledgment with current function states
+                    char status[128];
+                    pico_locos->getLocoStatusOrCreate(packet.getCab(), status, sizeof(status));
+                    DCCEX_RESPONSE(status);
                 }
             }
 
@@ -279,7 +281,7 @@ void PicoDccController::dccLoop()
         {
             // Emergency safety measures
             main_track->setPower(false); // Cut power to main track
-            //prog_track->setPower(false); // Cut power to prog track
+            prog_track->setPower(false); // Cut power to prog track
             gpio_put(timing_error_led_pin, 1); // Turn on error LED
             
             if (main_gap >= 100)
@@ -434,7 +436,7 @@ void PicoDccController::handleACKLimitCommand(int value)
     
     // Send acknowledgment
     char response[32];
-    snprintf(response, sizeof(response), "<D ACK LIMIT %.0f>", value);
+    snprintf(response, sizeof(response), "<D ACK LIMIT %d>", value);
     DCCEX_RESPONSE(response);
     
     LOG_INFO(COMPONENT_SYSTEM, "ACK threshold updated (runtime)");
@@ -447,7 +449,7 @@ void PicoDccController::handleACKMinCommand(int value)
     
     // Send acknowledgment
     char response[32];
-    snprintf(response, sizeof(response), "<D ACK MIN %.0f>", value);
+    snprintf(response, sizeof(response), "<D ACK MIN %d>", value);
     DCCEX_RESPONSE(response);
     
     LOG_INFO(COMPONENT_SYSTEM, "ACK min duration updated (runtime)");
@@ -460,7 +462,7 @@ void PicoDccController::handleACKMaxCommand(int value)
     
     // Send acknowledgment
     char response[32];
-    snprintf(response, sizeof(response), "<D ACK MAX %.0f>", value);
+    snprintf(response, sizeof(response), "<D ACK MAX %d>", value);
     DCCEX_RESPONSE(response);
     
     LOG_INFO(COMPONENT_SYSTEM, "ACK max duration updated (runtime)");

@@ -30,6 +30,28 @@ PicoDccLoco *PicoDccLocos::findLoco(uint16_t address)
     return loco;
 }
 
+bool PicoDccLocos::getLocoStatus(uint16_t address, char* status_buffer, size_t buffer_size)
+{
+    bool found = false;
+    
+    sem_acquire_blocking(&locos_lock);
+    for (size_t i = 0; i < locos.size(); ++i)
+    {
+        if (locos[i].getAddress() == address)
+        {
+            // Get status while holding the lock to prevent vector reallocation
+            const char* status = locos[i].getDccExStatus();
+            strncpy(status_buffer, status, buffer_size - 1);
+            status_buffer[buffer_size - 1] = '\0';
+            found = true;
+            break;
+        }
+    }
+    sem_release(&locos_lock);
+    
+    return found;
+}
+
 bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
 {
     sem_acquire_blocking(&locos_lock);
@@ -89,7 +111,23 @@ void PicoDccLocos::addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
     sem_acquire_blocking(&locos_lock);
 
     locos.push_back(newLoco);
-    cmd = newLoco.getThrottleCommand();
+    
+    // Get the appropriate command based on packet type
+    if (packet->isFunctionCommand()) {
+        // For function commands, send the specific function group
+        uint8_t fnGroup = 0;
+        uint8_t fn = packet->getFunct();
+        if (fn <= 4) fnGroup = 1;
+        else if (fn <= 8) fnGroup = 2;
+        else if (fn <= 12) fnGroup = 3;
+        else if (fn <= 20) fnGroup = 4;
+        else fnGroup = 5;
+        
+        cmd = newLoco.getFunctionCommand(fnGroup);
+    } else {
+        // For throttle commands, send throttle
+        cmd = newLoco.getThrottleCommand();
+    }
 
     sem_release(&locos_lock);
 }
@@ -104,9 +142,26 @@ bool PicoDccLocos::updateLocoThrottle(uint16_t address, PicoDccExPacket *packet,
     {
         if (locos[i].getAddress() == address)
         {
-            // Update throttle while holding the lock to prevent race conditions
+            // Update the loco state
             locos[i].update(packet);
-            cmd = locos[i].getThrottleCommand();
+            
+            // Get the appropriate command based on packet type
+            if (packet->isFunctionCommand()) {
+                // For function commands, send the specific function group
+                uint8_t fnGroup = 0;
+                uint8_t fn = packet->getFunct();
+                if (fn <= 4) fnGroup = 1;
+                else if (fn <= 8) fnGroup = 2;
+                else if (fn <= 12) fnGroup = 3;
+                else if (fn <= 20) fnGroup = 4;
+                else fnGroup = 5;
+                
+                cmd = locos[i].getFunctionCommand(fnGroup);
+            } else {
+                // For throttle commands, send throttle
+                cmd = locos[i].getThrottleCommand();
+            }
+            
             found = true;
             break;
         }
@@ -144,6 +199,35 @@ void PicoDccLocos::forgetAllLocos()
     last_loco_reminder = INVALID_LOCO_ADDR;
     locos.clear();
 
+    sem_release(&locos_lock);
+}
+
+void PicoDccLocos::getLocoStatusOrCreate(uint16_t address, char* status_buffer, size_t buffer_size)
+{
+    sem_acquire_blocking(&locos_lock);
+    
+    bool found = false;
+    for (size_t i = 0; i < locos.size(); ++i)
+    {
+        if (locos[i].getAddress() == address)
+        {
+            // Get status while holding the lock
+            const char* status = locos[i].getDccExStatus();
+            strncpy(status_buffer, status, buffer_size - 1);
+            status_buffer[buffer_size - 1] = '\0';
+            found = true;
+            break;
+        }
+    }
+    
+    if (!found) {
+        // Loco not found - create temporary one with default state
+        PicoDccLoco tempLoco(address, 0, true);
+        const char* status = tempLoco.getDccExStatus();
+        strncpy(status_buffer, status, buffer_size - 1);
+        status_buffer[buffer_size - 1] = '\0';
+    }
+    
     sem_release(&locos_lock);
 }
 

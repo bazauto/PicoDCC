@@ -65,7 +65,7 @@
 - Dual-core architecture (Core 0 vs Core 1 responsibilities)
 - Queue management and reminder generation
 - DCC protocol implementation details
-- Test coverage summary (113 total tests across 9 suites)
+- Test coverage summary (124 total tests across 9 suites)
 - Future enhancements roadmap
 
 **When to Reference**:

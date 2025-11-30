@@ -38,6 +38,8 @@ public:
     void forgetAllLocos();
 
     PicoDccLoco *findLoco(uint16_t address);
+    bool getLocoStatus(uint16_t address, char* status_buffer, size_t buffer_size);
+    void getLocoStatusOrCreate(uint16_t address, char* status_buffer, size_t buffer_size);
     
     // Update an existing loco's throttle settings while maintaining thread safety
     // Returns true if loco was found and updated, false if not found

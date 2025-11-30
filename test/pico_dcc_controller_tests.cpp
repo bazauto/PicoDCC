@@ -158,47 +158,32 @@ static void test_emergency_stop(void **state)
     queued_commands.clear();
 
     // Print number of locos in the collection for debugging
-    printf("Loco count before emergency stop: %zd\n", controller.getLocoCount());
     fflush(stdout);
 
     // Send emergency stop command
     uart_test_write("<!>");
     controller.dccexLoop();
     
-    // Process the emergency stop command through Core 1 loop to actually send it
+    // Process the emergency stop command through Core 1 loop to queue it
     controller.dccLoop();
+    
+    // Actually generate and send the packet via the track loop
+    controller.getTrack(false)->loop();  // Main track loop generates and sends packets
 
     // Check that locos collection was cleared after emergency stop
-    printf("Loco count after emergency stop: %zd\n", controller.getLocoCount());
     assert_true(controller.getLocoCount() == 0);
 
     // Check that a single emergency stop broadcast packet was sent
     extern std::vector<uint64_t> sent_track_packets;
     
-    // Build expected emergency stop cmd_data using same logic as sendCommand
-    raw_dcc_cmd_t expected_stop_cmd = {};
-    expected_stop_cmd.is_prog = false;
-    expected_stop_cmd.length = 2;
-    expected_stop_cmd.data[0] = 0x00;  // Broadcast address
-    expected_stop_cmd.data[1] = 0x41;  // Emergency stop instruction
-    expected_stop_cmd.cmd_data = 0;
-    
-    // Build cmd_data as in sendCommand
-    expected_stop_cmd.cmd_data |= ((uint64_t)14) << 56; // DCC_MAIN_PREAMBLE
-    expected_stop_cmd.cmd_data |= ((uint64_t)(expected_stop_cmd.length + 1)) << 48;
-    uint8_t cmd_xor = 0x0;
-    for (uint8_t i = 0; i < expected_stop_cmd.length; i++) {
-        uint8_t shift = (5 - 1) - i; // DCC_MAX_DATA_BYTES = 5
-        expected_stop_cmd.cmd_data |= ((uint64_t)expected_stop_cmd.data[i] << (shift * 8));
-        cmd_xor ^= expected_stop_cmd.data[i];
-    }
-    // Add the checksum
-    expected_stop_cmd.cmd_data |= ((uint64_t)cmd_xor << ((5 - 1 - expected_stop_cmd.length) * 8));
+    // Build expected emergency stop packet: 0x0E 03 00 41 41 00 00 00
+    // Preamble=14, Length=3, Address=0x00, Instruction=0x41, Checksum=0x41
+    uint64_t expected_stop_packet = 0x0E03004141000000ULL;
     
     // Search for the emergency stop packet in sent_track_packets
     bool found_emergency_stop = false;
     for (size_t i = 0; i < sent_track_packets.size(); ++i) {
-        if (sent_track_packets[i] == expected_stop_cmd.cmd_data) {
+        if (sent_track_packets[i] == expected_stop_packet) {
             found_emergency_stop = true;
             break;
         }
@@ -285,22 +270,27 @@ static void test_idle_packet_generation(void **state)
 
     // Clear any existing commands from power on
     queued_commands.clear();
+    sent_track_packets.clear();
 
-    // Run the DCC loop - should generate idle packet when no commands available
+    // Run the DCC loop - should queue idle packet when no commands available
     controller.dccLoop();
+    
+    // Actually generate and send packets via the track loop
+    controller.getTrack(false)->loop();  // Main track loop generates idle when queue empty
 
     // Check that an idle packet (0xFF as first data byte) was sent
     extern std::vector<uint64_t> sent_track_packets;
     bool found_idle = false;
-    fflush(stdout);
     for (size_t i = 0; i < sent_track_packets.size(); ++i)
     {
         uint64_t pkt = sent_track_packets[i];
-        // The first data byte is bits 32-39 (big-endian, see sendCommand packing)
-        uint8_t first_byte = (pkt >> 32) & 0xFF;
+        // Idle packet format: [preamble][length][0xFF][0x00][checksum]
+        // First data byte (0xFF) is at bits 40-47
+        uint8_t first_byte = (pkt >> 40) & 0xFF;
         if (first_byte == 0xFF)
         {
             found_idle = true;
+            break;
         }
     }
     assert_true(found_idle);

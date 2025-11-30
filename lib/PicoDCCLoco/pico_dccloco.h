@@ -22,8 +22,8 @@ private:
     uint16_t address;
     uint8_t speed;
     bool forward;
-
-
+    bool functions[29];  // F0-F28 function states
+    char dccex_status[128];  // Buffer for DCC-EX status response
 
     // This is the command that will be sent to the track when needed.  It is initially zero length to avoid it being used.
     raw_dcc_cmd_t cmd;
@@ -34,7 +34,9 @@ public:
     PicoDccLoco(uint16_t address, uint8_t speed, bool forward);
 
     // Copy constructor
-    PicoDccLoco(const PicoDccLoco &other) : address(other.address), speed(other.speed), forward(other.forward), cmd(other.cmd) {}
+    PicoDccLoco(const PicoDccLoco &other) : address(other.address), speed(other.speed), forward(other.forward), cmd(other.cmd) {
+        memcpy(functions, other.functions, sizeof(functions));
+    }
 
     // Comparision operator for ease of comparing objects
     bool operator==(const PicoDccLoco &other) const {
@@ -45,7 +47,7 @@ public:
 
     bool update(PicoDccExPacket *packet);
     bool updateControl(bool _forward, uint8_t _speed);
-    void updateFunct(uint8_t function, bool value);
+    uint8_t updateFunct(uint8_t function, bool value);  // Returns function group (1-5) or 0 if invalid
 
     bool verifyCV(int8_t cvNumber, int8_t expectedByte);
     bool verifyCV(int8_t cvNumber, bool expectedBit);
@@ -58,6 +60,8 @@ public:
 
     raw_dcc_cmd_t getThrottleCommand();
     raw_dcc_cmd_t getFunctionCommand(uint8_t fnGroup);
+    
+    const char* getDccExStatus();
 
     bool isValid() const;
 
