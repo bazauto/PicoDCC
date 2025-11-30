@@ -60,15 +60,7 @@ bool PicoDCCDisplay::init() {
 void PicoDCCDisplay::runBootSequence(uint32_t delay_ms) {
     if (!initialized_) return;
     
-    // Phase 1: Show color test pattern
-    renderer_.showTestPattern();
-    
-    // Platform-specific delay between phases
-#ifndef TEST_BUILD
-    sleep_ms(delay_ms);
-#endif
-    
-    // Phase 2: Show diagnostic screen
+    // Show diagnostic screen directly (test pattern removed)
     renderer_.showDiagnosticScreen();
 }
 
@@ -116,7 +108,9 @@ TrackStatus PicoDCCDisplay::gatherTrackStatus(PicoDccController* controller) {
     
     // Power status
     status.main_power_on = main_track->getPower();
+    status.main_tripped = main_track->isTripped();
     status.prog_power_on = prog_track->getPower();
+    status.prog_tripped = prog_track->isTripped();
     
     // Current readings (convert ADC counts to milliamps using calibration factor)
     status.main_current_ma = main_track->getAverageCurrent() * adc_to_ma;

@@ -11,8 +11,10 @@
 struct TrackStatus {
     bool main_power_on;
     float main_current_ma;
+    bool main_tripped;         // Main track tripped due to overcurrent
     bool prog_power_on;
     float prog_current_ma;
+    bool prog_tripped;         // Prog track tripped due to overcurrent
     uint32_t packets_sent;
     uint32_t idle_packets_sent;
     uint8_t loco_count;

@@ -73,10 +73,13 @@ void PicoDccTrack::setPower(bool on)
     power_on = on;
     gpio_put(power_ctrl_pin, on);
 
-    if (on && short_led_pin != UNUSED_PIN)
-    {
-        // If we have a short LED then turn it off
-        gpio_put(short_led_pin, 0);
+    if (on) {
+        tripped = false;  // Clear trip flag when powering on
+        if (short_led_pin != UNUSED_PIN)
+        {
+            // If we have a short LED then turn it off
+            gpio_put(short_led_pin, 0);
+        }
     }
 
 }
@@ -98,6 +101,7 @@ void PicoDccTrack::loop()
         {
             // If the current is too high then we need to stop the track
             setPower(false);
+            tripped = true;  // Mark as tripped due to overcurrent
             LOG_CRITICAL(COMPONENT_TRACK, "Overcurrent protection activated");
 
             if (short_led_pin != UNUSED_PIN)

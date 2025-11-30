@@ -69,6 +69,7 @@ private:
     uint current_sum = 0;
     uint current_cnt = 0;
     bool power_on = false;
+    bool tripped = false;  // Set when overcurrent protection activates
     bool send_idle_packets = true;  // Flag to control idle packet transmission
 
     // PIO Health Monitoring (Options 1, 3, 4)
@@ -117,6 +118,7 @@ public:
 
     bool getIsProg() { return is_prog; }
     bool getPower() { return power_on; }
+    bool isTripped() { return tripped; }
 
     uint8_t getPowerCtrlPin() {  return power_ctrl_pin; }
     uint8_t getPowerAdcPin() {  return power_adc_pin; }

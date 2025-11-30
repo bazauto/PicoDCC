@@ -50,9 +50,6 @@ static void main_core1()
 int main() {
 
 	stdio_init_all();
-	
-	// Initialize diagnostic log buffer
-	diag_log_init();
 
 	// Initialize LCD display with dependency injection (hardware mode only)
 	LcdDriver lcd;
@@ -68,6 +65,13 @@ int main() {
 
 	// Start our core 1 loop
     multicore_launch_core1(main_core1);
+	
+	// Wait for system to stabilize before enabling diagnostic logging
+	// This prevents false errors during startup (Core 1 heartbeat, PIO init, etc.)
+	sleep_ms(100);
+	
+	// Initialize diagnostic log buffer AFTER system stabilization
+	diag_log_init();
 
 	// This is our core 0 loop
 	while (true)

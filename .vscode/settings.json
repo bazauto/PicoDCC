@@ -41,7 +41,8 @@
         "*.h": "cpp",
         "system_error": "cpp",
         "optional": "cpp",
-        "*.in": "cpp"
+        "*.in": "cpp",
+        "*.x": "cpp"
     },
     
     // CMake Test Explorer Configuration
