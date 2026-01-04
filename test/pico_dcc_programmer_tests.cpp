@@ -35,12 +35,6 @@ struct programmer_test_state {
     // Test control variables
     bool track_powered;
     float baseline_current;
-    
-    // ACK simulation
-    bool simulate_ack;
-    uint32_t ack_start_us;
-    uint32_t ack_duration_us;
-    uint8_t ack_on_byte_value;  // Which byte value should trigger ACK
 };
 
 // Helper functions for test control
@@ -55,12 +49,9 @@ static void set_track_power(struct programmer_test_state *s, bool powered) {
 
 static void set_baseline_current(struct programmer_test_state *s, float current_ma) {
     s->baseline_current = current_ma;
-    // Simulate ADC reading (scaled to ADC range)
-    // 12-bit ADC: 0-4095 range
-    // Overcurrent protection triggers at 90% (3686)
-    // For testing, we'll use a scale that keeps us below overcurrent
-    // Scale: 10mA = 100 ADC units (allows up to ~360mA before overcurrent)
-    mock_adc_reading = static_cast<uint32_t>(current_ma * 10.0f);  // Scale for 12-bit ADC
+    // Convert desired milliamp value into raw ADC counts using hardware calibration
+    const float counts_per_ma = 1.0f / DEFAULT_ADC_TO_MA;
+    mock_adc_reading = static_cast<uint32_t>(current_ma * counts_per_ma);
     
     // Run track loop to process ADC reading into average_current_reading
     // This simulates what would happen in hardware
@@ -69,14 +60,17 @@ static void set_baseline_current(struct programmer_test_state *s, float current_
     }
 }
 
-static void simulate_ack_pulse(struct programmer_test_state *s, uint32_t start_us, uint32_t duration_us) {
-    s->simulate_ack = true;
-    s->ack_start_us = start_us;
-    s->ack_duration_us = duration_us;
+static void configure_ack_pulse(uint32_t duration_us, uint32_t spike_reading, uint32_t start_delay_ms = 110) {
+    const uint32_t start_us = (mock_time_ms + start_delay_ms) * 1000;
+    mock_set_ack_pulse(true, start_us, duration_us, spike_reading);
 }
 
-static void clear_ack_simulation(struct programmer_test_state *s) {
-    s->simulate_ack = false;
+static uint32_t get_ack_spike_reading(struct programmer_test_state *s, float extra_margin_ma) {
+    const float adc_to_ma = s->config->getADCToMAConversion();
+    const uint32_t baseline_counts = mock_adc_reading;
+    const float threshold_ma = s->config->getACKThreshold() + extra_margin_ma;
+    const uint32_t spike_offset = static_cast<uint32_t>(threshold_ma / adc_to_ma);
+    return baseline_counts + spike_offset;
 }
 
 // Setup/teardown
@@ -98,10 +92,6 @@ static int setup(void **state) {
     // Initialize test control
     test_state->track_powered = false;
     test_state->baseline_current = 0.0f;
-    test_state->simulate_ack = false;
-    test_state->ack_start_us = 0;
-    test_state->ack_duration_us = 0;
-    test_state->ack_on_byte_value = 0;
     
     // Reset mock state
     uart_output_log.clear();
@@ -255,13 +245,10 @@ static void test_ack_detection_valid_pulse(void **state) {
     set_track_power(s, true);
     set_baseline_current(s, 30.0f);
     
-    // Simulate ACK pulse: 60mA above baseline for 6ms (6000µs)
-    mock_time_ms = 1;  // Start at 1ms
-    simulate_ack_pulse(s, 1000, 6000);  // ACK from 1ms to 7ms
-    
-    // This will be tested via full CV read workflow
-    // For now, just verify test infrastructure is set up
-    assert_true(s->simulate_ack);
+    uint32_t spike_reading = get_ack_spike_reading(s, 5.0f);
+    configure_ack_pulse(6000, spike_reading);
+    assert_true(s->programmer->verifyCV(1, 0));
+    mock_set_ack_pulse(false, 0, 0, 0);
 }
 
 static void test_ack_detection_pulse_too_short(void **state) {
@@ -271,12 +258,10 @@ static void test_ack_detection_pulse_too_short(void **state) {
     set_track_power(s, true);
     set_baseline_current(s, 30.0f);
     
-    // Simulate ACK pulse that's too short: 3ms instead of 6ms
-    mock_time_ms = 1;
-    simulate_ack_pulse(s, 1000, 3000);  // Only 3ms (below 4.5ms min)
-    
-    // ACK detection should reject this pulse
-    // (Test via readCV integration when implemented)
+    uint32_t spike_reading = get_ack_spike_reading(s, 5.0f);
+    configure_ack_pulse(3000, spike_reading);
+    assert_false(s->programmer->verifyCV(1, 0));
+    mock_set_ack_pulse(false, 0, 0, 0);
 }
 
 static void test_ack_detection_pulse_too_long(void **state) {
@@ -286,12 +271,10 @@ static void test_ack_detection_pulse_too_long(void **state) {
     set_track_power(s, true);
     set_baseline_current(s, 30.0f);
     
-    // Simulate ACK pulse that's too long: 10ms instead of 6ms
-    mock_time_ms = 1;
-    simulate_ack_pulse(s, 1000, 10000);  // 10ms (above 8ms max)
-    
-    // ACK detection should reject this pulse
-    // (Test via readCV integration when implemented)
+    uint32_t spike_reading = get_ack_spike_reading(s, 5.0f);
+    configure_ack_pulse(10000, spike_reading);
+    assert_false(s->programmer->verifyCV(1, 0));
+    mock_set_ack_pulse(false, 0, 0, 0);
 }
 
 static void test_ack_detection_current_below_threshold(void **state) {
@@ -301,8 +284,11 @@ static void test_ack_detection_current_below_threshold(void **state) {
     set_track_power(s, true);
     set_baseline_current(s, 30.0f);
     
-    // For weak pulse test, we'd need to modify mock_adc_reading during ACK window
-    // This will be implemented when ACK detection is working
+    // Configure pulse that never reaches threshold (30mA delta instead of 60mA)
+    uint32_t spike_reading = get_ack_spike_reading(s, -30.0f);
+    configure_ack_pulse(6000, spike_reading);
+    assert_false(s->programmer->verifyCV(1, 0));
+    mock_set_ack_pulse(false, 0, 0, 0);
 }
 
 static void test_ack_detection_no_pulse_timeout(void **state) {
@@ -311,13 +297,8 @@ static void test_ack_detection_no_pulse_timeout(void **state) {
     // Setup: Track powered, stable baseline, NO ACK pulse
     set_track_power(s, true);
     set_baseline_current(s, 30.0f);
-    clear_ack_simulation(s);  // No ACK simulation
-    
-    // Advance time beyond timeout (20ms)
-    mock_time_ms += 25;
-    
-    // ACK detection should timeout
-    // (Test via readCV integration when implemented)
+    mock_set_ack_pulse(false, 0, 0, 0);
+    assert_false(s->programmer->verifyCV(1, 0));
 }
 
 // ============================================================================
@@ -432,10 +413,6 @@ static void test_read_short_address_success(void **state) {
     set_track_power(s, true);
     set_baseline_current(s, 30.0f);
     
-    // Simulate ACK when verify packet matches address 3
-    // (This will require packet inspection in implementation)
-    s->ack_on_byte_value = 3;
-    
     // Read short address
     int16_t address = s->programmer->readShortAddress();
     
@@ -466,8 +443,6 @@ static void test_read_cv_no_ack_for_any_value(void **state) {
     // Setup: Track powered, but decoder never sends ACK
     set_track_power(s, true);
     set_baseline_current(s, 30.0f);
-    clear_ack_simulation(s);  // No ACK simulation
-    
     // Read CV1 (should timeout after trying all 256 values)
     int16_t result = s->programmer->readCV(1);
     
@@ -487,11 +462,6 @@ static void test_full_cv_read_workflow_cv1(void **state) {
     // 1. Setup: Track powered, baseline current
     set_track_power(s, true);
     set_baseline_current(s, 30.0f);
-    
-    // 2. Simulate decoder behavior:
-    //    - Sends ACK when verify packet matches value 42
-    //    - No ACK for other values
-    s->ack_on_byte_value = 42;
     
     // 3. Read CV1
     int16_t address = s->programmer->readCV(1);
@@ -539,8 +509,8 @@ static void test_verify_cv_matching_value(void **state) {
     set_track_power(s, true);
     set_baseline_current(s, 30.0f);
     
-    // Simulate ACK pulse for matching value (CV1 = 3)
-    s->ack_on_byte_value = 3;
+    uint32_t spike_reading = get_ack_spike_reading(s, 5.0f);
+    configure_ack_pulse(6000, spike_reading);
     mock_time_ms = 0;
     
     // Test: Verify CV1 value is 3
@@ -548,6 +518,7 @@ static void test_verify_cv_matching_value(void **state) {
     
     // Verify: Should return true (ACK received)
     assert_true(result);
+    mock_set_ack_pulse(false, 0, 0, 0);
 }
 
 // Test verify CV with non-matching value (no ACK expected)
@@ -558,8 +529,7 @@ static void test_verify_cv_non_matching_value(void **state) {
     set_track_power(s, true);
     set_baseline_current(s, 30.0f);
     
-    // Decoder has value 3, we're verifying wrong value
-    s->ack_on_byte_value = 3;
+    mock_set_ack_pulse(false, 0, 0, 0);
     mock_time_ms = 0;
     
     // Test: Verify CV1 value is 5 (wrong value)

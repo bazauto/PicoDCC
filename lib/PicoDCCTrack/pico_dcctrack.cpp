@@ -14,6 +14,11 @@
 #include "dcc.pio.h"
 #endif
 
+namespace {
+constexpr uint32_t QUEUE_BLOCK_WARNING_US = 2000;      // Warn if queue stays full for 2ms
+constexpr uint32_t QUEUE_BLOCK_LOG_COOLDOWN_MS = 250;  // Throttle warning spam
+}
+
 PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings, PicoDccLocos *locos)
 {
     is_prog = is_prog_in;
@@ -35,6 +40,7 @@ PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings, PicoDccLo
 
     // This is the queue of commands to be sent to the track
     queue_init(&cmd_queue, sizeof(raw_dcc_cmd_t), CMD_QUEUE_LENGTH);
+    queue_metrics.capacity = CMD_QUEUE_LENGTH;
 
     // Setup Track power control PIN, ensuring off initially
     gpio_init(power_ctrl_pin);
@@ -160,13 +166,79 @@ void PicoDccTrack::loop()
 
 void PicoDccTrack::queueCommand(raw_dcc_cmd_t *cmd)
 {
-    queue_add_blocking(&cmd_queue, cmd);
+    uint32_t wait_start_us = 0;
+    bool waiting_for_space = false;
+
+    while (!queue_try_add(&cmd_queue, cmd))
+    {
+        if (!waiting_for_space)
+        {
+            waiting_for_space = true;
+            wait_start_us = time_us_32();
+        }
+
+        uint32_t now_us = time_us_32();
+        uint32_t wait_us = now_us - wait_start_us;
+        uint32_t now_ms = now_us / 1000;
+
+        if (wait_us >= QUEUE_BLOCK_WARNING_US)
+        {
+            uint32_t elapsed_since_warn = now_ms - queue_metrics.last_warning_time_ms;
+            if (elapsed_since_warn >= QUEUE_BLOCK_LOG_COOLDOWN_MS)
+            {
+                uint level = queue_get_level(&cmd_queue);
+                char msg[64];
+                snprintf(msg, sizeof(msg), "Track queue saturated %u/%u (%luus)", level, CMD_QUEUE_LENGTH, (unsigned long)wait_us);
+                LOG_WARNING(COMPONENT_QUEUE, msg);
+                queue_metrics.last_warning_time_ms = now_ms;
+            }
+        }
+
+        sleep_us(50);  // Yield briefly before retrying to avoid hogging the core
+    }
+
+    uint32_t wait_us = 0;
+    if (waiting_for_space)
+    {
+        uint32_t now_us = time_us_32();
+        wait_us = now_us - wait_start_us;
+    }
+
+    queue_metrics.last_wait_us = wait_us;
+    if (wait_us > queue_metrics.max_wait_us)
+    {
+        queue_metrics.max_wait_us = wait_us;
+    }
+
+    uint level = queue_get_level(&cmd_queue);
+    queue_metrics.current_level = static_cast<uint8_t>(level);
+    if (level > queue_metrics.high_water_level)
+    {
+        queue_metrics.high_water_level = static_cast<uint8_t>(level);
+    }
+
     pio_health.commands_queued++;
 }
 
 void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
 {
-    last_command_time = time_us_32() / 1000;  // Multicore-safe timer
+    uint32_t now_us = time_us_32();
+    if (last_command_time_us != 0)
+    {
+        uint32_t gap_us = now_us - last_command_time_us;
+        uint32_t gap_ms = gap_us / 1000;
+        command_gap_history[command_gap_history_index] = gap_ms;
+        command_gap_history_index = (command_gap_history_index + 1) % TRACK_COMMAND_GAP_HISTORY;
+        if (command_gap_history_count < TRACK_COMMAND_GAP_HISTORY)
+        {
+            command_gap_history_count++;
+        }
+        if (gap_ms > max_command_gap)
+        {
+            max_command_gap = gap_ms;
+        }
+    }
+    last_command_time_us = now_us;  // Multicore-safe timer
     if (cmd->cmd_data == 0)
     {
         // build the data and checksum to send to the PIO
@@ -281,4 +353,42 @@ bool PicoDccTrack::isPIOHealthy()
 {
     checkPIOHealth();
     return pio_health.is_healthy;
+}
+
+void PicoDccTrack::getQueueMetrics(track_queue_metrics_t *metrics)
+{
+    if (metrics == nullptr)
+    {
+        return;
+    }
+
+    *metrics = queue_metrics;
+    uint level = queue_get_level(&cmd_queue);
+    queue_metrics.current_level = static_cast<uint8_t>(level);
+    metrics->current_level = static_cast<uint8_t>(level);
+}
+
+void PicoDccTrack::getCommandGapHistory(uint32_t *history_buffer, size_t max_entries, size_t *out_count)
+{
+    if (history_buffer == nullptr || max_entries == 0 || out_count == nullptr)
+    {
+        return;
+    }
+
+    size_t available = command_gap_history_count;
+    if (available > max_entries)
+    {
+        available = max_entries;
+    }
+
+    *out_count = available;
+    for (size_t i = 0; i < available; ++i)
+    {
+        int index = static_cast<int>(command_gap_history_index) - 1 - static_cast<int>(i);
+        if (index < 0)
+        {
+            index += TRACK_COMMAND_GAP_HISTORY;
+        }
+        history_buffer[i] = command_gap_history[index];
+    }
 }

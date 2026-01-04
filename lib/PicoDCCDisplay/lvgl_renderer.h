@@ -46,6 +46,9 @@ private:
     lv_obj_t* title_label_;
     lv_obj_t* packets_label_;
     lv_obj_t* locos_label_;
+    uint32_t last_packet_sample_time_ms_ = 0;  // Timestamp of last packet sample
+    uint32_t last_packet_count_ = 0;           // Commands sent count at last sample
+    float packet_rate_pps_ = 0.0f;             // Smoothed packets-per-second rate
     
     // Phase 4: Touch button objects
     lv_obj_t* btn_main_power_;      // Label updated to show power state + current

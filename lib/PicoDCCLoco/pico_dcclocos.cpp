@@ -1,8 +1,29 @@
-#include <string.h>
+#include <cstddef>
 #include <stdexcept>
 
 #include "pico_dcclocos.h"
 #include "../dccex_communication.h"
+
+namespace {
+void copy_status_string(char* dest, const char* src, size_t max_len) {
+    if (!dest || max_len == 0) {
+        return;
+    }
+
+    size_t i = 0;
+    if (src != nullptr) {
+        for (; i + 1 < max_len && src[i] != '\0'; ++i) {
+            dest[i] = src[i];
+        }
+    }
+
+    for (; i + 1 < max_len; ++i) {
+        dest[i] = '\0';
+    }
+
+    dest[max_len - 1] = '\0';
+}
+}
 
 PicoDccLocos::PicoDccLocos()
 {
@@ -41,8 +62,7 @@ bool PicoDccLocos::getLocoStatus(uint16_t address, char* status_buffer, size_t b
         {
             // Get status while holding the lock to prevent vector reallocation
             const char* status = locos[i].getDccExStatus();
-            strncpy(status_buffer, status, buffer_size - 1);
-            status_buffer[buffer_size - 1] = '\0';
+            copy_status_string(status_buffer, status, buffer_size);
             found = true;
             break;
         }
@@ -213,8 +233,7 @@ void PicoDccLocos::getLocoStatusOrCreate(uint16_t address, char* status_buffer, 
         {
             // Get status while holding the lock
             const char* status = locos[i].getDccExStatus();
-            strncpy(status_buffer, status, buffer_size - 1);
-            status_buffer[buffer_size - 1] = '\0';
+            copy_status_string(status_buffer, status, buffer_size);
             found = true;
             break;
         }
@@ -224,8 +243,7 @@ void PicoDccLocos::getLocoStatusOrCreate(uint16_t address, char* status_buffer, 
         // Loco not found - create temporary one with default state
         PicoDccLoco tempLoco(address, 0, true);
         const char* status = tempLoco.getDccExStatus();
-        strncpy(status_buffer, status, buffer_size - 1);
-        status_buffer[buffer_size - 1] = '\0';
+        copy_status_string(status_buffer, status, buffer_size);
     }
     
     sem_release(&locos_lock);

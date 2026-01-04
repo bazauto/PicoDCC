@@ -34,10 +34,12 @@ This document validates the PicoDCC project implementation against the [DCC-EX N
 | `<t cab speed dir>` | Set locomotive speed/direction | ✅ Implemented | `PicoDccExPacket::isThrottleCommand()` |
 | `<F cab funct state>` | Control locomotive functions | ✅ Implemented | `PicoDccExPacket::isFunctionCommand()` |
 | `<!>` | Emergency stop all locomotives | ✅ Implemented | `PicoDccExPacket::isEmergencyStopCommand()` |
+| `<- cab>` | Release/forget locomotive cab | ✅ Implemented | `PicoDccExPacket::isForgetCommand()` |
 
 **Responses**:
 - ✅ `<l cab 0 speed 0>` locomotive status responses via `getDccExCabUpdate()`
 - ✅ Emergency stop sends `<l cab reg speedByte functMap>` for each active locomotive (DCC-EX compliant)
+- ✅ `<- cab>` acknowledgment mirrored back upon successful forget command
 - ✅ `<O>` acknowledgment for accessory commands
 
 **Implementation Details**:

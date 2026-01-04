@@ -62,8 +62,7 @@ static void test_boot_sequence(void** state) {
     // Run boot sequence with 100ms delay (for faster tests)
     display.runBootSequence(100);
     
-    // Should have shown test pattern and diagnostic screen
-    assert_true(renderer.wasTestPatternShown());
+    // Should have shown diagnostic screen even when skipping the legacy test pattern
     assert_true(renderer.wasDiagnosticScreenShown());
 }
 

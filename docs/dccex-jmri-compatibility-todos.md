@@ -90,7 +90,7 @@ JMRI (Java Model Railroad Interface) queries several DCC-EX commands during star
 | `<T id addr subaddr>` | Ignored? | Return `<X>` error | Low | 🔄 TODO |
 | `<S id pin pullup>` | Ignored? | Return `<X>` error | Low | 🔄 TODO |
 | `<+ cab func>` | Ignored? | Return `<X>` error | Low | 🔄 TODO |
-| `<- cab>` | Ignored? | Return `<X>` error | Low | 🔄 TODO |
+| `<- cab>` | Implemented (releases cab) | Mirror `<- cab>` acknowledgment | Low | ✅ DONE |
 
 **Implementation Notes**:
 - Detect command patterns in `PicoDCCEX::parseCommand()`

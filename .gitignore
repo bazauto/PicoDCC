@@ -4,6 +4,7 @@
 .vscode/launch.json
 .vscode/ipch
 build
+build_test
 CircuitDesign
 
 # Coverage files (generated)

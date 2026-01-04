@@ -166,7 +166,7 @@ void LvglRenderer::createDiagnosticScreen() {
     
     // BOTTOM ROW: Stats (fixed positions, won't overlap)
     packets_label_ = lv_label_create(screen_);
-    lv_label_set_text(packets_label_, "Pkt:0");
+    lv_label_set_text(packets_label_, "Pkt/s:0.0");
     lv_obj_set_style_text_color(packets_label_, THEME_TEXT_STATS, 0);
     lv_obj_set_style_text_font(packets_label_, &lv_font_montserrat_12, 0);
     lv_obj_set_pos(packets_label_, 10, 215);
@@ -295,9 +295,42 @@ void LvglRenderer::updateDiagnosticScreen(const TrackStatus& status) {
     }
     lv_label_set_text(prog_label, buf);
     
-    // Update packet count (limit to 2 digits for display consistency)
-    uint32_t pkt_display = status.packets_sent > 99 ? 99 : status.packets_sent;
-    snprintf(buf, sizeof(buf), "Pkt:%lu", (unsigned long)pkt_display);
+    // Update packets-per-second indicator using smoothed delta of non-idle commands
+    uint32_t now_ms = time_us_32() / 1000;
+    if (last_packet_sample_time_ms_ == 0) {
+        last_packet_sample_time_ms_ = now_ms;
+        last_packet_count_ = status.packets_sent;
+        packet_rate_pps_ = 0.0f;
+    } else {
+        uint32_t delta_time = now_ms - last_packet_sample_time_ms_;
+        if (delta_time >= 50) {  // 50ms minimum window to reduce noise
+            uint32_t delta_packets;
+            if (status.packets_sent >= last_packet_count_) {
+                delta_packets = status.packets_sent - last_packet_count_;
+            } else {
+                // Counter wrapped or reset; treat as fresh sample
+                delta_packets = status.packets_sent;
+            }
+            float instant_rate = 0.0f;
+            if (delta_time > 0) {
+                instant_rate = (static_cast<float>(delta_packets) * 1000.0f) / static_cast<float>(delta_time);
+            }
+            // Simple smoothing to avoid jitter (60% previous, 40% new sample)
+            packet_rate_pps_ = (packet_rate_pps_ * 0.6f) + (instant_rate * 0.4f);
+            last_packet_sample_time_ms_ = now_ms;
+            last_packet_count_ = status.packets_sent;
+        }
+    }
+    // Format rate with fractional precision for low values, clamp to 3 digits to fit label
+    float clamped_rate = packet_rate_pps_;
+    if (clamped_rate > 999.0f) {
+        clamped_rate = 999.0f;
+    }
+    if (clamped_rate < 9.95f) {
+        snprintf(buf, sizeof(buf), "Pkt/s:%0.1f", clamped_rate);
+    } else {
+        snprintf(buf, sizeof(buf), "Pkt/s:%3.0f", clamped_rate);
+    }
     lv_label_set_text(packets_label_, buf);
     
     // Update log count (limit to 2 digits)

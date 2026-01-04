@@ -54,6 +54,7 @@ void adc_init();
 void adc_gpio_init(uint8_t gpio);
 void adc_select_input(uint8_t adc_num);
 uint adc_read();
+void mock_set_ack_pulse(bool enabled, uint32_t start_us, uint32_t duration_us, uint32_t spike_reading);
 
 extern int uart0_data;
 extern void* uart0;

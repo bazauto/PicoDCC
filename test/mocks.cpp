@@ -20,6 +20,17 @@ std::array<bool, 30> gpio_states = {false}; // Initialize all GPIO pins to 0
 int uart0_data = 0;
 void* uart0 = &uart0_data;
 
+namespace {
+struct AckPulseConfig {
+    bool enabled = false;
+    uint32_t start_us = 0;
+    uint32_t duration_us = 0;
+    uint32_t spike_reading = 0;
+};
+
+AckPulseConfig ack_pulse;
+}
+
 // Additional mocks for track testing
 extern uint32_t mock_adc_reading;
 extern uint32_t mock_time_ms;
@@ -83,7 +94,15 @@ bool queue_try_remove(queue_t *queue, void *item) {
 void adc_init() {}
 void adc_gpio_init(uint8_t gpio) {}
 void adc_select_input(uint8_t adc_num) {}
-uint adc_read() { return mock_adc_reading; }
+uint adc_read() {
+    if (ack_pulse.enabled) {
+        uint32_t current_us = mock_time_ms * 1000;
+        if (current_us >= ack_pulse.start_us && current_us < (ack_pulse.start_us + ack_pulse.duration_us)) {
+            return ack_pulse.spike_reading;
+        }
+    }
+    return mock_adc_reading;
+}
 
 void setup_default_uart() {}
 
@@ -210,3 +229,10 @@ void pio_complete_single_word_packet() {
     }
 }
 void dcc_program_init(PIO pio, uint sm, uint offset, uint signal_pin, uint preamble) {}
+
+void mock_set_ack_pulse(bool enabled, uint32_t start_us, uint32_t duration_us, uint32_t spike_reading) {
+    ack_pulse.enabled = enabled;
+    ack_pulse.start_us = start_us;
+    ack_pulse.duration_us = duration_us;
+    ack_pulse.spike_reading = spike_reading;
+}

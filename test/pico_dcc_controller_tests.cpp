@@ -373,6 +373,50 @@ static void test_dccex_acknowledgments(void **state)
     assert_string_equal(uart_output_log[0].c_str(), "<O>");
 }
 
+// Test DCC-EX forget cab command
+static void test_forget_cab_command(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    // Add a locomotive via throttle command
+    uart_output_log.clear();
+    uart_test_write("<t 7 64 1>");
+    controller.dccexLoop();
+    assert_int_equal(controller.getLocoCount(), 1);
+
+    // Issue forget command
+    uart_output_log.clear();
+    uart_test_write("<- 7>");
+    controller.dccexLoop();
+
+    // Loco collection should remove the cab
+    assert_int_equal(controller.getLocoCount(), 0);
+
+    // Should send acknowledgment mirroring the command
+    bool found_ack = false;
+    for (const auto &msg : uart_output_log)
+    {
+        if (msg == "<- 7>")
+        {
+            found_ack = true;
+            break;
+        }
+    }
+    assert_true(found_ack);
+}
+
 // Test core health monitoring
 static void test_core_health_monitoring(void **state)
 {
@@ -744,6 +788,7 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_track_power_control, setup, teardown),
         cmocka_unit_test_setup_teardown(test_idle_packet_generation, setup, teardown),
         cmocka_unit_test_setup_teardown(test_dccex_acknowledgments, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_forget_cab_command, setup, teardown),
         cmocka_unit_test_setup_teardown(test_core_health_monitoring, setup, teardown),
         cmocka_unit_test_setup_teardown(test_queue_timeout_safety, setup, teardown),
         cmocka_unit_test_setup_teardown(test_emergency_power_cutoff, setup, teardown),

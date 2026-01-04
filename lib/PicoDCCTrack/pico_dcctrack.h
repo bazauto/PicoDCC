@@ -7,6 +7,7 @@
 #define PICO_DCCTRACK_H
 
 #include <stdio.h>
+#include <cstddef>
 #include <cstdint>
 
 #include "../dcc_types.h"
@@ -36,6 +37,16 @@ class PicoDccLocos;
 #define HIGHEST_SHORT_ADDR 127
 
 #define CMD_QUEUE_LENGTH 5
+#define TRACK_COMMAND_GAP_HISTORY 8
+
+typedef struct {
+    uint8_t current_level;
+    uint8_t high_water_level;
+    uint8_t capacity;
+    uint32_t last_wait_us;
+    uint32_t max_wait_us;
+    uint32_t last_warning_time_ms;
+} track_queue_metrics_t;
 
 typedef unsigned int uint;
 
@@ -51,6 +62,7 @@ class PicoDccTrack {
 private:
     bool is_prog;
     queue_t cmd_queue;
+    track_queue_metrics_t queue_metrics = {};
     
     // Reference to locomotive collection for reminder generation (Core 1)
     // Only main track uses this; prog track leaves it nullptr
@@ -127,9 +139,12 @@ public:
     bool canReadCurrent() { return power_adc_pin != UNUSED_PIN; }
 
     // Safety monitoring
-    uint32_t getLastCommandTime() { return last_command_time; }
+    uint32_t getLastCommandTime() { return last_command_time_us / 1000; }
+    uint32_t getLastCommandTimeUs() { return last_command_time_us; }
     uint32_t getMaxCommandGap() { return max_command_gap; }
     void resetMaxCommandGap() { max_command_gap = 0; }
+    void getCommandGapHistory(uint32_t *history_buffer, size_t max_entries, size_t *out_count);
+    void getQueueMetrics(track_queue_metrics_t *metrics);
     
     // PIO Health Monitoring
     bool isPIOHealthy();
@@ -140,8 +155,11 @@ public:
     bool getPIOHealthStatus() { return pio_health.is_healthy; }
 
 private:
-    uint32_t last_command_time = 0;   // Time of last command sent
+    uint32_t last_command_time_us = 0;   // Time of last command sent (microseconds since boot)
     uint32_t max_command_gap = 0;     // Maximum gap between commands
+    uint32_t command_gap_history[TRACK_COMMAND_GAP_HISTORY] = {0};
+    uint8_t command_gap_history_count = 0;
+    uint8_t command_gap_history_index = 0;
 };
 
 #endif

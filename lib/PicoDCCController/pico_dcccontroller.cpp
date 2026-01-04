@@ -52,7 +52,7 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     
     // Initialize core health monitoring
     core1_heartbeat = 0;
-    last_core1_check = 0;
+    last_core1_check_us = 0;
     last_core1_heartbeat_value = 0;
     
     // Initialize operation mode and configuration
@@ -73,15 +73,15 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
 void PicoDccController::dccexLoop()
 {
     // Core 1 health monitoring - check every 50ms
-    uint32_t current_time = time_us_32() / 1000;  // Multicore-safe timer
-    if (current_time - last_core1_check >= 50) {
+    uint32_t current_time_us = time_us_32();
+    if (current_time_us - last_core1_check_us >= 50000) {
         if (core1_heartbeat == last_core1_heartbeat_value) {
             // Core 1 appears dead - emergency cutoff
             emergencyPowerCutoff();
             LOG_CRITICAL(COMPONENT_CORE, "Core 1 heartbeat failure detected");
         }
         last_core1_heartbeat_value = core1_heartbeat;
-        last_core1_check = current_time;
+        last_core1_check_us = current_time_us;
     }
     
     pico_dccex_packet packetData;
@@ -178,6 +178,15 @@ void PicoDccController::dccexLoop()
                 pico_locos->forgetAllLocos();
             }
 
+            if (packet.isForgetCommand())
+            {
+                pico_locos->forgetLoco(packet.getCab());
+                char response[16];
+                snprintf(response, sizeof(response), "<- %d>", packet.getCab());
+                DCCEX_RESPONSE(response);
+                return;
+            }
+
             if (packet.isThrottleCommand() || packet.isFunctionCommand())
             {
                 // Silently reject throttle/function commands in maintenance mode
@@ -260,17 +269,22 @@ void PicoDccController::dccexLoop()
 // This is the Core 1 loop
 void PicoDccController::dccLoop()
 {
-    static uint32_t last_command_check = 0;
+    static uint32_t last_command_check_us = 0;
     static uint32_t heartbeat_counter = 0;
-    uint32_t current_time = time_us_32() / 1000;  // Multicore-safe timer
+    uint32_t current_time_us = time_us_32();  // Multicore-safe timer
     
     // Update Core 1 heartbeat for health monitoring
     core1_heartbeat = ++heartbeat_counter;
     
     // Check command timing if it's been more than 10ms
-    if (current_time - last_command_check >= 10)
+    if (current_time_us - last_command_check_us >= 10000)
     {
-        uint32_t main_gap = current_time - main_track->getLastCommandTime();
+        uint32_t main_gap = 0;
+        uint32_t last_cmd_us = main_track->getLastCommandTimeUs();
+        if (last_cmd_us != 0)
+        {
+            main_gap = (current_time_us - last_cmd_us) / 1000;
+        }
         
         // Check PIO health on both tracks
         bool main_pio_healthy = main_track->isPIOHealthy();
@@ -286,7 +300,39 @@ void PicoDccController::dccLoop()
             
             if (main_gap >= 100)
             {
-                LOG_CRITICAL(COMPONENT_CONTROLLER, "DCC timing violation detected");
+                track_queue_metrics_t queue_metrics = {};
+                main_track->getQueueMetrics(&queue_metrics);
+
+                uint32_t gap_history[TRACK_COMMAND_GAP_HISTORY] = {0};
+                size_t gap_count = 0;
+                main_track->getCommandGapHistory(gap_history, TRACK_COMMAND_GAP_HISTORY, &gap_count);
+
+                const char *idle_state = main_track->getIdlePacketsEnabled() ? "ON" : "OFF";
+
+                char timing_msg[64];
+                snprintf(timing_msg, sizeof(timing_msg), "Timing gap %lums idle=%s", (unsigned long)main_gap, idle_state);
+                LOG_CRITICAL(COMPONENT_CONTROLLER, timing_msg);
+
+                char queue_msg[64];
+                snprintf(queue_msg, sizeof(queue_msg), "Queue %u/%u high %u wait %lu/%luus",
+                         queue_metrics.current_level,
+                         queue_metrics.capacity,
+                         queue_metrics.high_water_level,
+                         (unsigned long)queue_metrics.last_wait_us,
+                         (unsigned long)queue_metrics.max_wait_us);
+                LOG_INFO(COMPONENT_QUEUE, queue_msg);
+
+                if (gap_count > 0)
+                {
+                    char gap_msg[64];
+                    size_t written = snprintf(gap_msg, sizeof(gap_msg), "Gap hist(ms):");
+                    size_t limit = gap_count > 5 ? 5 : gap_count;
+                    for (size_t i = 0; i < limit && written < sizeof(gap_msg); ++i)
+                    {
+                        written += snprintf(gap_msg + written, sizeof(gap_msg) - written, " %lu", (unsigned long)gap_history[i]);
+                    }
+                    LOG_INFO(COMPONENT_CONTROLLER, gap_msg);
+                }
             }
             if (!main_pio_healthy)
             {
@@ -302,7 +348,7 @@ void PicoDccController::dccLoop()
             gpio_put(timing_error_led_pin, 0); // Turn off error LED if timing is good
         }
         
-        last_command_check = current_time;
+        last_command_check_us = current_time_us;
     }
 
     // Transfer commands from inter-core queue to appropriate track queue

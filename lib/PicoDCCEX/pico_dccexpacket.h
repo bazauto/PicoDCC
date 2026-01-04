@@ -54,6 +54,7 @@ public:
     bool isAccesoryCommand() { return packet.opcode == 'a'; }
     bool isConfigCommand() { return packet.opcode == 'D' || packet.opcode == 'E'; }
     bool isSaveCommand() { return packet.opcode == 'E'; }
+    bool isForgetCommand() { return packet.opcode == '-'; }
     bool isReadAddressCommand() { return packet.opcode == 'R'; }
     bool isVerifyCommand() { return packet.opcode == 'V'; }
     bool isWriteCommand() { return packet.opcode == 'W'; }

@@ -51,7 +51,7 @@ private:
 
     // Core health monitoring for safety
     volatile uint32_t core1_heartbeat;
-    uint32_t last_core1_check;
+    uint32_t last_core1_check_us;
     uint32_t last_core1_heartbeat_value;
 
     // Operation mode and configuration

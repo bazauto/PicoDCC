@@ -146,6 +146,18 @@ void PicoDccExPacket::decodePacket(char *buffer)
         }
         break;
         
+    // Forget cab command - <- cab>
+    case ('-'):
+        {
+            int cab = -1;
+            if (sscanf(buffer, "- %d", &cab) == 1) {
+                packet.addr = cab;
+            } else {
+                packet.addr = -1;
+            }
+        }
+        break;
+
     case ('E'):  // <E> save command
     case ('s'):  // <s> status command
     case ('#'):  // <#> capacity command
@@ -283,6 +295,13 @@ void PicoDccExPacket::validatePacket() {
         if (packet.addr != -1) {
             valid_packet = true;
         } 
+        break;
+
+    // Forget cab command
+    case ('-'):
+        if (packet.addr >= 0 && packet.addr <= 10239) {
+            valid_packet = true;
+        }
         break;
 
     // Emergency Stop
