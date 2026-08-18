@@ -259,8 +259,6 @@ void test_throttle_packet(void **state)
   assert_int_equal(packet.getSpeed(), 25);
   assert_int_equal(packet.getDirection(), 0);
   
-  const char *cmd = packet.getDccExCabUpdate();
-  assert_string_equal(cmd, "<l 101 0 24 0>");
 }
 void test_function_packet(void **state)
 {
@@ -281,8 +279,6 @@ void test_function_packet(void **state)
   assert_int_equal(packet.getSpeed(), 25);
   assert_int_equal(packet.getDirection(), 0);
   
-  const char *cmd = packet.getDccExCabUpdate();
-  assert_string_equal(cmd, "<l 101 0 24 0>");
 }
 void test_estop_packet(void **state)
 {

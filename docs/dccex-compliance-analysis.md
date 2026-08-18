@@ -37,14 +37,14 @@ This document validates the PicoDCC project implementation against the [DCC-EX N
 | `<- cab>` | Release/forget locomotive cab | ✅ Implemented | `PicoDccExPacket::isForgetCommand()` |
 
 **Responses**:
-- ✅ `<l cab 0 speed 0>` locomotive status responses via `getDccExCabUpdate()`
-- ✅ Emergency stop sends `<l cab reg speedByte functMap>` for each active locomotive (DCC-EX compliant)
+- ✅ `<l cab 0 speed functions>` locomotive status responses via `PicoDccLoco::getDccExStatus()`
+- ✅ Emergency stop sends `<l cab reg speedByte functions>` for each active locomotive (DCC-EX compliant)
 - ✅ `<- cab>` acknowledgment mirrored back upon successful forget command
 - ✅ `<O>` acknowledgment for accessory commands
 
 **Implementation Details**:
 - **Speed Control**: Full 0-126 speed range with direction bit
-- **Function Control**: F0-F28 function support (RCN-212 compliant)
+- **Function Control**: F0-F28 function support (RCN-212 compliant). Functions are encoded as a decimal bitmask in `<l ...>` (bit 0 = F0, bit 28 = F28).
 - **Emergency Stop**: Broadcast command (address 0x00, instruction 0x41)
 - **Locomotive Management**: `PicoDccLocos` collection with automatic reminder system
 

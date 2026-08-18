@@ -17,11 +17,11 @@
 #define CONFIG_VERSION 1
 
 // Factory default values
-#define DEFAULT_ADC_TO_MA 0.0488f        // Must be calibrated per hardware
-#define DEFAULT_ACK_THRESHOLD 60.0f      // 60mA per NMRA S-9.2.3
-#define DEFAULT_ACK_MIN_DURATION 5.0f    // 5ms minimum ACK pulse
-#define DEFAULT_ACK_MAX_DURATION 7.0f    // 7ms maximum ACK pulse
-#define DEFAULT_BASELINE_CURRENT 10.0f   // 10mA typical decoder idle
+#define DEFAULT_ADC_TO_MA 15.0f          // Must be calibrated per hardware
+#define DEFAULT_ACK_THRESHOLD 50.0f      // 50mA per NMRA S-9.2.3
+#define DEFAULT_ACK_MIN_DURATION 6.0f    // 6ms minimum ACK pulse
+#define DEFAULT_ACK_MAX_DURATION 12.0f   // 12ms maximum ACK pulse
+#define DEFAULT_BASELINE_CURRENT 175.0f  // 175mA typical decoder idle
 #define DEFAULT_MAIN_CURRENT_LIMIT 3000  // 3A for main track
 #define DEFAULT_PROG_CURRENT_LIMIT 250   // 250mA for programming track
 

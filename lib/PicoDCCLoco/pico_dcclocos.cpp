@@ -163,6 +163,7 @@ bool PicoDccLocos::updateLocoThrottle(uint16_t address, PicoDccExPacket *packet,
         if (locos[i].getAddress() == address)
         {
             // Update the loco state
+            // Doesn't send anything, just updates internal state
             locos[i].update(packet);
             
             // Get the appropriate command based on packet type
@@ -265,18 +266,8 @@ void PicoDccLocos::sendEmergencyStopResponses()
     // This is required by DCC-EX specification for emergency stop
     for (size_t i = 0; i < locos.size(); ++i) {
         if (locos[i].isValid()) {
-            // Create emergency stop status update packet
-            pico_dccex_packet emergency_status = {
-                't',                    // throttle command opcode
-                (int)locos[i].getAddress(),  // locomotive address
-                0,                      // speed = 0 (emergency stop)
-                1,                      // direction = forward (maintain current direction)
-                false,                  // power_on (not used for throttle)
-                DCCEX_TRACK_MAIN       // track (not used for throttle)
-            };
-
-            PicoDccExPacket response_packet(emergency_status);
-            DCCEX_RESPONSE(response_packet.getDccExCabUpdate());
+            const char* status = locos[i].getDccExStatus();
+            DCCEX_RESPONSE(status);
         }
     }
 

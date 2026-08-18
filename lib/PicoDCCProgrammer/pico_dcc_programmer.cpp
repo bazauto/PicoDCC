@@ -49,6 +49,8 @@
  * ============================================================================
  */
 
+#include <cstdio>
+
 #include "pico_dcc_programmer.h"
 #include "pico_diagnostic.h"
 
@@ -136,13 +138,30 @@ bool PicoDccProgrammer::measureBaselineCurrent() {
     }
     baseline_current_ma = baseline_adc * adc_to_ma;
     
-    // Validate range (10-100mA expected for typical decoder idle)
-    if (baseline_current_ma < 10.0f || baseline_current_ma > 100.0f) {
-        LOG_WARNING("Programmer", "Baseline current outside normal range");
+    // Validate range (100-300mA expected for typical decoder idle)
+    constexpr float BASELINE_MIN_MA = 100.0f;
+    constexpr float BASELINE_MAX_MA = 300.0f;
+    if (baseline_current_ma < BASELINE_MIN_MA || baseline_current_ma > BASELINE_MAX_MA) {
+        char warn_msg[DIAG_MESSAGE_MAX_LEN];
+        std::snprintf(
+            warn_msg,
+            sizeof(warn_msg),
+            "Baseline %.1f mA outside %.1f-%.1f mA",
+            baseline_current_ma,
+            BASELINE_MIN_MA,
+            BASELINE_MAX_MA);
+        LOG_WARNING("Programmer", warn_msg);
         // Continue anyway - user may have unusual decoder
     }
     
-    LOG_INFO("Programmer", "Baseline current measured successfully");
+    char info_msg[DIAG_MESSAGE_MAX_LEN];
+    std::snprintf(
+        info_msg,
+        sizeof(info_msg),
+        "Baseline current measured %.1f raw %.1f mA",
+        baseline_adc,
+        baseline_current_ma);
+    LOG_INFO("Programmer", info_msg);
     return true;
 }
 
@@ -174,16 +193,25 @@ bool PicoDccProgrammer::detectACK(uint32_t timeout_ms) {
     }
     
     // Calculate detection threshold (baseline + configured limit) in milliamps
-    float ack_threshold = baseline_current_ma + static_cast<float>(ack_limit_ma);
+    float ack_threshold_high = baseline_current_ma + static_cast<float>(ack_limit_ma);
+    float ack_threshold_low = ack_threshold_high - ACK_HYSTERESIS_DEFAULT_MA;
+    if (ack_threshold_low < baseline_current_ma) {
+        ack_threshold_low = baseline_current_ma;
+    }
     
     // High-speed current sampling to detect ACK pulse
     // Sample at 10kHz (100µs intervals) for precise timing
     uint32_t start_time_us = time_us_32();
     uint32_t timeout_us = timeout_ms * 1000;
+    bool pulse_active = false;
+    bool pulse_detected = false;
     uint32_t pulse_start_us = 0;
     uint32_t pulse_end_us = 0;
-    bool pulse_detected = false;
-    bool pulse_active = false;
+    uint32_t last_sample_time_us = 0;
+    float pulse_start_ma = 0.0f;
+    float pulse_end_ma = 0.0f;
+    float peak_delta_ma = 0.0f;
+    float last_sample_ma = baseline_current_ma;
     
     // NOTE: TEST_BUILD EXCEPTION - Hardware Environment Difference
     // This conditional is required because test and hardware have different timing models:
@@ -195,25 +223,37 @@ bool PicoDccProgrammer::detectACK(uint32_t timeout_ms) {
     //   Time flows naturally with sleep_us() delays.
     // The ACK detection algorithm is identical (threshold detection + duration validation),
     // but the execution environment requires different loop structures.
+    auto record_sample = [&](float current_ma, uint32_t sample_time_us) {
+        float delta_ma = current_ma - baseline_current_ma;
+        if (delta_ma > peak_delta_ma) {
+            peak_delta_ma = delta_ma;
+        }
+        bool above_high = current_ma > ack_threshold_high;
+        bool below_low = current_ma < ack_threshold_low;
+        if (!pulse_active && above_high) {
+            pulse_active = true;
+            pulse_start_us = sample_time_us;
+            pulse_start_ma = current_ma;
+        } else if (pulse_active && below_low) {
+            pulse_active = false;
+            pulse_end_us = sample_time_us;
+            pulse_detected = true;
+            pulse_end_ma = current_ma;
+        }
+        last_sample_time_us = sample_time_us;
+        last_sample_ma = current_ma;
+    };
+
     #ifdef TEST_BUILD
     // Test mode: Deterministic loop with explicit track updates and simulated time
-        for (uint32_t elapsed_us = 0; elapsed_us < timeout_us; elapsed_us += 1000) {
-            // Explicitly drive track loop for queue progress while sampling raw ADC
-            prog_track->loop();
-            float current_adc = static_cast<float>(adc_read());
-            float current_ma = current_adc * adc_to_ma;  // Convert to milliamps
-        
-        if (!pulse_active && current_ma > ack_threshold) {
-            // Pulse started
-            pulse_active = true;
-            pulse_start_us = elapsed_us;
-        } else if (pulse_active && current_ma <= ack_threshold) {
-            // Pulse ended
-            pulse_end_us = elapsed_us;
-            pulse_detected = true;
-            break;
-        }
-        
+    for (uint32_t elapsed_us = 0; elapsed_us < timeout_us; elapsed_us += 1000) {
+        // Explicitly drive track loop for queue progress while sampling raw ADC
+        prog_track->loop();
+        float current_adc = static_cast<float>(adc_read());
+        float current_ma = current_adc * adc_to_ma;  // Convert to milliamps
+
+        record_sample(current_ma, elapsed_us);
+
         // Advance simulated time (1ms per iteration)
         mock_time_ms += 1;
     }
@@ -224,72 +264,68 @@ bool PicoDccProgrammer::detectACK(uint32_t timeout_ms) {
         float current_adc = static_cast<float>(adc_read());
         float current_ma = current_adc * adc_to_ma;  // Convert ADC counts to milliamps
         uint32_t current_time_us = time_us_32() - start_time_us;
-        
-        if (!pulse_active && current_ma > ack_threshold) {
-            // Pulse started
-            pulse_active = true;
-            pulse_start_us = current_time_us;
-        } else if (pulse_active && current_ma <= ack_threshold) {
-            // Pulse ended
-            pulse_end_us = current_time_us;
-            pulse_detected = true;
-            break;
-        }
-        
-        //sleep_us(100);  // Sample at 10kHz (100µs intervals)
+
+        record_sample(current_ma, current_time_us);
+
+        sleep_us(100);  // Sample at 10kHz (100µs intervals)
     }
     #endif
-    
-    // Validate pulse duration if detected
-    if (pulse_detected) {
-        uint32_t pulse_duration_us = pulse_end_us - pulse_start_us;
 
-        // Check if duration is within acceptable range
-        if (pulse_duration_us >= ack_min_duration_us && pulse_duration_us <= ack_max_duration_us) {
-            LOG_INFO("Programmer", "Valid ACK pulse detected");
-            return true;
-        } else {
-            LOG_WARNING("Programmer", "ACK pulse duration out of range");
-            return false;
-        }
+    if (pulse_active && !pulse_detected) {
+        pulse_end_us = last_sample_time_us;
+        pulse_detected = true;
+        pulse_end_ma = last_sample_ma;
     }
-    
+
+    if (pulse_detected) {
+        uint32_t pulse_duration_us = (pulse_end_us >= pulse_start_us)
+            ? (pulse_end_us - pulse_start_us)
+            : 0;
+
+        if (pulse_duration_us >= ack_min_duration_us && pulse_duration_us <= ack_max_duration_us) {
+            char log_msg[DIAG_MESSAGE_MAX_LEN];
+            std::snprintf(
+                log_msg,
+                sizeof(log_msg),
+                "ACK (duration=%u us, start=%.1f mA, end=%.1f mA)",
+                pulse_duration_us,
+                pulse_start_ma,
+                pulse_end_ma);
+            LOG_INFO("Programmer", log_msg);
+            return true;
+        }
+
+        const char *reason = pulse_duration_us < ack_min_duration_us ? "short" : "long";
+        char log_msg[DIAG_MESSAGE_MAX_LEN];
+        std::snprintf(
+            log_msg,
+            sizeof(log_msg),
+            "ACK %s (duration=%u us, %.1f->%.1f mA, %u-%u us)",
+            reason,
+            pulse_duration_us,
+            pulse_start_ma,
+            pulse_end_ma,
+            ack_min_duration_us,
+            ack_max_duration_us);
+        LOG_WARNING("Programmer", log_msg);
+        return false;
+    }
+
     // No ACK detected within timeout
-    LOG_WARNING("Programmer", "No ACK pulse detected within timeout");
+    char log_msg[DIAG_MESSAGE_MAX_LEN];
+    std::snprintf(
+        log_msg,
+        sizeof(log_msg),
+        "No ACK pulse detected (peak delta=%.1f mA, threshold=%u mA)",
+        peak_delta_ma,
+        ack_limit_ma);
+    LOG_WARNING("Programmer", log_msg);
     return false;
 }
 
 // ============================================================================
 // Private: Direct Mode Packet Generation
 // ============================================================================
-
-raw_dcc_cmd_t PicoDccProgrammer::generateCVReadPacket(uint16_t cv_number) {
-    // NMRA S-9.2.3 Direct Mode CV Access
-    // We implement "read" using verify byte operations (brute force 0-255)
-    // This returns a template packet; caller fills in byte_value for each attempt
-    
-    raw_dcc_cmd_t packet;
-    
-    // Convert CV number to 10-bit address (CV# - 1)
-    uint16_t cv_addr = cv_number - 1;
-    uint8_t addr_high = (cv_addr >> 8) & 0x03;  // Top 2 bits (CC)
-    uint8_t addr_low = cv_addr & 0xFF;           // Bottom 8 bits
-    
-    // Build instruction byte: 1110 CC AA (AA = 01 for verify byte)
-    uint8_t instruction = 0xE0 | (addr_high << 2) | 0x01;
-    
-    // Build packet: [address] [instruction] [cv_low] [data] [error]
-    packet.is_prog = true;
-    packet.length = 4;
-    packet.data[0] = 0x00;           // Broadcast address for service mode
-    packet.data[1] = instruction;     // 1110 CC 01
-    packet.data[2] = addr_low;        // CV address low byte
-    packet.data[3] = 0x00;            // Data byte (caller will set this)
-    packet.repeats = 8;               // NMRA recommends 8+ repetitions for service mode
-    packet.cmd_data = 0;
-
-    return packet;
-}
 
 raw_dcc_cmd_t PicoDccProgrammer::generateCVWritePacket(uint16_t cv_number, uint8_t value) {
     // NMRA S-9.2.3 Direct Mode - Write Byte
@@ -303,13 +339,13 @@ raw_dcc_cmd_t PicoDccProgrammer::generateCVWritePacket(uint16_t cv_number, uint8
     uint8_t addr_high = (cv_addr >> 8) & 0x03;  // Top 2 bits
     uint8_t addr_low = cv_addr & 0xFF;           // Bottom 8 bits
     
-    // Build instruction byte: 0111 CC 11 (CC = CV addr bits, 11 = write byte)
+    // Build instruction byte: 0111 11 CC (CC = CV addr high bits, 11 = write byte)
     uint8_t instruction = 0x7C | addr_high;  // 0x7C = 0111 1100
     
     // Build packet: [instruction] [cv_low] [data]
     packet.is_prog = true;
     packet.length = 3;
-    packet.data[0] = instruction;     // 0111 CC 11
+    packet.data[0] = instruction;     // 0111 11 CC
     packet.data[1] = addr_low;        // CV address low byte
     packet.data[2] = value;           // Byte value to write
     packet.repeats = 1;               // Repeat count (caller may repeat as needed)
@@ -330,13 +366,13 @@ raw_dcc_cmd_t PicoDccProgrammer::generateCVVerifyPacket(uint16_t cv_number, uint
     uint8_t addr_high = (cv_addr >> 8) & 0x03;  // Top 2 bits
     uint8_t addr_low = cv_addr & 0xFF;           // Bottom 8 bits
     
-    // Build instruction byte: 0111 CC 11 (CC = CV addr bits, 11 = verify/write)
-    uint8_t instruction = 0x7C | addr_high;  // 0x7C = 0111 1100
+    // Build instruction byte: 0111 01 CC (CC = CV addr high bits, 01 = verify)
+    uint8_t instruction = 0x74 | addr_high;  // 0x74 = 0111 0100
     
     // Build packet: [instruction] [cv_low] [data]
-    packet.is_prog = true;
+    packet.is_prog = true;            // Prog track to get long preamble
     packet.length = 3;
-    packet.data[0] = instruction;     // 0111 CC 11
+    packet.data[0] = instruction;     // 0111 01 CC
     packet.data[1] = addr_low;        // CV address low byte
     packet.data[2] = byte_value;      // Byte value to verify
     packet.repeats = 1;               // Repeat count (caller may repeat as needed)
@@ -395,8 +431,8 @@ int16_t PicoDccProgrammer::readCV(uint16_t cv_number) {
 
     prog_track->disableIdlePackets();
     
-    // NMRA: Send 6+ reset packets at start of programming session
-    for (uint8_t i = 0; i < 6; i++) {
+    // NMRA: Send 3+ reset packets at start of programming session
+    for (uint8_t i = 0; i < 3; i++) {
         prog_track->queueCommand(&resetPacket);
     }
     sleep_us(5000);
@@ -413,7 +449,8 @@ int16_t PicoDccProgrammer::readCV(uint16_t cv_number) {
         }
 
         // Send packet to track (repeat according to NMRA spec)
-        for (uint8_t attempt = 0; attempt < 5; attempt++) {
+        uint8_t ack_hits = 0;
+        for (uint8_t attempt = 0; attempt < CV_READ_RETRIES; attempt++) {
             
             // Queue packet for transmission
             prog_track->queueCommand(&packet);
@@ -434,14 +471,25 @@ int16_t PicoDccProgrammer::readCV(uint16_t cv_number) {
                 prog_track->loop();
             }
             #else
-            sleep_us(5000);  // Wait for async transmission (5ms)
+            //sleep_us(5000);  // Wait for async transmission (5ms)
             #endif
 
             if (detectACK(20)) {
-                LOG_INFO("Programmer", "CV read successful");
+                ack_hits++;
+                if (ack_hits >= CV_READ_CONFIRMATIONS) {
+                    char log_msg[DIAG_MESSAGE_MAX_LEN];
+                    std::snprintf(
+                        log_msg,
+                        sizeof(log_msg),
+                        "CV %u read successful (value=%u, hits=%u)",
+                        cv_number,
+                        byte_value,
+                        ack_hits);
+                    LOG_INFO("Programmer", log_msg);
 
-                prog_track->enableIdlePackets();
-                return static_cast<int16_t>(byte_value);
+                    prog_track->enableIdlePackets();
+                    return static_cast<int16_t>(byte_value);
+                }
             }
         }
     }

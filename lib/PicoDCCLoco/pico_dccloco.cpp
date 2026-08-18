@@ -106,11 +106,9 @@ void PicoDccLoco::generateThrottleCommand()
         cmd.data[cmd.length++] = (address >> 8) | 0xc0;
     }
     cmd.data[cmd.length++] = address & 0xff;
-
-    uint8_t speed128 = (speed & 0x7f);
-    uint8_t speed28 = (speed128 * 10 + 36) / 46;
-    uint8_t code28 = ((speed28 + 3) / 2) | ((speed28 & 1) ? 0 : 16);
-    cmd.data[cmd.length++] = 64 | code28 | ((forward ? 1 : 0) * 32);
+    // We are supporting only 128 speed steps here
+    cmd.data[cmd.length++] = 0x3f;
+    cmd.data[cmd.length++] = (speed & 0x7f) | (forward ? 0x80 : 0x00);
 }
 
 uint8_t PicoDccLoco::updateFunct(uint8_t function, bool value)
@@ -217,20 +215,24 @@ raw_dcc_cmd_t PicoDccLoco::getFunctionCommand(uint8_t fnGroup)
 const char* PicoDccLoco::getDccExStatus()
 {
     // Calculate speed byte (DCC-EX format)
-    int speed128 = speed;
-    if (speed128 > 1)
+    int speed128 = (speed & 0x7f);
+    
+    // Map DCC speed to DCC-EX speed. 2-127 in DCC maps to 1-126 in DCC-EX. 0 remains stop
+    if (speed > 1)
         speed128 = speed128 - 1;
-    speed128 = speed128 | (forward ? 128 : 0);
+
+    speed128 = speed128 + (forward * 128);
     
-    // Build function state string (F0-F28 as binary digits)
-    char funcStates[30];
+    // Build function state bitmask (F0-F28 => bits 0-28)
+    uint32_t function_mask = 0;
     for (int i = 0; i < 29; i++) {
-        funcStates[i] = functions[i] ? '1' : '0';
+        if (functions[i]) {
+            function_mask |= (1u << i);
+        }
     }
-    funcStates[29] = '\0';
-    
-    // Format: <l cab slot speedByte functionMap>
-    snprintf(dccex_status, sizeof(dccex_status), "<l %d 0 %d %s>", address, speed128, funcStates);
+
+    // Format: <l cab slot speedByte functionMask>
+    snprintf(dccex_status, sizeof(dccex_status), "<l %d 0 %d %u>", address, speed128, function_mask);
     
     return dccex_status;
 }

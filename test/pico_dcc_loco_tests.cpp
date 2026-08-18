@@ -306,10 +306,11 @@ void test_dccex_status_response(void **state)
   
   const char* status = loco.getDccExStatus();
   
-  // Should be: <l 3 0 177 1000000000000100000000000000001>
-  // Speed 50-1 = 49, with forward bit (128) = 177
-  // Function bits: F0=1 (pos 0), F13=1 (pos 13), F28=1 (pos 28)
-  assert_string_equal(status, "<l 3 0 177 10000000000001000000000000001>");
+  // Should be: <l 3 0 178 268443649>
+  // Speed 50 with forward bit (128) = 178
+  // Function bits: F0=1 (bit 0), F13=1 (bit 13), F28=1 (bit 28)
+  // Decimal mask = 1 + 8192 + 268435456 = 268443649
+  assert_string_equal(status, "<l 3 0 178 268443649>");
 }
 
 int main(int argc, char *argv[])

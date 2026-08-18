@@ -8,6 +8,7 @@
 2. **Tap "View Logs" Button**: Opens log viewer screen
 3. **Scroll Through Logs**: Touch and drag to scroll
 4. **Return**: Tap "Back" button to return to main screen
+5. **Remote Dump**: Send `<D LOG GET>` over DCC-EX to stream the same formatted log lines to your console (capped at 20 newest entries, ends with `<D LOG END>`)
 
 ### Log Entry Format
 

@@ -35,6 +35,7 @@ private:
     void handleConfigSave();
     void handleConfigReset();
     void handleConfigExport();
+    void handleLogGet();
     
     // Calibration workflow
     void handleCalStart();

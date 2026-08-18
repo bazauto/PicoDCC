@@ -35,6 +35,8 @@
 #define ACK_LIMIT_DEFAULT_MA 60          // ACK threshold above baseline (50-100mA typical)
 #define ACK_MIN_DURATION_DEFAULT_US 4500 // Min ACK pulse duration (4.5ms typical)
 #define ACK_MAX_DURATION_DEFAULT_US 8000 // Max ACK pulse duration (8ms spec limit)
+#define ACK_HYSTERESIS_DEFAULT_MA 10      // Dropout margin to keep pulse continuous
+#define CV_READ_CONFIRMATIONS 2          // Require two ACK detections per byte before accepting
 
 // CV Read Configuration
 #define CV_READ_RETRIES 8        // Number of verify packets per byte (NMRA spec: 6-8)
@@ -88,22 +90,6 @@ private:
      * @return true if valid ACK detected, false otherwise
      */
     bool detectACK(uint32_t timeout_ms = CV_READ_TIMEOUT_MS);
-    
-    /**
-     * @brief Generate NMRA Direct Mode CV read packet
-     * 
-     * Creates DCC packet for CV read operation (NMRA S-9.2.3):
-     * - 20-bit preamble (programming track)
-     * - Address byte: 0x76 (direct mode broadcast)
-     * - Instruction byte: 1110CCAA (CC=CV bits 9-8, AA=11 for read)
-     * - CV address low byte
-     * - Data byte: 0x00 (not used for read)
-     * - Error detection byte (XOR of previous bytes)
-     * 
-     * @param cv_number CV number (1-1024)
-     * @return DCC packet structure
-     */
-    raw_dcc_cmd_t generateCVReadPacket(uint16_t cv_number);
     
     /**
      * @brief Generate NMRA Direct Mode CV verify packet

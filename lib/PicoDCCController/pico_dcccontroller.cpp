@@ -181,9 +181,7 @@ void PicoDccController::dccexLoop()
             if (packet.isForgetCommand())
             {
                 pico_locos->forgetLoco(packet.getCab());
-                char response[16];
-                snprintf(response, sizeof(response), "<- %d>", packet.getCab());
-                DCCEX_RESPONSE(response);
+                // NOTE: no response required for forget command
                 return;
             }
 
@@ -579,6 +577,10 @@ void PicoDccController::handleReadAddressCommand()
         DCCEX_RESPONSE(response);
         LOG_INFO(COMPONENT_PROGRAMMER, "Short address read successfully");
         return;
+    } else if (short_addr >= 0) {
+        char log_msg[DIAG_MESSAGE_MAX_LEN];
+        snprintf(log_msg, sizeof(log_msg), "Short address out of range (%d)", short_addr);
+        LOG_WARNING(COMPONENT_PROGRAMMER, log_msg);
     }
     
     // Try reading long address (CV17/18)
@@ -590,6 +592,10 @@ void PicoDccController::handleReadAddressCommand()
         DCCEX_RESPONSE(response);
         LOG_INFO(COMPONENT_PROGRAMMER, "Long address read successfully");
         return;
+    } else if (long_addr >= 0) {
+        char log_msg[DIAG_MESSAGE_MAX_LEN];
+        snprintf(log_msg, sizeof(log_msg), "Long address out of range (%d)", long_addr);
+        LOG_WARNING(COMPONENT_PROGRAMMER, log_msg);
     }
     
     // No valid address found
@@ -658,7 +664,11 @@ void PicoDccController::handleVerifyCommand(PicoDccExPacket* packet)
         return;
     }
     
-    LOG_INFO(COMPONENT_PROGRAMMER, "Verifying CV value...");
+    {
+        char log_msg[DIAG_MESSAGE_MAX_LEN];
+        snprintf(log_msg, sizeof(log_msg), "Verifying CV %d value %d", cv, value);
+        LOG_INFO(COMPONENT_PROGRAMMER, log_msg);
+    }
     
     // Verify CV value
     bool verified = programmer.verifyCV(cv, value);

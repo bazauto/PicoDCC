@@ -290,6 +290,34 @@ void PicoDccExPacket::validatePacket() {
 
     // These opcodes are validated through having successfully parsed parameters
     case ('t'):
+        valid_packet = true;
+
+        if (getCab() < 0 || getCab() > 10239) {
+            valid_packet = false;  // Invalid cab number
+        }
+
+        if (getSpeed() < -1 || getSpeed() > 126) {
+            valid_packet = false;  // Invalid speed
+        }
+
+        // Translate JMRI speed (0-126) to DCC speed (0-127)
+        //  JRMI -1 is emergency stop, 0 is stop, 1-126 are speeds
+        //  DCC   0 is stop, 1 is emergency stop and 2-127 are speeds
+        if (getSpeed() < 0) {
+            packet.param1 = 1;
+        } else if (getSpeed() > 0) {
+            packet.param1 = getSpeed() + 1;
+        }
+
+        if (getCab() == 0 && getSpeed() > 1) {
+            valid_packet = false;  // Bradcast only emergency stops
+        }
+
+        if (getDirection() != 0 && getDirection() != 1) {
+            valid_packet = false;  // Invalid direction
+        }
+
+        break;
     case ('F'):
     case ('a'):
         if (packet.addr != -1) {
@@ -344,28 +372,6 @@ raw_dcc_cmd_t *PicoDccExPacket::getRawDccAccessoryCmd()
         raw_dcc_cmd.repeats = 3;
     }
     return &raw_dcc_cmd;
-}
-
-char *PicoDccExPacket::getDccExCabUpdate()
-{
-    if (strlen(dccex_cab_update) != 0)
-    {
-        return dccex_cab_update;
-    }
-
-    uint8_t speed128 = (getSpeed() & 0x7f);
-    int8_t responseSpeed = 0;
-    if (speed128 == 1)
-        responseSpeed = -1;
-
-    if (speed128 > 1)
-        speed128 = speed128 - 1;
-
-    speed128 = speed128 | (getDirection() * 128);
-
-    snprintf(dccex_cab_update, sizeof(dccex_cab_update), "<l %d 0 %d 0>", getCab(), speed128);
-
-    return dccex_cab_update;
 }
 
 char *PicoDccExPacket::getDccExPowerUpdate()

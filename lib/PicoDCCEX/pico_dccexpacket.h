@@ -31,7 +31,6 @@ private:
     bool valid_packet = false;
 
     raw_dcc_cmd_t raw_dcc_cmd;
-    char dccex_cab_update[16] = {'\0'};
     char dccex_power_update[10] = {'\0'};
 
     void decodePacket(char *buffer);
@@ -88,7 +87,6 @@ public:
     int getWriteForm() { return packet.param2; }           // W command: 1=<W addr>, 2=<W cv value>
 
     raw_dcc_cmd_t *getRawDccAccessoryCmd();
-    char *getDccExCabUpdate();
     char *getDccExPowerUpdate();
 };
 

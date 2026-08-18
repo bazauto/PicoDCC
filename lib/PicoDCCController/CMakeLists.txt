@@ -8,6 +8,10 @@ set(CMAKE_CXX_STANDARD 17)
 
 add_library(${PROJECT_NAME} pico_dcccontroller.cpp)
 
+if(TARGET generate_version)
+  add_dependencies(${PROJECT_NAME} generate_version)
+endif()
+
 if(TEST_BUILD)
 
   # pass -D TEST_BUILD when compiling

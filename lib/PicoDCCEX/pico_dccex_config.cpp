@@ -63,6 +63,19 @@ bool PicoDccExConfig::processCommand(const char *buffer) {
         }
     }
     
+    // Check for LOG commands
+    if (strncmp(cmd, "LOG", 3) == 0) {
+        cmd += 3;
+        while (*cmd == ' ') cmd++;
+
+        if (strncmp(cmd, "GET", 3) == 0) {
+            handleLogGet();
+            return true;
+        }
+
+        return false;
+    }
+    
     // Check for CAL commands
     if (strncmp(cmd, "CAL", 3) == 0) {
         cmd += 3;
@@ -112,6 +125,46 @@ bool PicoDccExConfig::processCommand(const char *buffer) {
     }
     
     return false;  // Not a config/cal command
+}
+
+void PicoDccExConfig::handleLogGet() {
+    uint32_t log_count = diag_log_get_count();
+    if (log_count == 0) {
+        DCCEX_RESPONSE("<D LOG EMPTY>");
+        return;
+    }
+
+    if (log_count > DIAG_LOG_BUFFER_SIZE) {
+        log_count = DIAG_LOG_BUFFER_SIZE;  // Match LCD viewer cap
+    }
+    
+    for (uint32_t i = 0; i < log_count; i++) {
+        diagnostic_msg_t entry;
+        if (!diag_log_get_entry(i, &entry)) {
+            continue;
+        }
+        
+        entry.component[DIAG_COMPONENT_MAX_LEN - 1] = '\0';
+        entry.message[DIAG_MESSAGE_MAX_LEN - 1] = '\0';
+        
+        const char* level_str = "INFO";
+        if (entry.level == DIAG_WARNING) level_str = "WARN";
+        else if (entry.level == DIAG_ERROR) level_str = "ERROR";
+        else if (entry.level == DIAG_CRITICAL) level_str = "CRIT";
+        
+        char response[128];
+        snprintf(response,
+                 sizeof(response),
+                 "<D LOG [%lu.%03lu] %s %s: %s>\n",
+                 (unsigned long)(entry.timestamp / 1000UL),
+                 (unsigned long)(entry.timestamp % 1000UL),
+                 level_str,
+                 entry.component,
+                 entry.message);
+        DCCEX_RESPONSE(response);
+    }
+    
+    DCCEX_RESPONSE("<D LOG END>");
 }
 
 void PicoDccExConfig::handleConfigGet(const char *param) {

@@ -9,6 +9,10 @@ Based on your responses:
 
 ## Critical Challenge: ACK Detection Timing
 
+### ACK Detection Strategy
+
+We reverted to the NMRA-aligned approach: an ACK is valid only when the current stays above `baseline + threshold` continuously for the configured duration window (`ACK_MIN_DURATION_DEFAULT_US` to `ACK_MAX_DURATION_DEFAULT_US`). A 5 mA hysteresis band keeps the pulse “latched” once it crosses the high threshold so that small dips don’t split the waveform. The diagnostic logger now captures the measured duration, peak delta current, and whether the pulse fell outside the window ("too short"/"too long"). Brute-force CV reads still require two successful ACK detections (`CV_READ_CONFIRMATIONS`) before returning a value, but each detection now comes from a single continuous pulse rather than the earlier multi-hit heuristic.
+
 ### NMRA Requirements (S-9.2.3)
 - **ACK Pulse**: 60mA current increase for 6ms ±1ms
 - **Detection Window**: Must detect within 8ms after bit transmission
