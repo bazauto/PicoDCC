@@ -1,5 +1,12 @@
 # PicoDCC DCC-EX Specification Compliance Analysis
 
+**Reviewed against `main`**: 2026-08-20
+
+> The authoritative list of what actually parses is the opcode table in
+> [`architecture.md`](architecture.md), derived directly from
+> `lib/PicoDCCEX/pico_dccexpacket.cpp`. This document gives the reasoning and the gap analysis;
+> where the two disagree, the code wins.
+
 ## Overview
 This document validates the PicoDCC project implementation against the [DCC-EX Native Commands Summary Reference](https://dcc-ex.com/reference/software/command-summary-consolidated.html). The analysis focuses on implemented features and identifies areas for future development.
 
@@ -99,8 +106,15 @@ This document validates the PicoDCC project implementation against the [DCC-EX N
 **Implementation Details**:
 - **Runtime Adjustable**: Changes take effect immediately in RAM
 - **Persistent Storage**: Saved to flash via `<E>` command (maintenance mode only)
-- **ACK Detection**: Uses calibrated ADC current sensing on programming track
 - **Configuration Storage**: `PicoConfigStorage` manages NV storage in flash
+- ⚠️ **ACK detection itself is not implemented on `main`.** These three commands tune and
+  persist the *parameters* for it; nothing consumes them yet. The detection logic is being
+  developed on the `programming` branch. Do not read "implemented" here as meaning a decoder
+  acknowledgement can currently be detected.
+
+**Not reachable**: `<D CONFIG ...>` and `<D CAL ...>` are implemented in
+`lib/PicoDCCEX/pico_dccex_config.cpp` but never wired into the command path — the packet
+validator accepts only `<D ACK ...>`. See `docs/README.md` § Known gaps.
 
 ### EEPROM/Flash Storage Commands
 **Status**: ✅ **IMPLEMENTED** (with safety restrictions)

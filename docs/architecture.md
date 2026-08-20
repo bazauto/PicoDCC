@@ -11,11 +11,14 @@ This document describes the high-level architecture of the PicoDCC project, a Di
 graph TD
     subgraph Core0[Core 0 - Command Processing]
         UART[UART Input\nDCC-EX Protocol]
-        CTRL[PicoDccController\nMain Orchestration]
+        CTRL[PicoDccController\nMain Orchestration\nOperationMode]
         PARSE[PicoDccEx\nCommand Parsing]
         LOCOS[PicoDccLocos\nCollection Management]
         LOCO[PicoDccLoco\nIndividual Loco State]
         MAINQ[Main Command Queue\nRepeat/Interleaving Logic]
+        DISP[PicoDCCDisplay\nLCD + Touch UI]
+        CFG[PicoConfigStorage\nRuntime + Flash Config]
+        DIAG[PicoDiagnostic\nCircular Log Buffer]
     end
     
     subgraph Core1[Core 1 - Hardware Control]
@@ -43,7 +46,15 @@ graph TD
     PROGTRACK --> GPIO
     ADC -- Feedback --> CTRL
     GPIO -- Status --> CTRL
+    CTRL --> DISP
+    DISP -- Mode entry/exit --> CTRL
+    CTRL --> CFG
+    DIAG -- Log entries --> DISP
 ```
+
+Core 0 runs the display alongside command processing: `PicoDCCDisplay::loop()` is called
+directly from `main()`'s loop, and reads controller state with a **non-blocking** semaphore
+so it can never stall Core 1's DCC timing.
 
 ---
 
@@ -93,10 +104,25 @@ graph TD
 ### PicoDccEx
 - **Role**: DCC-EX protocol parser and validator
 - **Responsibilities**:
-  - Parses incoming UART commands into structured packets
-  - Validates command syntax and parameters
-  - Supports throttle, function, power, and accessory commands
-- **Packet Types**: Version queries, power control, locomotive commands, emergency stop
+  - Reads commands from raw `uart0` (initialised by `setup_default_uart()` — GPIO 0/1, 115200)
+  - Parses incoming commands into structured packets and validates syntax and ranges
+- **Accepted opcodes** (this is a *partial* DCC-EX implementation — treat this list, not the
+  upstream DCC-EX reference, as authoritative):
+
+  | Opcode | Form | Notes |
+  |---|---|---|
+  | `<0>` / `<1>` | optional `MAIN` / `PROG` | Track power off/on |
+  | `<t>` | `<t cab speed dir>` | **3-field form only**; the legacy 4-field form is rejected |
+  | `<F>` | `<F cab func state>` | Function control |
+  | `<a>` | `<a addr subaddr activate>` | Accessory; address validated 1–2044 |
+  | `<!>` | no parameters | Emergency stop broadcast |
+  | `<s>` | no parameters | Status |
+  | `<#>` | no parameters | Number of supported cabs |
+  | `<D ACK LIMIT\|MIN\|MAX v>` | | Runtime ACK tuning, range-validated |
+  | `<E>` | no parameters | Save config to flash; maintenance mode only |
+
+- **Parsed but rejected**: `<S>` (sensors) is consumed by the parser but never marked valid,
+  so sensor commands are not supported.
 
 ### PicoDccLoco
 - **Role**: Individual locomotive state management
@@ -128,6 +154,71 @@ graph TD
 - **Safety Features**: Automatic power cutoff on overcurrent, short circuit LED indication
 - **Core 1 Operation**: Runs on Core 1, self-regulating reminder generation
 
+### PicoDCCDisplay
+- **Role**: All LCD and touch behaviour, as a self-contained component
+- **Responsibilities**:
+  - Owns its own timing, data gathering, screen rendering and UI state
+  - Boot sequence, main status screen, diagnostic log viewer, maintenance-mode UI
+  - Reads controller and track state itself — `main()` never gathers data on its behalf
+- **Hardware**: Waveshare WAV-27579, ST7789T3 controller, LVGL graphics, resistive touch
+- **Structure**: `LcdDriver` and `LvglRenderer` are injected by reference, so the component
+  is testable in test mode against mocks (`lib/PicoDCCDisplay/mocks/`)
+- **Integration**: `main()` calls exactly three methods — `init()`, `runBootSequence()`,
+  `loop(controller)`
+- **Thread Safety**: Uses `sem_try_acquire()` for Core 0 reads. A blocking acquire here
+  stalls Core 1 and corrupts DCC timing.
+
+### PicoConfigStorage
+- **Role**: Tunable and calibration configuration, in RAM and in flash
+- **Responsibilities**:
+  - Hybrid model: a **runtime** copy in RAM that commands adjust freely, and a **persistent**
+    copy in the last 4KB flash sector written only on explicit save
+  - CRC32 validation with fall-back to factory defaults on corruption
+  - Tracks `unsaved_changes` so the UI can warn before discarding edits
+- **Stored values**: ACK threshold/min/max duration, programming-track baseline current,
+  ADC-to-mA conversion factor, main and programming track current limits
+- **Flash safety**: a write blocks **both cores for ~410ms**, which stops DCC output. This is
+  why writes are gated behind Layout Maintenance Mode — see below.
+- **Flash preservation**: `memmap_picodcc.ld` shrinks the firmware FLASH region to 2044k so a
+  firmware update cannot erase the config sector
+
+### PicoDiagnostic
+- **Role**: Internal diagnostic logging, strictly separate from the protocol UART
+- **Responsibilities**:
+  - 30-entry circular buffer (~2KB RAM) with severity levels
+  - `LOG_CRITICAL` / `LOG_ERROR` / `LOG_WARNING` / `LOG_INFO` macros, tagged by component
+  - Surfaced on the LCD log viewer; the main screen carries a live log-count indicator
+- **Protocol rule**: `DCCEX_RESPONSE()` is reserved for genuine DCC-EX replies. A diagnostic
+  emitted on that channel desynchronises JMRI.
+- **Memory safety**: entries are copied byte-by-byte into a static, 8-byte-aligned buffer —
+  `strncpy()` and struct assignment both hard-fault on the RP2350.
+
+## Operation Modes
+
+`PicoDccController` owns an `OperationMode` state machine with two states, `NORMAL` and
+`LAYOUT_MAINTENANCE`. It exists for one reason: flash writes stall both cores for ~410ms,
+DCC output stops, and decoders that lose the signal fall back to DC mode — which means
+**full speed if the track is powered**.
+
+### Layout Maintenance Mode
+
+- **Entry**: LCD button only. Requiring physical presence at the controller is deliberate —
+  it prevents a remote client from putting the layout into this state accidentally.
+- **Entry requirement**: `canEnterMaintenanceMode()` verifies the main track is unpowered.
+  The system verifies power state; the operator confirms locomotives are stopped via a modal.
+  Verify-not-force: the firmware checks what it can observe and asks about what it cannot.
+- **While in the mode**:
+  - Main track power is locked out — `<1 MAIN>` returns `<X>`
+  - The programming track continues to operate normally
+  - `<D ACK ...>` adjusts runtime configuration in RAM
+  - `<E>` saves configuration to flash — legal *only* in this mode
+  - Throttle, function and accessory commands are silently rejected
+- **Exit**: manual, from the LCD. There is no timeout. Main track power stays **off** after
+  exit; the operator must re-enable it explicitly.
+
+All four properties — LCD-only entry, verified power state, no timeout, no auto-restore —
+are safety requirements rather than UX choices. Do not relax them.
+
 ## DCC Protocol Implementation
 
 ### Emergency Stop Behavior
@@ -156,7 +247,8 @@ graph TD
 - **Critical Conditions**: Core synchronization failures, queue overflows, overcurrent protection, timing violations
 - **Diagnostic System**: Silent logging infrastructure with severity levels (CRITICAL/ERROR/WARNING/INFO)
 - **Protocol Compliance**: Strict separation between DCC-EX protocol responses and internal error reporting
-- **Future Integration**: Complete diagnostic framework ready for LCD display implementation
+- **LCD Integration**: Logs are viewable, scrollable and clearable from the LCD log viewer,
+  formatted as `[TIME] LEVEL COMPONENT: message`
 
 ## Synchronization & Threading
 
@@ -219,8 +311,14 @@ typedef struct {
 ## Development & Debugging
 
 ### Build System
-- **Dual-Mode Architecture**: CMake supports both test (MSVC/mocks) and hardware (ARM GCC/Pico SDK) builds
-- **Validation**: `.\scripts\Validate-DualMode.ps1` ensures cross-mode compatibility
+- **Dual-Mode Architecture**: CMake supports both test (host GCC + Ninja + CMocka mocks) and
+  hardware (ARM GCC / Pico SDK) builds, selected by the `TEST_BUILD` flag. Both use the same
+  `build/` directory, so the CMake cache must be cleared when switching between them.
+- **CI**: `.github/workflows/ci.yml` runs the test build and `ctest` on every push and PR. It
+  does **not** cross-compile, so hardware-mode breakage must be caught locally.
+- **Validation**: `.\scripts\Validate-DualMode.ps1` covers both modes, but its hardware branch
+  hardcodes a Pico SDK v1.5.1 toolchain path and will warn-and-skip on a `~/.pico-sdk` setup.
+- **Build commands**: see `CLAUDE.md` at the repository root.
 
 ### Debugging Strategies
 - **Hardware Queue**: Check sent packets, not current queue state
@@ -234,10 +332,29 @@ typedef struct {
 - **Current Monitoring**: Only active when hardware is configured
 - **Memory Management**: Static allocation for real-time performance
 
+## Known Gaps
+
+Things that exist in the tree but are **not** wired into the running system. Documented here
+so they are not mistaken for working features:
+
+- **`PicoDccExConfig` is dead code.** `lib/PicoDCCEX/pico_dccex_config.cpp` implements
+  `<D CONFIG ...>` and `<D CAL ...>` handlers, and the class compiles into `PicoDCCEX`, but it
+  is never constructed or called. The packet validator accepts only `<D ACK ...>`, so every
+  other `D` subcommand is rejected before it reaches any handler. The configuration and
+  calibration command sets described in `docs/implementation-complete-config-storage.md` and
+  `docs/calibration-guide.md` are therefore **not reachable on `main`**.
+- **CV programming methods are declarations only.** `verifyCV()`, `readCVByte()`,
+  `readCVBit()`, `writeCVBytes()` and `writeCVBit()` are declared in `pico_dccloco.h` with no
+  definitions in the corresponding `.cpp`.
+- **ACK detection is not implemented.** The configuration *parameters* for it exist and are
+  tunable and persistable; the detection logic in `PicoDccTrack` does not.
+
 ## Future Enhancements
 
 ### Planned Features
-- **CV Programming**: Service mode operations for decoder configuration
+- **CV Programming**: Service mode operations for decoder configuration. Requires ACK
+  detection first — see `docs/service-mode-programming-plan.md`. Work in progress lives on
+  the `programming` branch.
 - **Advanced Addressing**: Extended address support beyond current implementation
 - **Function Groups**: Support for F13-F28 function ranges
 

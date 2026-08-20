@@ -1,5 +1,12 @@
 # ACK Detection Implementation Analysis
 
+**Reviewed against `main`**: 2026-08-20 — **not implemented here.** `PicoDccTrack` contains no
+ACK detection. The `PicoDccProgrammer` class this document recommends exists only on the
+`origin/programming` branch, where reading the current accurately is the current blocker —
+exactly the risk this analysis identifies. The tunable parameters (threshold, min/max pulse
+duration, baseline, ADC-to-mA factor) *are* implemented and persistable on `main`; nothing
+consumes them yet.
+
 ## Executive Summary
 
 Based on your responses:
