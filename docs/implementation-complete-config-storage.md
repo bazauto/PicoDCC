@@ -2,8 +2,30 @@
 
 **Date**: October 19, 2025  
 **Updated**: October 20, 2025 (Layout Maintenance Mode Implemented)  
-**Status**: ✅ Layout Maintenance Mode Complete - Ready for ACK Detection Phase  
-**Phase**: Infrastructure complete, UI implemented, ready for CV Programming Phase 1
+**Reviewed against `main`**: 2026-08-20  
+**Status**: ⚠️ Partially landed — storage and maintenance mode work; the command surface does not
+
+---
+
+> ### Correction — read before using this document
+>
+> The storage layer, the hybrid runtime/flash model, Layout Maintenance Mode and the LCD UI
+> described below are all **implemented and working** on `main`.
+>
+> The **`<D CONFIG ...>` and `<D CAL ...>` command sets are not.** `PicoDccExConfig` in
+> `lib/PicoDCCEX/pico_dccex_config.cpp` implements those handlers and the class compiles into
+> the `PicoDCCEX` library, but it is never constructed and never called. The packet validator
+> in `pico_dccexpacket.cpp` marks only `<D ACK ...>` as valid, so every other `D` subcommand
+> is rejected before any handler runs.
+>
+> What *does* work today for configuration:
+>
+> - `<D ACK LIMIT v>`, `<D ACK MIN v>`, `<D ACK MAX v>` — adjust the runtime (RAM) copy
+> - `<E>` — persist the runtime copy to flash, legal only in Layout Maintenance Mode
+>
+> Wiring `PicoDccExConfig` into the command path is outstanding work. It is not a one-line
+> change: `<D CONFIG SET>` mutates configuration and `<D CONFIG SAVE>` writes flash, so it has
+> to respect the same maintenance-mode gating as `<E>`.
 
 ---
 

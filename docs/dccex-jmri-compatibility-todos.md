@@ -291,6 +291,17 @@ Based on JMRI testing (October 20, 2025):
 
 ---
 
-**Status**: 🔄 **Planning Complete** - Ready for Phase 1 implementation  
+**Status**: 🔄 **Planning Complete** - Phase 1 not started  
 **Last Updated**: October 20, 2025  
+**Reviewed against `main`**: 2026-08-20  
 **Next Action**: Implement Phase 1 (empty list responses) to eliminate JMRI startup delay
+
+**What has landed since this was written**: the `<D ACK ...>` and `<E>` extensions described
+above are implemented, and the rejected `<iM>`/`<iN>`/`<u>` indicators were correctly removed
+from `<s>` (commit `14ea9e4`). `<s>` itself is implemented but **partial** — it returns the
+version banner and both track power states only, so Phase 2 is roughly half done. Phase 1
+(empty list responses) is not started, so the JMRI startup delay this document exists to fix
+is still present.
+
+**Note**: the version banner in `handleStatusCommand()` hardcodes `BUILD Oct 20 2025` as a
+string literal rather than using `__DATE__`, so it will not track future builds.

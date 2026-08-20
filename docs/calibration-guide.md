@@ -1,5 +1,20 @@
 # PicoDCC Calibration Guide
 
+> ### Status — this procedure cannot be run on `main` (reviewed 2026-08-20)
+>
+> The calibration workflow below depends on the `<D CAL ...>` commands. Those handlers exist
+> in `lib/PicoDCCEX/pico_dccex_config.cpp` but are **never wired into the command path** — the
+> packet validator accepts only `<D ACK ...>`, so `<D CAL START>`, `<D CAL ADC>`,
+> `<D CAL SET>` and `<D CAL SAVE>` are all rejected as invalid commands.
+>
+> Treat this document as the **design for the calibration procedure**, which is accurate and
+> still the intended workflow, rather than as instructions you can follow today. The
+> underlying storage it writes to is implemented and working; only the command surface is
+> missing. See `docs/README.md` § Known gaps.
+>
+> ACK detection itself is also not implemented yet, so calibration has nothing to feed until
+> the `programming` branch lands.
+
 ## Overview
 
 This guide explains how to calibrate your PicoDCC hardware for accurate CV programming ACK detection. Calibration is a one-time process that measures your hardware's current sensor characteristics and stores the values in non-volatile flash memory.

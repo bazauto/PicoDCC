@@ -181,9 +181,11 @@ If a problem needs that, say so and stop rather than guessing from the Windows s
 
 ## Documentation map
 
-`docs/README.md` is the index. High-value entries:
+`docs/README.md` is the index, and carries a **current-state table and a known-gaps list** —
+read it before assuming a feature works. High-value entries:
 
-- `docs/architecture.md` — component responsibilities, dual-core design, diagrams
+- `docs/architecture.md` — component responsibilities, dual-core design, operation modes, and
+  the authoritative table of which DCC-EX opcodes actually parse
 - `docs/service-mode-programming-plan.md` — CV programming roadmap (the `programming` branch)
 - `docs/dccex-compliance-analysis.md` + `docs/dccex-jmri-compatibility-todos.md` — what
   JMRI expects vs. what is implemented
@@ -192,5 +194,15 @@ If a problem needs that, say so and stop rather than guessing from the Windows s
 - `docs/coverage-quick-start.md` — gcov/lcov workflow via `scripts/Generate-*.ps1`
 - `docs/hardware-test-quick-reference.md` — what to do at the bench
 
-**Known staleness:** `docs/README.md` still carries an October 2025 status header. Treat its
-"planned/in progress" markers as historical until it is refreshed.
+## Things that are in the tree but do not work
+
+Do not mistake these for working features, and do not plan against them:
+
+- **`PicoDccExConfig` is dead code.** `<D CONFIG ...>` and `<D CAL ...>` are implemented in
+  `lib/PicoDCCEX/pico_dccex_config.cpp` but the class is never constructed. The packet
+  validator accepts only `<D ACK ...>`, so every other `D` subcommand is rejected.
+- **CV programming methods are declarations only** — no bodies in `pico_dccloco.cpp`.
+- **ACK detection does not exist** in `PicoDccTrack`. Its parameters are tunable and
+  persistable, which makes it look implemented; it is not.
+
+Service mode programming is being built on the `programming` branch, not on `main`.

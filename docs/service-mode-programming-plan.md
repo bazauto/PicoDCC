@@ -5,9 +5,22 @@ This document outlines the implementation plan for DCC Service Mode (Programming
 
 **Reference**: [DCC Wiki - Service Mode Programming](https://dccwiki.com/Service_Mode_Programming)
 
-**Status**: Planning Phase  
+**Status**: In progress on the `programming` branch — nothing on `main`  
 **Last Updated**: October 18, 2025  
+**Reviewed against `main`**: 2026-08-20  
 **Initial Goal**: Program locomotive address (CV1/CV17/CV18)
+
+> **Where this actually stands.** On `main` none of this is implemented: the CV methods in
+> `pico_dccloco.h` are declarations without bodies, and `PicoDccTrack` has no ACK detection.
+> The only pieces that have landed are the supporting infrastructure — configuration storage,
+> the runtime-tunable ACK parameters (`<D ACK LIMIT|MIN|MAX>`), and Layout Maintenance Mode.
+>
+> Real progress lives on `origin/programming`, which carries a `PicoDCCProgrammer` component
+> with a 625-line test suite, programming-track PIO changes, and a working basic programming
+> path. Its blocker is the one this plan predicts as the hard part: reading programming-track
+> current accurately enough to detect a decoder ACK. See `docs/ack-detection-analysis.md`.
+>
+> Treat the phase table below as the plan for landing that branch, not as a progress report.
 
 ---
 
