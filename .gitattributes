@@ -1,0 +1,12 @@
+# Shell scripts must keep LF endings. Git's autocrlf would otherwise check them out
+# with CRLF on Windows, and bash fails with "$'\r': command not found" — which silently
+# breaks the .claude hooks and git-cleanup.
+*.sh text eol=lf
+
+# Same for anything a Linux CI runner or the Pico toolchain consumes directly.
+*.yml text eol=lf
+*.yaml text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.ld text eol=lf
+*.pio text eol=lf

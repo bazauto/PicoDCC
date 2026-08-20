@@ -78,27 +78,25 @@
 
 ---
 
-#### 📗 `.github/copilot-instructions.md`
-**Purpose**: AI coding agent guidelines and project conventions  
-**Audience**: GitHub Copilot, AI assistants, new developers  
+#### 📗 `CLAUDE.md` (repository root)
+**Purpose**: The project's rules — the single source of truth for conventions, safety
+constraints and workflow  
+**Audience**: AI coding agents and new developers  
 **Content**:
-- Project overview and component structure
-- Build system (TEST vs HARDWARE modes)
-- Testing framework (CMocka, mock infrastructure)
-- DCC protocol patterns (emergency stop, CV programming, queue management)
-- Diagnostic logging system (LOG_* macros vs DCCEX_RESPONSE)
-- Code maintenance best practices
-- Dual-mode validation script usage
-- Real-world refactoring examples
+- Build commands for both modes, and the shared `build/` cache-clearing trap
+- The non-negotiable rules: flash writes as a safety event, diagnostics vs. protocol UART,
+  the scope of `#ifdef TEST_BUILD`, ARM Cortex-M33 memory safety, semaphore discipline
+- Architecture summary and component ownership table
+- Transport facts (UART vs. USB CDC, supported command forms, emergency stop)
+- Conventions, hardware-debugging setup, and PR/docs workflow
 
 **When to Reference**:
-- Setting up development environment
-- Understanding build modes (TEST_BUILD flag)
-- Following project conventions
-- Learning diagnostic logging patterns
-- Running validation scripts
+- Before making any change to the firmware — read it first
+- Setting up the development environment
+- Deciding whether a change needs the hardware build as well as CI
 
-**Last Updated**: Added service mode programming reference and locomotive reminder refactoring example
+**Note**: `.github/copilot-instructions.md` is now a pointer to this file. Project rules are
+recorded in `CLAUDE.md` only; do not reintroduce them elsewhere.
 
 ---
 
@@ -171,9 +169,9 @@
 
 ---
 
-### Planning Documents (Service Mode Programming)
+### Infrastructure Documents
 
-#### 📙 `docs/service-mode-programming-plan.md`
+#### 📙 `docs/non-volatile-storage-options.md`
 **Purpose**: Analysis of persistent storage options for configuration  
 **Audience**: Developers implementing calibration storage  
 **Content**:
@@ -288,16 +286,32 @@
 
 ## Development Workflow Documents
 
+### Continuous Integration
+
+#### ⚙️ `.github/workflows/ci.yml`
+**Purpose**: Automated test-build verification on every push and pull request  
+**What It Does**: Configures `TEST_BUILD=ON` on an Ubuntu runner, builds, and runs `ctest`
+across all 9 suites  
+**What It Does NOT Do**: cross-compile the firmware. Hardware-mode breakage is **not** caught
+by CI — run the ARM build locally before merging anything that touches CMake files, shared
+headers, `PicoDCCDisplay`, or code behind `#ifdef TEST_BUILD`.
+
+---
+
 ### Build & Test Scripts
 
 #### ⚙️ `scripts/Validate-DualMode.ps1`
 **Purpose**: Automated validation of TEST and HARDWARE build modes  
 **Usage**: `.\scripts\Validate-DualMode.ps1` or `.\scripts\Validate-DualMode.ps1 -SkipTests`  
 **What It Does**:
-1. Validates TEST_BUILD=ON mode (MSVC, CMocka tests)
-2. Runs all 64 test cases (59 passing, 5 pre-existing failures)
+1. Validates TEST_BUILD=ON mode (GCC/Ninja, CMocka tests)
+2. Runs all 113 test cases across 9 suites
 3. Validates TEST_BUILD=OFF mode (ARM GCC, Pico hardware)
 4. Reports comprehensive build compatibility status
+
+**Known Issue**: the hardware branch hardcodes a Pico SDK v1.5.1 toolchain path and will
+warn-and-skip on a machine using the `~/.pico-sdk` layout. Prefer the raw `cmake` commands
+in `CLAUDE.md` until this is fixed.
 
 **When to Use**:
 - Before committing major changes

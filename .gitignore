@@ -12,3 +12,11 @@ CircuitDesign
 *.gcno
 lcov.info
 coverage/
+
+# Stray in-source CMake artifacts (build/ is the only build tree)
+/CMakeFiles/
+/CMakeCache.txt
+
+# Claude Code local state (agents, skills and settings.json ARE committed)
+.claude/settings.local.json
+.claude/worktrees/
