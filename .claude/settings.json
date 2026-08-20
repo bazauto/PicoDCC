@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake -B build:*)",
+      "Bash(cmake --build build:*)",
+      "Bash(ctest:*)",
+      "Bash(ninja:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git branch:*)",
+      "Bash(git show:*)",
+      "Bash(git fetch:*)",
+      "Bash(git submodule status:*)",
+      "Bash(git worktree list:*)",
+      "Bash(bash .claude/scripts/git-cleanup.sh:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(arm-none-eabi-size:*)",
+      "Bash(arm-none-eabi-nm:*)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/verify-build.sh\"",
+            "shell": "bash",
+            "timeout": 300,
+            "statusMessage": "Build + tests"
+          }
+        ]
+      }
+    ]
+  }
+}

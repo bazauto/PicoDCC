@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test build + unit tests
+    runs-on: ubuntu-latest
+    steps:
+      # No submodules: the LVGL submodule is only needed by the hardware build,
+      # and cloning it here would dominate the run time.
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libcmocka-dev
+
+      - name: Configure (TEST_BUILD=ON)
+        run: cmake -B build -G Ninja -DTEST_BUILD=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Run tests
+        working-directory: build
+        run: ctest --output-on-failure
