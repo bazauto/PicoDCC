@@ -1,7 +1,6 @@
-﻿param([switch]$SkipTests = $false)
+param([switch]$SkipTests = $false)
 
-# Suppress PowerShell error output for stderr redirections
-$ErrorActionPreference = "SilentlyContinue"
+$ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $BuildDir = Join-Path $ProjectRoot "build"
@@ -10,91 +9,93 @@ Write-Host "=== PicoDCC Dual-Mode Build Validation ===" -ForegroundColor Cyan
 Write-Host "Project Root: $ProjectRoot"
 Write-Host "Build Directory: $BuildDir"
 
+# --- Environment discovery -------------------------------------------------
+#
+# The Pico VS Code extension installs everything under ~/.pico-sdk and exports
+# PICO_SDK_PATH / PICO_TOOLCHAIN_PATH into the integrated terminal (see
+# .vscode/settings.json). Outside that terminal the variables may be unset, so
+# fall back to discovering the newest install under ~/.pico-sdk rather than
+# assuming a fixed location.
+
+function Find-NewestUnder {
+    param([string]$Root, [string]$Probe)
+
+    if (-not (Test-Path $Root)) { return $null }
+
+    Get-ChildItem $Root -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending |
+        Where-Object { Test-Path (Join-Path $_.FullName $Probe) } |
+        Select-Object -First 1 -ExpandProperty FullName
+}
+
+function Resolve-PicoSdk {
+    if ($env:PICO_SDK_PATH -and (Test-Path (Join-Path $env:PICO_SDK_PATH "pico_sdk_init.cmake"))) {
+        return $env:PICO_SDK_PATH
+    }
+    return Find-NewestUnder (Join-Path $HOME ".pico-sdk\sdk") "pico_sdk_init.cmake"
+}
+
+function Resolve-ArmToolchain {
+    $probe = "bin\arm-none-eabi-gcc.exe"
+    if ($env:PICO_TOOLCHAIN_PATH -and (Test-Path (Join-Path $env:PICO_TOOLCHAIN_PATH $probe))) {
+        return $env:PICO_TOOLCHAIN_PATH
+    }
+    return Find-NewestUnder (Join-Path $HOME ".pico-sdk\toolchain") $probe
+}
+
+function Resolve-Ninja {
+    $onPath = Get-Command ninja -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+
+    $ninjaDir = Find-NewestUnder (Join-Path $HOME ".pico-sdk\ninja") "ninja.exe"
+    if ($ninjaDir) { return (Join-Path $ninjaDir "ninja.exe") }
+    return $null
+}
+
+function Test-LvglSubmodule {
+    # The hardware build fails at add_subdirectory with no useful hint when the
+    # submodule is missing, so check for it up front and say what to run.
+    $lvglCMake = Join-Path $ProjectRoot "lib\external\lvgl\CMakeLists.txt"
+    if (Test-Path $lvglCMake) { return $true }
+
+    Write-Host "LVGL submodule is not checked out." -ForegroundColor Red
+    Write-Host "  Run: git submodule update --init --depth 1 lib/external/lvgl" -ForegroundColor Yellow
+    return $false
+}
+
 function Clear-CMakeCache {
+    # Both modes share build/, so the cache must go when switching between them.
     if (Test-Path $BuildDir) {
         Write-Host "Cleared CMake cache" -ForegroundColor Yellow
-        Remove-Item "$BuildDir\CMakeCache.txt" -ErrorAction SilentlyContinue
-        Remove-Item "$BuildDir\CMakeFiles" -Recurse -ErrorAction SilentlyContinue
+        Remove-Item "$BuildDir\CMakeCache.txt" -Force -ErrorAction SilentlyContinue
+        Remove-Item "$BuildDir\CMakeFiles" -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
-function Test-BuildMode {
-    param([string]$Mode)
-    
+function Invoke-Build {
+    param([string]$Mode, [string[]]$ConfigureArgs)
+
     Write-Host ""
     Write-Host "--- Switching to $Mode Mode ---" -ForegroundColor Yellow
     Clear-CMakeCache
-    
+
     try {
         Push-Location $ProjectRoot
-        
+
         Write-Host "Configuring CMake for $Mode mode..." -ForegroundColor Gray
-        
-        if ($Mode -eq "TEST") {
-            # Test mode: Use Ninja generator with default compiler detection
-            # This matches how the Pico IDE extension builds in test mode
-            $ninjaAvailable = $false
-            try {
-                $null = Get-Command ninja -ErrorAction Stop
-                $ninjaAvailable = $true
-            } catch {
-                Write-Warning "Ninja not available, using default generator"
-            }
-
-            if ($ninjaAvailable) {
-                Write-Host "Using Ninja generator for test build (matching IDE configuration)..." -ForegroundColor Cyan
-                $result = cmake -B build -G "Ninja" -DTEST_BUILD=ON 2>&1
-            } else {
-                # Fallback to default generator (likely MSVC on Windows)
-                $result = cmake -B build -DTEST_BUILD=ON 2>&1
-            }
-        } else {
-            # Configure for hardware build with proper ARM GCC toolchain
-            $toolchainPath = "C:\Program Files\Raspberry Pi\Pico SDK v1.5.1\gcc-arm-none-eabi"
-            $armGccPath = "$toolchainPath\bin\arm-none-eabi-gcc.exe"
-            $armGxxPath = "$toolchainPath\bin\arm-none-eabi-g++.exe"
-
-            if (-not (Test-Path $armGccPath)) {
-                Write-Warning "ARM GCC toolchain not found at: $armGccPath"
-                Write-Host "Hardware mode requires ARM GCC toolchain installation" -ForegroundColor Red
-                return $false
-            }
-
-            # Check if Ninja generator is available (preferred for cross-compilation)
-            $ninjaAvailable = $false
-            try {
-                $null = Get-Command ninja -ErrorAction Stop
-                $ninjaAvailable = $true
-                Write-Host "Using Ninja generator for ARM GCC cross-compilation..." -ForegroundColor Cyan
-            } catch {
-                Write-Host "Ninja not available, using default generator with explicit ARM GCC..." -ForegroundColor Yellow
-            }
-
-            # Configure with proper ARM GCC toolchain
-            if ($ninjaAvailable) {
-                $result = cmake -B build -G "Ninja" -DTEST_BUILD=OFF -DPICO_TOOLCHAIN_PATH="$toolchainPath" 2>&1
-            } else {
-                # Force ARM GCC compilers even with Visual Studio generator
-                $result = cmake -B build -DTEST_BUILD=OFF -DPICO_TOOLCHAIN_PATH="$toolchainPath" -DCMAKE_C_COMPILER="$armGccPath" -DCMAKE_CXX_COMPILER="$armGxxPath" 2>&1
-            }
-        }
-        
-        $result | Out-Host
-        
+        cmake -B build -G "Ninja" @ConfigureArgs 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) {
             Write-Host "CMake configuration failed" -ForegroundColor Red
             return $false
         }
-        
+
         Write-Host "Building in $Mode mode..." -ForegroundColor Gray
-        $buildResult = cmake --build build 2>&1
-        $buildResult | Out-Host
-        
+        cmake --build build 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) {
             Write-Host "Build failed" -ForegroundColor Red
             return $false
         }
-        
+
         Write-Host "Build successful" -ForegroundColor Green
         return $true
     }
@@ -103,149 +104,133 @@ function Test-BuildMode {
     }
 }
 
-function Run-TestSuite {
+function Invoke-TestSuite {
+    # ctest is the source of truth for which suites exist; enumerating the
+    # executables here just goes stale every time test/CMakeLists.txt changes.
     Write-Host ""
     Write-Host "--- Running Test Suite ---" -ForegroundColor Green
-    
-    # Test executables can be in different locations depending on generator
-    # Ninja: build/test/*.exe
-    # Visual Studio: build/test/Debug/*.exe
-    $testDirNinja = Join-Path $BuildDir "test"
-    $testDirVS = Join-Path $BuildDir "test\Debug"
-    
-    # Determine which directory contains the test executables
-    $testDir = $testDirNinja
-    if (-not (Test-Path $testDirNinja\*.exe) -and (Test-Path $testDirVS)) {
-        $testDir = $testDirVS
-        Write-Host "Using Visual Studio build output directory" -ForegroundColor Gray
-    } else {
-        Write-Host "Using Ninja build output directory" -ForegroundColor Gray
+
+    try {
+        Push-Location $BuildDir
+        ctest --output-on-failure 2>&1 | Out-Host
+        return $LASTEXITCODE -eq 0
     }
-    
-    $testExes = @(
-        "pico_dcc_dccex_tests.exe",
-        "pico_dcc_controller_tests.exe", 
-        "pico_dcc_loco_tests.exe",
-        "pico_dcc_locos_tests.exe",
-        "pico_dcc_packet_tests.exe",
-        "pico_dcc_track_tests.exe"
-    )
-    
-    $passed = 0
-    $total = 0
-    
-    foreach ($exe in $testExes) {
-        $testPath = Join-Path $testDir $exe
-        if (Test-Path $testPath) {
-            Write-Host "Running $exe..." -ForegroundColor Cyan
-            # Use Start-Process to avoid PowerShell stderr interpretation
-            $process = Start-Process -FilePath $testPath -NoNewWindow -Wait -PassThru -RedirectStandardOutput "$env:TEMP\test_output.txt" -RedirectStandardError "$env:TEMP\test_error.txt"
-            $output = Get-Content "$env:TEMP\test_output.txt" -Raw -ErrorAction SilentlyContinue
-            $errorOutput = Get-Content "$env:TEMP\test_error.txt" -Raw -ErrorAction SilentlyContinue
-            
-            # CMocka writes success messages to stderr, so combine both outputs
-            $combinedOutput = "$output$errorOutput"
-            Write-Host $combinedOutput
-            
-            # Clean up temp files
-            Remove-Item "$env:TEMP\test_output.txt" -ErrorAction SilentlyContinue
-            Remove-Item "$env:TEMP\test_error.txt" -ErrorAction SilentlyContinue
-            
-            # Enhanced failure detection
-            $hasFailures = ($combinedOutput -match '\[  FAILED  \].*tests?: \d+ test\(s\)') -or ($combinedOutput -match '\d+ FAILED TEST\(S\)')
-            
-            if (-not $hasFailures -and $process.ExitCode -eq 0) {
-                $passed++
-                Write-Host " Test suite passed" -ForegroundColor Green
-            } else {
-                Write-Host " Test suite failed" -ForegroundColor Red
-            }
-            $total++
-        }
+    finally {
+        Pop-Location
     }
-    
-    Write-Host ""
-    $color = if ($passed -eq $total) { "Green" } else { "Yellow" }
-    Write-Host "Test Results: $passed/$total test suites passed" -ForegroundColor $color
-    return $passed -eq $total
 }
 
-function Validate-HardwareBuild {
+function Test-HardwareArtifacts {
     Write-Host ""
     Write-Host "--- Validating Hardware Build Output ---" -ForegroundColor Green
-    
+
     $srcDir = Join-Path $BuildDir "src"
     $expectedFiles = @("PicoDCC.elf", "PicoDCC.uf2")
-    
-    $foundFiles = @()
+
+    $found = 0
     foreach ($file in $expectedFiles) {
-        $filePath = Join-Path $srcDir $file
-        if (Test-Path $filePath) {
+        if (Test-Path (Join-Path $srcDir $file)) {
             Write-Host "[OK] Found $file" -ForegroundColor Green
-            $foundFiles += $file
+            $found++
         } else {
             Write-Host "[MISSING] $file" -ForegroundColor Red
         }
     }
-    
-    return $foundFiles.Count -eq $expectedFiles.Count
+
+    return $found -eq $expectedFiles.Count
 }
 
-# Main validation workflow
-try {
-    # Test mode validation
-    $testModeSuccess = Test-BuildMode "TEST"
-    
-    if ($testModeSuccess -and -not $SkipTests) {
-        $testsSuccess = Run-TestSuite
-    } else {
-        $testsSuccess = $true  # Skip if build failed or tests skipped
-    }
-    
-    # Hardware mode validation
-    $hardwareModeSuccess = Test-BuildMode "HARDWARE"
-    
-    if ($hardwareModeSuccess) {
-        $hardwareValidation = Validate-HardwareBuild
-    } else {
-        Write-Host "Hardware build failed - likely due to ARM GCC toolchain setup" -ForegroundColor Yellow
-        $hardwareValidation = $false
-    }
-    
-    # Summary
-    Write-Host ""
-    Write-Host "=== Validation Summary ===" -ForegroundColor Cyan
-    
-    $testModeColor = if ($testModeSuccess) { "Green" } else { "Red" }
-    $testModeResult = if ($testModeSuccess) { "[PASSED]" } else { "[FAILED]" }
-    Write-Host "Test Mode Build: $testModeResult" -ForegroundColor $testModeColor
-    
-    if (-not $SkipTests) {
-        $testsColor = if ($testsSuccess) { "Green" } else { "Red" }
-        $testsResult = if ($testsSuccess) { "[PASSED]" } else { "[FAILED]" }
-        Write-Host "Test Suite: $testsResult" -ForegroundColor $testsColor
-    }
-    
-    $hardwareColor = if ($hardwareModeSuccess) { "Green" } else { "Red" }
-    $hardwareResult = if ($hardwareModeSuccess) { "[PASSED]" } else { "[FAILED]" }
-    Write-Host "Hardware Mode: $hardwareResult" -ForegroundColor $hardwareColor
-    
-    $overallSuccess = $testModeSuccess -and $testsSuccess -and $hardwareModeSuccess
-    Write-Host ""
-    $overallColor = if ($overallSuccess) { "Green" } else { "Yellow" }
-    $overallResult = if ($overallSuccess) { "[ALL TESTS PASSED]" } else { "[SOME ISSUES DETECTED]" }
-    Write-Host "Overall Result: $overallResult" -ForegroundColor $overallColor
-    
-    if (-not $overallSuccess) {
-        Write-Host ""
-        Write-Host "Note: Hardware mode requires proper ARM GCC toolchain setup." -ForegroundColor Yellow
-        Write-Host "Test mode validation is the primary indicator of code compatibility." -ForegroundColor Yellow
-    }
-} 
-catch {
-    Write-Error "Validation failed: $_"
+# --- Main validation workflow ----------------------------------------------
+
+$ninja = Resolve-Ninja
+if (-not $ninja) {
+    Write-Host "Ninja not found on PATH or under ~/.pico-sdk/ninja." -ForegroundColor Red
+    Write-Host "Both build modes require the Ninja generator." -ForegroundColor Yellow
     exit 1
+}
+Write-Host "Ninja: $ninja" -ForegroundColor Gray
+
+# Test mode: host compiler, no Pico SDK involvement.
+$testModeSuccess = Invoke-Build "TEST" @("-DTEST_BUILD=ON")
+
+if ($testModeSuccess -and -not $SkipTests) {
+    $testsSuccess = Invoke-TestSuite
+} else {
+    $testsSuccess = $true
+}
+
+# Hardware mode: ARM GCC cross-build.
+$sdkPath = Resolve-PicoSdk
+$toolchainPath = Resolve-ArmToolchain
+
+$hardwareModeSuccess = $false
+$hardwareArtifacts = $false
+$hardwareSkipped = $false
+
+if (-not $sdkPath) {
+    Write-Host ""
+    Write-Host "Pico SDK not found. Set PICO_SDK_PATH or install the SDK under ~/.pico-sdk/sdk." -ForegroundColor Red
+    $hardwareSkipped = $true
+} elseif (-not $toolchainPath) {
+    Write-Host ""
+    Write-Host "ARM GCC toolchain not found." -ForegroundColor Red
+    Write-Host "Set PICO_TOOLCHAIN_PATH or install it under ~/.pico-sdk/toolchain." -ForegroundColor Yellow
+    $hardwareSkipped = $true
+} elseif (-not (Test-LvglSubmodule)) {
+    $hardwareSkipped = $true
+} else {
+    Write-Host ""
+    Write-Host "Pico SDK:      $sdkPath" -ForegroundColor Gray
+    Write-Host "ARM toolchain: $toolchainPath" -ForegroundColor Gray
+
+    $env:PICO_SDK_PATH = $sdkPath
+    $env:PICO_TOOLCHAIN_PATH = $toolchainPath
+
+    $hardwareModeSuccess = Invoke-Build "HARDWARE" @(
+        "-DTEST_BUILD=OFF",
+        "-DPICO_SDK_PATH=$sdkPath",
+        "-DPICO_TOOLCHAIN_PATH=$toolchainPath"
+    )
+
+    if ($hardwareModeSuccess) {
+        $hardwareArtifacts = Test-HardwareArtifacts
+    }
+}
+
+# --- Summary ---------------------------------------------------------------
+
+Write-Host ""
+Write-Host "=== Validation Summary ===" -ForegroundColor Cyan
+
+function Write-Result {
+    param([string]$Label, [bool]$Ok)
+    $color = if ($Ok) { "Green" } else { "Red" }
+    $text = if ($Ok) { "[PASSED]" } else { "[FAILED]" }
+    Write-Host "${Label}: $text" -ForegroundColor $color
+}
+
+Write-Result "Test Mode Build" $testModeSuccess
+if (-not $SkipTests) { Write-Result "Test Suite" $testsSuccess }
+
+if ($hardwareSkipped) {
+    Write-Host "Hardware Mode: [SKIPPED - toolchain unavailable]" -ForegroundColor Yellow
+} else {
+    Write-Result "Hardware Mode" $hardwareModeSuccess
+    if ($hardwareModeSuccess) { Write-Result "Hardware Artifacts" $hardwareArtifacts }
+}
+
+$overallSuccess = $testModeSuccess -and $testsSuccess -and $hardwareModeSuccess -and $hardwareArtifacts
+
+Write-Host ""
+if ($overallSuccess) {
+    Write-Host "Overall Result: [ALL CHECKS PASSED]" -ForegroundColor Green
+} else {
+    Write-Host "Overall Result: [SOME ISSUES DETECTED]" -ForegroundColor Yellow
 }
 
 Write-Host ""
 Write-Host "=== Dual-Mode Validation Complete ===" -ForegroundColor Cyan
+
+# The build directory is left in hardware mode. Clear the cache before the next
+# test build (see CLAUDE.md).
+if (-not $overallSuccess) { exit 1 }

@@ -26,7 +26,7 @@ Project rules — build commands, safety constraints, conventions, workflow — 
 | CV programming | ❌ Declarations only | Method bodies are absent on `main` |
 | Sensors (`<S>`) | ❌ Not supported | Parsed, then rejected as invalid |
 
-**Tests**: 113 across 9 CMocka suites, all passing. CI runs them on every push and PR.
+**Tests**: 141 across 10 CMocka suites, all passing. CI runs them on every push and PR.
 
 ### Known gaps
 
@@ -126,8 +126,9 @@ Full commands are in [`CLAUDE.md`](../CLAUDE.md). In short:
   `add_subdirectory` with no useful hint.
 - `.github/workflows/ci.yml` runs the test build and `ctest` on every push and PR. It does
   **not** cross-compile, so hardware-mode breakage has to be caught locally.
-- `scripts/Validate-DualMode.ps1` covers both modes, but its hardware branch hardcodes a Pico
-  SDK v1.5.1 toolchain path and will warn-and-skip on a `~/.pico-sdk` install.
+- `scripts/Validate-DualMode.ps1` covers both modes, resolving the SDK and ARM toolchain from
+  `PICO_SDK_PATH` / `PICO_TOOLCHAIN_PATH` or the newest `~/.pico-sdk` install, and exiting
+  non-zero on any failure.
 
 ## Hardware debugging
 

@@ -1,5 +1,5 @@
 if(TEST_BUILD)
-    # Test mode: Use MSVC compiler, no Pico SDK dependencies
+    # Test mode: host compiler, no Pico SDK dependencies
     add_library(PicoConfigStorage STATIC
         pico_config_storage.cpp
     )

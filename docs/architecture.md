@@ -316,8 +316,9 @@ typedef struct {
   `build/` directory, so the CMake cache must be cleared when switching between them.
 - **CI**: `.github/workflows/ci.yml` runs the test build and `ctest` on every push and PR. It
   does **not** cross-compile, so hardware-mode breakage must be caught locally.
-- **Validation**: `.\scripts\Validate-DualMode.ps1` covers both modes, but its hardware branch
-  hardcodes a Pico SDK v1.5.1 toolchain path and will warn-and-skip on a `~/.pico-sdk` setup.
+- **Validation**: `.\scripts\Validate-DualMode.ps1` covers both modes. It resolves the SDK and
+  ARM toolchain from `PICO_SDK_PATH` / `PICO_TOOLCHAIN_PATH`, falling back to the newest
+  install under `~/.pico-sdk`, and exits non-zero on any failure.
 - **Build commands**: see `CLAUDE.md` at the repository root.
 
 ### Debugging Strategies

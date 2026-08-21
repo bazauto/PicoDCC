@@ -22,15 +22,18 @@ cmake --build build
 cd build && ctest --output-on-failure     # 10 suites, 141 tests, ~0.5s
 
 # Hardware mode — ARM GCC cross-build, produces build/src/PicoDCC.uf2
-# Needs PICO_SDK_PATH and PICO_TOOLCHAIN_PATH (VS Code sets both; see .vscode/settings.json)
+# Needs PICO_SDK_PATH and PICO_TOOLCHAIN_PATH (VS Code sets both; see .vscode/settings.json).
+# Local install is Pico SDK 2.2.0 + ARM GCC 14.2.Rel1, both under ~/.pico-sdk.
 rm -f build/CMakeCache.txt && rm -rf build/CMakeFiles     # REQUIRED when switching modes
 cmake -B build -G Ninja -DTEST_BUILD=OFF
 cmake --build build
 ```
 
-`scripts/Validate-DualMode.ps1` runs both in sequence. Its hardware branch hardcodes a
-stale Pico SDK v1.5.1 toolchain path and will warn-and-skip on this machine; prefer the
-commands above.
+`scripts/Validate-DualMode.ps1` runs both modes in sequence and is the quickest way to check
+a change end to end. It resolves the SDK and ARM toolchain from `PICO_SDK_PATH` /
+`PICO_TOOLCHAIN_PATH`, falling back to the newest install under `~/.pico-sdk`, and exits
+non-zero if anything fails. It needs Ninja for both modes, and it leaves `build/` configured
+for hardware mode, so clear the cache before the next test build.
 
 The hardware build **requires the LVGL submodule**. If `lib/external/lvgl` is empty, CMake
 fails at `add_subdirectory` with no useful hint:
