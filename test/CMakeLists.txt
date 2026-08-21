@@ -68,4 +68,23 @@ foreach(TEST_TARGET IN LISTS TEST_TARGETS)
         TIMEOUT 30
         LABELS "unit"
     )
+
+    # add_cmocka_test_environment() above bakes a snapshot of the configure-time
+    # PATH into each test and *replaces* PATH when the test runs, so whatever the
+    # calling shell has on PATH is ignored. If that snapshot happens to carry
+    # another toolchain's C++ runtime ahead of ours — Git Bash puts its own
+    # mingw64 first, and its libstdc++ is a different build from msys64 ucrt64's —
+    # every test dies with 0xc0000139 STATUS_ENTRYPOINT_NOT_FOUND before reaching
+    # main(). Same binaries, passing or failing purely on which shell invoked
+    # ctest, which is a deeply confusing failure to debug.
+    #
+    # ENVIRONMENT_MODIFICATION is applied after ENVIRONMENT, so this prepends the
+    # compiler's own bin directory and the runtime the binaries were linked
+    # against always wins. Requires CMake 3.22.
+    if(WIN32 AND NOT CMAKE_VERSION VERSION_LESS 3.22)
+        get_filename_component(TEST_CXX_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        set_tests_properties(${TEST_TARGET} PROPERTIES
+            ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${TEST_CXX_BIN}"
+        )
+    endif()
 endforeach()
