@@ -110,13 +110,29 @@ void test_update_control(void **state)
   assert_int_equal(cmd.data[1], 88);
 }
 
+// PicoDccLoco::updateFunct() has an empty body and getFunctionCommand()
+// returns a default-constructed command: function support is declared but not
+// implemented (see the "in the tree but does not work" list in CLAUDE.md).
+//
+// These two tests previously asserted nothing at all, which read as coverage
+// for a feature that does not exist. They now pin the unimplemented state
+// down, so that when function support lands they fail and have to be
+// replaced with real assertions rather than being quietly left behind.
 void test_update_function(void **state)
 {
   PicoDccLoco loco(3);
+  raw_dcc_cmd_t before = loco.getThrottleCommand();
+
   loco.updateFunct(1, true);
 
   raw_dcc_cmd_t cmd = loco.getFunctionCommand(1);
-  // Add assertions based on expected function command
+  assert_int_equal(cmd.length, 0);  // no function packet is produced
+
+  // updateFunct() must not disturb the throttle command while it is a stub.
+  raw_dcc_cmd_t after = loco.getThrottleCommand();
+  assert_int_equal(after.length, before.length);
+  assert_int_equal(after.data[0], before.data[0]);
+  assert_int_equal(after.data[1], before.data[1]);
 }
 
 // Emergency stop test removed - emergency stop is now handled as broadcast command in controller
@@ -126,7 +142,10 @@ void test_function_command(void **state)
   PicoDccLoco loco(3);
   raw_dcc_cmd_t cmd = loco.getFunctionCommand(1);
 
-  // Add assertions based on expected function command for group 1
+  // Unimplemented: a zero-length command, which PicoDccController treats as
+  // "nothing to queue". See the note above test_update_function.
+  assert_int_equal(cmd.length, 0);
+  assert_int_equal(cmd.repeats, 0);
 }
 
 int main(int argc, char *argv[])

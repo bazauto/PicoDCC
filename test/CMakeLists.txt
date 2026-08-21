@@ -10,6 +10,7 @@ list(APPEND TEST_TARGETS pico_dcc_track_tests)
 list(APPEND TEST_TARGETS pico_config_storage_tests)
 list(APPEND TEST_TARGETS pico_dcc_display_tests)
 list(APPEND TEST_TARGETS pico_diagnostic_tests)
+list(APPEND TEST_TARGETS pico_dcc_wire_format_tests)
 
 list(APPEND TEST_LIBS "${CMOCKA_LIBRARIES}")
 list(APPEND TEST_LIBS mocks)

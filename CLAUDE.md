@@ -19,7 +19,7 @@ most common way to lose an hour here.
 # Test mode — host compiler + Ninja + CMocka. This is what you run for almost everything.
 cmake -B build -G Ninja -DTEST_BUILD=ON
 cmake --build build
-cd build && ctest --output-on-failure     # 9 suites, 113 tests, ~0.5s
+cd build && ctest --output-on-failure     # 10 suites, 141 tests, ~0.5s
 
 # Hardware mode — ARM GCC cross-build, produces build/src/PicoDCC.uf2
 # Needs PICO_SDK_PATH and PICO_TOOLCHAIN_PATH (VS Code sets both; see .vscode/settings.json)
@@ -39,7 +39,7 @@ fails at `add_subdirectory` with no useful hint:
 git submodule update --init --depth 1 lib/external/lvgl
 ```
 
-Firmware is linked with `memmap_picodcc.ld`, which shrinks FLASH to 2044k so the last 4KB
+Firmware is linked with `memmap_picodcc.ld`, which shrinks FLASH to 4092k so the last 4KB
 sector survives a firmware update — that sector is `PicoConfigStorage`. Never link with the
 SDK default script.
 
@@ -150,6 +150,16 @@ Full detail in `docs/architecture.md`.
   deliberately link a reduced set (see the `if`/`elseif` in `test/CMakeLists.txt`).
 - Adding a test file means adding it to `TEST_TARGETS` — it will not be picked up otherwise.
 - Update the test count in `docs/architecture.md` and this file when suites change.
+- `test/pico_dcc_wire_format_tests.cpp` pins the **exact bytes** put on the rails and sent
+  back to the host. The throttle encoding was arrived at empirically against JMRI and the
+  reasoning was never recorded, so changing an assertion there means the wire format moved
+  and the change needs re-testing on hardware, in isolation. Some assertions deliberately
+  record current *defective* behaviour and name the issue; that is so a fix shows up as a
+  reviewable diff rather than a silent change.
+- The mocks model behaviour the firmware depends on, not just signatures: per-queue storage
+  with real capacity, per-ADC-channel readings, counting semaphores that record an acquire
+  that would have blocked, and an `assert()` that records failures. Prefer extending
+  `test/mocks.cpp` over writing a test that cannot observe the thing it claims to check.
 
 ---
 

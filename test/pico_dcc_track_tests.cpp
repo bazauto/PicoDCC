@@ -24,6 +24,8 @@ static int setup(void **state)
     gpio_states.fill(false);
     sent_track_packets.clear();
     mock_adc_reading = 0;
+    mock_adc_clear_channels();  // per-channel values must not leak between tests
+    mock_reset_pio();
     mock_time_ms = 1000; // Start at 1 second
     return 0;
 }
@@ -563,6 +565,7 @@ static void test_pio_transmission_failure(void **state)
     // Establish baseline activity
     track.loop(); // Generate idle packet
     uint32_t initial_idle_count = track.getIdlePacketsSent();
+    assert_true(initial_idle_count > 0);
     
     // Advance time significantly with no new transmissions (simulate PIO dead)
     mock_time_ms += 200; // 200ms
@@ -605,6 +608,93 @@ static void test_pio_health_status(void **state)
     assert_int_equal(track.getIdlePacketsSent(), 2);
 }
 
+
+// ---------------------------------------------------------------------------
+// ADC channel routing (issue #14)
+//
+// adc_select_input() is called once, in the constructor, and loop() then calls
+// a bare adc_read(). PicoDccController constructs the main track first and the
+// programming track second, so the mux is left on the programming track's
+// channel for the life of the firmware and both tracks read it.
+//
+// These two tests pin that down from both directions. When #14 is fixed they
+// should invert: a short on the main channel must trip the main track, and a
+// short on the programming channel must not.
+// ---------------------------------------------------------------------------
+
+static void test_ISSUE_14_main_track_misses_a_short_on_its_own_channel(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = 0;      // main track senses on ADC 0
+    settings.short_pin = 16;
+
+    PicoDccTrack track(false, settings);
+
+    // Stand in for the programming track being constructed afterwards, which is
+    // what leaves the mux pointing at ADC 1.
+    adc_select_input(1);
+
+    mock_adc_set_channel(0, 4000);  // main track: hard short, well over the 90% trip
+    mock_adc_set_channel(1, 0);     // programming track: quiet
+
+    track.setPower(true);
+    track.loop();
+
+    // loop() never reselected ADC 0, so it sampled the programming track and saw
+    // nothing wrong. Power stays on into a dead short.
+    assert_int_equal(mock_adc_selected_channel(), 1);
+    assert_true(track.getPower());
+    assert_false(gpio_states[16]);  // short LED never lit
+}
+
+static void test_ISSUE_14_main_track_trips_on_the_other_tracks_current(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = 0;
+    settings.short_pin = 16;
+
+    PicoDccTrack track(false, settings);
+
+    adc_select_input(1);
+
+    mock_adc_set_channel(0, 0);     // main track: quiet
+    mock_adc_set_channel(1, 4000);  // programming track: short
+
+    track.setPower(true);
+    track.loop();
+
+    // The failure is wrong in both directions: a healthy main track is cut
+    // because the programming track drew current.
+    assert_false(track.getPower());
+    assert_true(gpio_states[16]);
+}
+
+// ---------------------------------------------------------------------------
+// Construction asserts
+//
+// PicoDccTrack's constructor asserts that it managed to claim a PIO state
+// machine. The mock previously discarded every assert; it now records them, so
+// a clean construction can be asserted to be clean.
+// ---------------------------------------------------------------------------
+
+static void test_construction_fires_no_asserts(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = 0;
+    settings.short_pin = 16;
+
+    mock_reset_asserts();
+    PicoDccTrack track(false, settings);
+
+    assert_int_equal(mock_assert_failures, 0);
+}
+
 int main(void)
 {
     const struct CMUnitTest tests[] = {
@@ -629,6 +719,9 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_pio_idle_packet_tracking, setup, teardown),
         cmocka_unit_test_setup_teardown(test_pio_transmission_failure, setup, teardown),
         cmocka_unit_test_setup_teardown(test_pio_health_status, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_ISSUE_14_main_track_misses_a_short_on_its_own_channel, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_ISSUE_14_main_track_trips_on_the_other_tracks_current, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_construction_fires_no_asserts, setup, teardown),
     };
 
     printf("Running Track Tests\n");

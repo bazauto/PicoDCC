@@ -98,7 +98,7 @@ the code gives the truth.
 | [`implementation-complete-config-storage.md`](implementation-complete-config-storage.md) | The implementation write-up. ⚠️ The `<D CONFIG>` / `<D CAL>` command sets it describes are not wired in — see Known Gaps |
 | [`calibration-guide.md`](calibration-guide.md) | The intended ADC-to-mA calibration procedure. ⚠️ Depends on `<D CAL ...>`, which is not reachable on `main` |
 | [`firmware-update-config-preservation.md`](firmware-update-config-preservation.md) | How the config sector survives a firmware flash |
-| [`linker-script-implementation-summary.md`](linker-script-implementation-summary.md) | Why `memmap_picodcc.ld` exists and what it changes (FLASH shrunk to 2044k) |
+| [`linker-script-implementation-summary.md`](linker-script-implementation-summary.md) | Why `memmap_picodcc.ld` exists and what it changes (FLASH shrunk to 4092k) |
 
 ### Testing
 
@@ -120,7 +120,7 @@ Full commands are in [`CLAUDE.md`](../CLAUDE.md). In short:
 
 - Two modes selected by `TEST_BUILD`, **sharing the same `build/` directory** — clear the
   CMake cache when switching, or you will get confusing failures.
-- Test mode: host GCC + Ninja + CMocka. 9 suites, ~0.5s.
+- Test mode: host GCC + Ninja + CMocka. 10 suites, ~0.5s.
 - Hardware mode: ARM GCC + Pico SDK. Requires the LVGL submodule
   (`git submodule update --init --depth 1 lib/external/lvgl`) or CMake fails at
   `add_subdirectory` with no useful hint.

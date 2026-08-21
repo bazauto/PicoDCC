@@ -46,6 +46,32 @@ if(TEST_BUILD)
     add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
   endif()
 
+  # Warnings are on for the test build. The hardware build is the one that has
+  # to be memory-safe, but it is the test build that gets compiled on every
+  # push, so this is where a warning is cheapest to notice.
+  #
+  # -Wmissing-field-initializers is excluded deliberately: GCC 4.8 reports it
+  # for `= {}` value-initialisation, which is correct C++ and is the idiom used
+  # throughout for zeroing raw_dcc_cmd_t.
+  if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # -Wunused-parameter is excluded because cmocka requires every test to
+    # take `void **state` whether it uses it or not; keeping it on buries the
+    # warnings that matter under ~120 that never will.
+    add_compile_options(-Wall -Wextra -Wno-missing-field-initializers -Wno-unused-parameter)
+  endif()
+
+  # CMAKE_CXX_STANDARD is 17, but CMAKE_CXX_STANDARD_REQUIRED is off, so a
+  # compiler that cannot manage C++17 is silently downgraded to whatever it
+  # supports rather than failing. That is how the host suite ends up compiling
+  # as gnu++1y on an old GCC while CI and the firmware build both use C++17 --
+  # three configurations, one of which nobody can see. Say so out loud.
+  if(NOT "cxx_std_17" IN_LIST CMAKE_CXX_COMPILE_FEATURES)
+    message(WARNING
+      "Host compiler ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION} does not "
+      "support C++17; the test build will be silently downgraded to an older standard. "
+      "CI and the firmware build use C++17, so local results may differ from CI.")
+  endif()
+
   add_subdirectory(./lib)
   add_subdirectory(./test)
 

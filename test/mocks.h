@@ -20,6 +20,9 @@ extern std::array<bool, 30> gpio_states;
 
 typedef uint32_t absolute_time_t;
 
+// Mock queue handle. Each queue_t owns its own ring buffer, so a test can tell
+// the inter-core queue apart from the per-track queues, and so a queue can
+// actually reach max_items and refuse an add.
 typedef struct
 {
     uint8_t *data;
@@ -71,11 +74,13 @@ void gpio_init(uint8_t gpio);
 
 typedef struct
 {
-    int mock;
+    int count;
+    int held;
 } semaphore_t;
 void sem_init(semaphore_t *sem, int count, int);
 void sem_acquire(semaphore_t *sem);
 void sem_acquire_blocking(semaphore_t *sem);
+bool sem_try_acquire(semaphore_t *sem);
 void sem_release(semaphore_t *sem);
 
 void stdio_init_all();
@@ -93,8 +98,53 @@ uint32_t time_us_32(void);
 }
 #endif
 
+// ---------------------------------------------------------------------------
+// Test-only mock controls and observations.
+//
+// These exist so that behaviour the firmware depends on -- which ADC channel is
+// selected, whether a lock was contended, whether an assert fired -- is
+// observable from a test rather than silently discarded.
+// ---------------------------------------------------------------------------
+
+// ADC: per-channel readings.
+//
+// adc_read() returns the value for whichever channel adc_select_input() last
+// selected, so a test can give the main and programming tracks different
+// currents. Channels default to mock_adc_reading, preserving the behaviour of
+// tests that only set that single global.
+void mock_adc_set_channel(uint8_t adc_num, uint32_t reading);
+void mock_adc_clear_channels(void);
+uint8_t mock_adc_selected_channel(void);
+uint32_t mock_adc_select_count(void);
+
+// GPIO: power control pins are registered by the track that owns them, so
+// track_power_states[] follows the pins actually passed in rather than a pair
+// of hardcoded pin numbers.
+void mock_register_power_pin(uint8_t gpio, int track_index);
+void mock_clear_power_pins(void);
+
+// assert(): the firmware asserts on conditions that must never hold (pin
+// collisions, PIO claim failure). Record them rather than discarding them.
+extern uint32_t mock_assert_failures;
+void mock_reset_asserts(void);
+
+// Semaphores: modelled as real counting semaphores. The harness is
+// single-threaded, so an acquire that would have blocked cannot actually block
+// -- it is recorded instead. That makes "this call blocks Core 1" an assertable
+// property (see issue #17).
+extern uint32_t mock_sem_would_block;
+void mock_reset_sem_stats(void);
+
+// PIO: the raw 32-bit words pushed to the state machine, in order, alongside
+// the assembled 64-bit packets. Word pairing is derived from the length field
+// in the packet header rather than an alternating toggle, so a short packet
+// cannot swallow the next packet's first word.
+extern std::vector<uint32_t> sent_track_words;
+extern std::vector<uint> sent_track_sm;
+void mock_reset_pio(void);
+
 // C++ constructs
-class PIO 
+class PIO
 {
 private:
     uint sm_mask;
