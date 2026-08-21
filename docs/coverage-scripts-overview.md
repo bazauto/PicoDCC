@@ -75,9 +75,10 @@ Overall Coverage: 64.96%
 **Purpose**: Validates both TEST and HARDWARE build modes
 
 **What it does**:
-1. Builds and tests in TEST_BUILD mode (Windows/GCC)
-2. Attempts to build in hardware mode (ARM GCC/Pico)
-3. Reports compatibility issues
+1. Builds and runs the full ctest suite in TEST_BUILD mode (host GCC)
+2. Cross-builds in hardware mode (ARM GCC / Pico SDK), resolving the SDK and toolchain
+   from `PICO_SDK_PATH` / `PICO_TOOLCHAIN_PATH` or the newest `~/.pico-sdk` install
+3. Confirms `PicoDCC.elf` and `PicoDCC.uf2` were produced
 
 **When to use**:
 - Before committing major changes
@@ -87,7 +88,10 @@ Overall Coverage: 64.96%
 **Output**:
 - Build success/failure for both modes
 - Test execution results
-- Compatibility assessment
+- Exit code 0 only when every check passed, so it can gate a commit
+
+Needs Ninja for both modes, and leaves `build/` configured for hardware mode — clear the
+CMake cache before the next test build.
 
 ---
 
