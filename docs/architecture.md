@@ -179,7 +179,7 @@ so it can never stall Core 1's DCC timing.
   ADC-to-mA conversion factor, main and programming track current limits
 - **Flash safety**: a write blocks **both cores for ~410ms**, which stops DCC output. This is
   why writes are gated behind Layout Maintenance Mode — see below.
-- **Flash preservation**: `memmap_picodcc.ld` shrinks the firmware FLASH region to 2044k so a
+- **Flash preservation**: `memmap_picodcc.ld` shrinks the firmware FLASH region to 4092k so a
   firmware update cannot erase the config sector
 
 ### PicoDiagnostic
@@ -265,7 +265,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **113 total tests** across all components: Controller (13), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (21), Config Storage (11), Display (9), Diagnostic (9)
+- **141 total tests** across all components: Controller (16), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (24), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

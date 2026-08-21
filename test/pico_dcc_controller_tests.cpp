@@ -158,7 +158,7 @@ static void test_emergency_stop(void **state)
     queued_commands.clear();
 
     // Print number of locos in the collection for debugging
-    printf("Loco count before emergency stop: %zd\n", controller.getLocoCount());
+    printf("Loco count before emergency stop: %lu\n", (unsigned long)controller.getLocoCount());
     fflush(stdout);
 
     // Send emergency stop command
@@ -169,7 +169,7 @@ static void test_emergency_stop(void **state)
     controller.dccLoop();
 
     // Check that locos collection was cleared after emergency stop
-    printf("Loco count after emergency stop: %zd\n", controller.getLocoCount());
+    printf("Loco count after emergency stop: %lu\n", (unsigned long)controller.getLocoCount());
     assert_true(controller.getLocoCount() == 0);
 
     // Check that a single emergency stop broadcast packet was sent
@@ -702,6 +702,118 @@ static void test_maintenance_mode_exit(void **state)
 }
 
 // Add all tests to the test suite
+
+// ---------------------------------------------------------------------------
+// Emergency stop response volume (issue #17)
+//
+// sendEmergencyStopResponses() emits one <l ...> response per known locomotive,
+// and it does so while holding the locomotive lock. Core 1 takes that same lock
+// every pass through getNextReminder(), so for the duration of these writes it
+// generates no DCC packets at all.
+//
+// uart_puts() is instantaneous in the mock, so this test cannot measure the
+// stall directly. What it can pin down is the volume, which is what the stall
+// is proportional to: with MAX_LOCO at 50 and ~16 bytes per response, a full
+// table is ~800 bytes, or roughly 70-90ms at 115200 baud -- against the 100ms
+// timing-violation cutoff in dccLoop().
+// ---------------------------------------------------------------------------
+
+static void test_ISSUE_17_emergency_stop_writes_one_response_per_loco(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    const int loco_count = 5;
+    for (int i = 1; i <= loco_count; i++) {
+        char cmd[32];
+        snprintf(cmd, sizeof(cmd), "<t %d 20 1>", i);
+        uart_test_write(cmd);
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+    assert_int_equal(controller.getLocoCount(), (size_t)loco_count);
+
+    uart_output_log.clear();
+
+    uart_test_write("<!>");
+    controller.dccexLoop();
+
+    // One response per locomotive, all emitted inside the critical section.
+    int cab_updates = 0;
+    for (size_t i = 0; i < uart_output_log.size(); i++) {
+        if (uart_output_log[i].compare(0, 3, "<l ") == 0) {
+            cab_updates++;
+        }
+    }
+    assert_int_equal(cab_updates, loco_count);
+
+    // And the table is cleared afterwards, so no reminders follow.
+    assert_int_equal(controller.getLocoCount(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// Construction asserts
+//
+// PicoDccController's constructor asserts that the two tracks do not share a
+// signal pin, control pin or ADC channel. The mock used to discard every
+// assert, so these had never once been exercised. They are recorded now.
+//
+// Note these are assert() and therefore compiled out of a release firmware
+// build under NDEBUG -- they are a development guard, not a runtime one.
+// ---------------------------------------------------------------------------
+
+static void test_controller_construction_fires_no_asserts(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    mock_reset_asserts();
+    PicoDccController controller(main_track, prog_track, 25);
+
+    assert_int_equal(mock_assert_failures, 0);
+}
+
+static void test_controller_rejects_colliding_pins(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    // Same signal pin on both tracks: two PIO state machines driving one pin.
+    track_settings_t prog_track;
+    prog_track.signal_pin = 18;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    mock_reset_asserts();
+    PicoDccController controller(main_track, prog_track, 25);
+
+    assert_true(mock_assert_failures > 0);
+}
+
 int main(void)
 {
     printf("Running Controller Tests\n");
@@ -720,6 +832,9 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_maintenance_mode_power_lockout, setup, teardown),
         cmocka_unit_test_setup_teardown(test_maintenance_mode_command_rejection, setup, teardown),
         cmocka_unit_test_setup_teardown(test_maintenance_mode_exit, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_ISSUE_17_emergency_stop_writes_one_response_per_loco, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_controller_construction_fires_no_asserts, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_controller_rejects_colliding_pins, setup, teardown),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

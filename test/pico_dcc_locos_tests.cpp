@@ -76,8 +76,12 @@ void test_forget_all_locos(void **state) {
     locos.addLoco(&packet, cmd);
 
     const char *buffer1 = "t 4 0 0";
-    PicoDccExPacket packet1((char *)buffer);
+    PicoDccExPacket packet1((char *)buffer1);
     locos.addLoco(&packet1, cmd);
+
+    // Both locos must be present before the clear, otherwise the assertions
+    // below pass whether forgetAllLocos() works or not.
+    assert_int_equal(locos.getLocoCount(), 2);
 
     locos.forgetAllLocos();
     assert_int_equal(locos.getLocoCount(), 0);
@@ -137,11 +141,13 @@ void test_get_emergency_stop_commands(void **state) {
     PicoDccExPacket packet((char *)buffer);
     locos.addLoco(&packet, cmd);
     loco = locos.findLoco(3);
+    assert_non_null(loco);
 
     const char *buffer1 = "t 4 0 0";
     PicoDccExPacket packet1((char *)buffer1);
     locos.addLoco(&packet1, cmd);
     loco = locos.findLoco(4);
+    assert_non_null(loco);
 
     // Emergency stop is now handled as broadcast command in controller
     // Verify we have 2 locos added
