@@ -105,6 +105,7 @@ the code gives the truth.
 | Document | What it is |
 |---|---|
 | [`hardware-test-quick-reference.md`](hardware-test-quick-reference.md) | What to do at the bench, with a Pico attached |
+| [`bench-machine-setup.md`](bench-machine-setup.md) | The Linux bench machine: SSH access, attached devices, provisioning, toolchain update policy |
 | [`hardware-test-plan-nv-storage.md`](hardware-test-plan-nv-storage.md) | Detailed test plan for the flash storage subsystem |
 | [`vscode-test-integration.md`](vscode-test-integration.md) | CTest and TestMate setup in the IDE |
 | [`coverage-quick-start.md`](coverage-quick-start.md) | The short version of the gcov/lcov workflow |
@@ -133,12 +134,12 @@ Full commands are in [`CLAUDE.md`](../CLAUDE.md). In short:
 ## Hardware debugging
 
 The Windows development machine has no Pico attached. Hard faults, multicore races, PIO
-timing and ADC problems need the Linux hardware test machine, with OpenOCD on telnet port
-50002:
+timing and ADC problems need the Linux bench machine at `pbarrett@172.18.10.240`, reached
+over SSH. See [`bench-machine-setup.md`](bench-machine-setup.md) for access, stable device
+names, provisioning and the OpenOCD/GDB recipes.
 
-```bash
-echo -e "targets rp2350.cm1\nreg" | nc localhost 50002 -q 1
-```
+Flashing and debug attaches both need explicit approval with track power confirmed first —
+halting the core stops DCC generation, and decoders that lose the signal fall back to DC.
 
 ---
 

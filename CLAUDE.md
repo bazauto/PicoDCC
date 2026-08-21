@@ -169,14 +169,19 @@ Full detail in `docs/architecture.md`.
 ## Hardware debugging
 
 Windows dev machine has **no Pico attached** — test mode and code only. Hard faults,
-multicore races, PIO timing and ADC problems need the **Linux hardware test machine** with
-OpenOCD on telnet port 50002:
+multicore races, PIO timing and ADC problems need the **Linux bench machine**
+(`pbarrett@172.18.10.240`), reachable over SSH and provisioned by
+`scripts/provision-bench.sh`. Device names, OpenOCD and GDB recipes, and the toolchain
+update policy are in `docs/bench-machine-setup.md`.
 
-```bash
-echo -e "targets rp2350.cm1\nreg" | nc localhost 50002 -q 1
-```
+**Every flash and every debug attach needs Paul's explicit approval, with track power
+confirmed first.** Flashing stalls the board, and halting the core under OpenOCD stops DCC
+packet generation — both drop the signal, and a decoder that loses it falls back to DC,
+which is full speed on a live track. Read-only host inventory over SSH is fine; anything
+that reaches the board is not.
 
-If a problem needs that, say so and stop rather than guessing from the Windows side.
+There is no long-running OpenOCD daemon and no port 50002 — that was the VS Code Raspberry
+Pi extension starting it invisibly. OpenOCD is launched on demand.
 
 ---
 
