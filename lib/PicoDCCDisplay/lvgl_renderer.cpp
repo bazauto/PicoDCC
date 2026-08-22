@@ -5,6 +5,7 @@
 #include "../PicoDCCController/pico_dcccontroller.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
 #include "../pico_diagnostic.h"
+#include "../dcc_time.h"
 #include "../dccex_communication.h"
 #include <cstdio>
 #include <cstdlib>  // For abs()
@@ -296,7 +297,7 @@ void LvglRenderer::updateDiagnosticScreen(const TrackStatus& status) {
     lv_label_set_text(prog_label, buf);
     
     // Update packets-per-second indicator using smoothed delta of non-idle commands
-    uint32_t now_ms = time_us_32() / 1000;
+    uint32_t now_ms = dcc_millis();
     if (last_packet_sample_time_ms_ == 0) {
         last_packet_sample_time_ms_ = now_ms;
         last_packet_count_ = status.packets_sent;
@@ -358,7 +359,7 @@ void LvglRenderer::updateDiagnosticScreen(const TrackStatus& status) {
 void LvglRenderer::tick() {
     // Tell LVGL how much time has passed
     static uint32_t last_tick_time = 0;
-    uint32_t now = time_us_32() / 1000;
+    uint32_t now = dcc_millis();
     if (last_tick_time == 0) {
         last_tick_time = now;
     }
@@ -410,7 +411,7 @@ void LvglRenderer::touchCallback(lv_indev_drv_t* drv, lv_indev_data_t* data) {
         static int last_raw_x = 0;
         static int last_raw_y = 0;
         static uint32_t last_touch_time = 0;
-        uint32_t now = time_us_32() / 1000;
+        uint32_t now = dcc_millis();
         
         int delta_x = abs((int)points[0].x - last_raw_x);
         int delta_y = abs((int)points[0].y - last_raw_y);

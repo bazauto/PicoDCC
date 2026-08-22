@@ -1,5 +1,6 @@
 /* lib/PicoDCCDisplay/pico_dcc_display.cpp */
 #include "pico_dcc_display.h"
+#include "../dcc_time.h"
 
 // Forward declarations for controller types
 class PicoDccController;
@@ -12,20 +13,14 @@ class PicoDccTrack;
     #include "../PicoDCCTrack/pico_dcctrack.h"
 #endif
 
-// Platform abstraction for timing
-#ifdef TEST_BUILD
-    // Test mode: External timing control provided by test file
-    extern uint32_t mock_time_ms;
-    
-    namespace {
-        uint32_t get_time_ms() { return mock_time_ms; }
-    }
-#else
-    // Hardware mode: Use Pico SDK timer
-    namespace {
-        uint32_t get_time_ms() { return time_us_32() / 1000; }
-    }
-#endif
+// Platform abstraction for timing.
+//
+// dcc_millis() already carries the test/hardware split, so this no longer needs
+// an #ifdef of its own -- and it no longer differences a counter that wraps
+// every 71.6 minutes (#32).
+namespace {
+    uint32_t get_time_ms() { return dcc_millis(); }
+}
 
 PicoDCCDisplay::PicoDCCDisplay(LcdDriver& lcd, IDisplayRenderer& renderer)
     : lcd_(lcd)
