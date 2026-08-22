@@ -14,7 +14,7 @@ PicoDccEx::PicoDccEx(int maxCab)
     maxSupportedCabs = maxCab;
 
     setup_default_uart();
-    DCCEX_RESPONSE("<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>\n");
+    DCCEX_RESPONSE(PICODCC_IDENTITY);
     processState = DCCEX_IDLE;
 }
 

@@ -14,6 +14,7 @@ extern "C"
 
 #include "../lib/PicoDCCController/pico_dcccontroller.h"
 #include "../lib/pico_diagnostic.h"  // For diag_log_init()
+#include "../lib/dccex_communication.h"  // For PICODCC_IDENTITY
 
 // Mock state tracking
 extern bool track_power_states[2];
@@ -170,6 +171,39 @@ static void test_core1_that_never_starts_still_cuts_power(void **state)
 
     assert_true(gpio_states[25]); // Emergency cutoff fired
     assert_true(log_contains("Core 1 failed to start"));
+}
+
+// The startup banner and the <s> reply must be the same string. They were not:
+// startup announced "<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>"
+// while <s> answered PICODCC, so what JMRI believed it was connected to depended
+// on whether it caught the unprompted boot message.
+static void test_version_reply_matches_startup_banner(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    // Constructing the controller constructs PicoDccEx, which announces itself.
+    assert_false(uart_output_log.empty());
+    std::string startup = uart_output_log[0];
+    uart_output_log.clear();
+
+    uart_test_write("<s>");
+    controller.dccexLoop();
+
+    assert_false(uart_output_log.empty());
+    assert_string_equal(uart_output_log[0].c_str(), startup.c_str());
+    assert_string_equal(uart_output_log[0].c_str(), PICODCC_IDENTITY);
 }
 
 // Test core communication through command queue
@@ -913,6 +947,7 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_timing_safety_cutoff, setup, teardown),
         cmocka_unit_test_setup_teardown(test_no_false_cutoff_during_boot_delay, setup, teardown),
         cmocka_unit_test_setup_teardown(test_core1_that_never_starts_still_cuts_power, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_version_reply_matches_startup_banner, setup, teardown),
         cmocka_unit_test_setup_teardown(test_command_queue_processing, setup, teardown),
         cmocka_unit_test_setup_teardown(test_emergency_stop, setup, teardown),
         cmocka_unit_test_setup_teardown(test_track_power_control, setup, teardown),

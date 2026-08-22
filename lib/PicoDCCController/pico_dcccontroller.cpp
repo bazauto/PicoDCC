@@ -486,7 +486,7 @@ void PicoDccController::handleSaveCommand()
 void PicoDccController::handleStatusCommand()
 {
     // Send version info (standard DCC-EX format)
-    DCCEX_RESPONSE("<iDCC-EX V-5.0.0 / PICODCC / BUILD Oct 20 2025>");
+    DCCEX_RESPONSE(PICODCC_IDENTITY);
     
     // Send main track power status (standard DCC-EX format)
     if (main_track->getPower()) {

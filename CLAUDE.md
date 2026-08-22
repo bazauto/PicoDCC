@@ -19,7 +19,7 @@ most common way to lose an hour here.
 # Test mode — host compiler + Ninja + CMocka. This is what you run for almost everything.
 cmake -B build -G Ninja -DTEST_BUILD=ON
 cmake --build build
-cd build && ctest --output-on-failure     # 10 suites, 144 tests, ~0.5s
+cd build && ctest --output-on-failure     # 10 suites, 145 tests, ~0.5s
 
 # Hardware mode — ARM GCC cross-build, produces build/src/PicoDCC.uf2
 # Needs PICO_SDK_PATH and PICO_TOOLCHAIN_PATH (VS Code sets both; see .vscode/settings.json).

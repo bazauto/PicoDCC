@@ -11,7 +11,9 @@ extern "C" {
 #include <cmocka.h>
 }
 
+#include <cstring>
 #include "../lib/PicoDCCEX/pico_dccex.h"
+#include "../lib/dccex_communication.h"
 
 // Use direct mocking like other tests
 extern std::vector<std::string> uart_output_log;
@@ -35,7 +37,14 @@ void test_create(void **state)
 
     // Verify that the constructor sent the startup message
     assert_int_equal(uart_output_log.size(), 1);
-    assert_string_equal(uart_output_log[0].c_str(), "<iDCC-EX V-4.0.1 / MEGA / STANDARD_MOTOR_SHIELD / G-9db6d36>\n");
+    assert_string_equal(uart_output_log[0].c_str(), PICODCC_IDENTITY);
+
+    // The startup banner used to be a literal left over from upstream DCC-EX,
+    // announcing an Arduino Mega with a standard motor shield. It reached JMRI
+    // and it was believable, which is what made it dangerous rather than untidy.
+    assert_non_null(strstr(uart_output_log[0].c_str(), "PICODCC"));
+    assert_null(strstr(uart_output_log[0].c_str(), "MEGA"));
+    assert_null(strstr(uart_output_log[0].c_str(), "STANDARD_MOTOR_SHIELD"));
 
     assert_int_equal(dccex.getProcessState(), DCCEX_IDLE);
     assert_int_equal(dccex.getMaxSupportedCabs(), 10);
