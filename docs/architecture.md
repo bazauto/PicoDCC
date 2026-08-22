@@ -273,7 +273,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **145 total tests** across all components: Controller (19), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (25), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22)
+- **158 total tests** across all components: Controller (19), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (25), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22), PIO Wire Format (13)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation
