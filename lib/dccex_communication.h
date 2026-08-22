@@ -22,8 +22,11 @@
 // over from upstream DCC-EX during bring-up. JMRI reading that would believe it
 // was talking to an Arduino Mega with a standard motor shield.
 //
-// The BUILD date is a hardcoded literal and does not track the actual build --
-// see the follow-up issue. It is at least wrong in only one place now.
-#define PICODCC_IDENTITY "<iDCC-EX V-5.0.0 / PICODCC / BUILD Oct 20 2025>"
+// The string itself is generated at build time (cmake/generate_version.cmake) so
+// it carries the real build date and git hash. That is what makes the identity
+// useful: it tells you which image is actually running on the board.
+#include "version.h"
+
+#define PICODCC_IDENTITY PICODCC_VERSION_STRING
 
 #endif // PICO_DCC_DCCEX_COMMUNICATION_H
