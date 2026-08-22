@@ -62,10 +62,11 @@ Firmware is linked with `memmap_picodcc.ld`, which shrinks FLASH to 4092k so the
 sector survives a firmware update — that sector is `PicoConfigStorage`. Never link with the
 SDK default script.
 
-CI (`.github/workflows/ci.yml`) builds test mode and runs ctest on every push and PR. It
-does not cross-build firmware, so **hardware-mode breakage is not caught by CI** — run the
-hardware build locally before merging anything that touches shared headers, `lib/*/CMakeLists.txt`,
-or code behind `#ifdef TEST_BUILD`.
+CI (`.github/workflows/ci.yml`) runs the `host` preset and its ctest on every push and PR —
+the same commands you run locally, so the two cannot drift. It does not cross-build firmware,
+so **hardware-mode breakage is not caught by CI** — run the `pico` preset locally before
+merging anything that touches shared headers, `lib/*/CMakeLists.txt`, or code behind
+`#ifdef TEST_BUILD`.
 
 ---
 

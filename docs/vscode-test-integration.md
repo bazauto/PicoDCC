@@ -28,16 +28,17 @@ To install these extensions:
 
 2. **View Available Tests**:
    - Tests are organized by suite:
-     - `pico_dcc_controller_tests` (13 tests)
-     - `pico_dcc_track_tests` (21 tests)
+     - `pico_dcc_controller_tests` (19 tests)
+     - `pico_dcc_track_tests` (25 tests)
      - `pico_dcc_loco_tests` (11 tests)
      - `pico_dcc_locos_tests` (11 tests)
      - `pico_dcc_packet_tests` (25 tests)
+     - `pico_dcc_wire_format_tests` (22 tests)
      - `pico_config_storage_tests` (11 tests)
      - `pico_dcc_display_tests` (9 tests)
      - `pico_diagnostic_tests` (9 tests)
      - `pico_dcc_dccex_tests` (3 tests)
-   - **Total: 113 tests** across 9 test suites
+   - **Total: 145 tests** across 10 test suites
 
 3. **Run Tests**:
    - Click the play button (▶) next to any test suite or individual test
