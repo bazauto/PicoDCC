@@ -1,0 +1,22 @@
+// Generated at configure time from test/dcc_pio_program.hex -- do not edit.
+//
+// The .hex is pioasm's assembly of lib/PicoDCCTrack/dcc.pio and is committed so
+// the host build and CI work without the Pico SDK installed. When pioasm *is*
+// available the build re-assembles dcc.pio and fails if it disagrees with the
+// committed copy, so this cannot silently fall behind the real program.
+//
+// To refresh after editing dcc.pio:
+//     pioasm -o hex lib/PicoDCCTrack/dcc.pio test/dcc_pio_program.hex
+#ifndef DCC_PIO_PROGRAM_GENERATED_H
+#define DCC_PIO_PROGRAM_GENERATED_H
+
+#include <stdint.h>
+
+static const uint16_t dcc_program_instructions[] = {
+@DCC_PIO_INSTRUCTIONS@};
+
+static const unsigned dcc_program_length = @DCC_PIO_LENGTH@;
+static const unsigned dcc_wrap_target    = @DCC_PIO_WRAP_TARGET@;
+static const unsigned dcc_wrap           = @DCC_PIO_WRAP@;
+
+#endif // DCC_PIO_PROGRAM_GENERATED_H
