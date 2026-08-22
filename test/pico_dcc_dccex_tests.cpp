@@ -132,14 +132,19 @@ void test_out_of_range_function_is_rejected_on_the_wire(void **state)
 // The 4-field form is deprecated in DCC-EX and deliberately not implemented.
 // What matters is that it is *rejected* rather than misparsed: read as three
 // fields it becomes cab=REGISTER, speed=CAB, and commands a locomotive nobody
-// addressed. Rejection depends on the real address exceeding the speed limit,
-// which is why the guard and the reply matter more than the parse.
+// addressed.
+//
+// The first case is the one that mattered. It used to be *accepted* -- cab 1,
+// speed 3, both in range -- so every loco addressed 1..126 silently commanded
+// loco 1 instead. Only an address above the speed limit was ever caught (#7).
 void test_deprecated_four_field_throttle_is_rejected(void **state)
 {
     PicoDccEx dccex(10);
     uart_output_log.clear();
 
-    assert_rejected(dccex, "<t 1 3000 50 1>");
+    assert_rejected(dccex, "<t 1 3 50 1>");     // was accepted, as loco 1
+    assert_rejected(dccex, "<t 1 3000 50 1>");  // was caught, by luck
+    assert_rejected(dccex, "<F 1 3 8 1>");      // <F> shares the parse
 }
 
 // Unsupported opcodes fall through validatePacket()'s default case. <S> is the

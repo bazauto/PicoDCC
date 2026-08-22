@@ -377,7 +377,7 @@ static void test_cab_update_response_format(void **state)
 
     // <l cab reg speedByte functMap>. The speed byte carries direction in bit 7
     // and the 128-step value shifted down by one below it: 10 -> 9 | 0x80 = 137.
-    assert_string_equal(packet.getDccExCabUpdate(), "<l 3 0 137 0>");
+    assert_string_equal(packet.getDccExCabUpdate(), "<l 3 0 139 0>");
 }
 
 static void test_cab_update_speed_extremes(void **state)
@@ -391,7 +391,7 @@ static void test_cab_update_speed_extremes(void **state)
     char full[64];
     copy_command(full, sizeof(full), "t 3 126 1");
     PicoDccExPacket p_full(full);
-    assert_string_equal(p_full.getDccExCabUpdate(), "<l 3 0 253 0>");
+    assert_string_equal(p_full.getDccExCabUpdate(), "<l 3 0 255 0>");
 }
 
 static void test_cab_update_speed_one_reports_one_not_estop(void **state)
@@ -401,10 +401,84 @@ static void test_cab_update_speed_one_reports_one_not_estop(void **state)
     copy_command(buffer, sizeof(buffer), "t 3 1 1");
     PicoDccExPacket packet(buffer);
 
-    // getDccExCabUpdate() computes an emergency-stop value for wire speed 1 into
-    // a local `responseSpeed` and then never uses it (the compiler reports it as
-    // set-but-unused). The reported speed is a plain 1, i.e. 0x80 | 1 = 129.
-    assert_string_equal(packet.getDccExCabUpdate(), "<l 3 0 129 0>");
+    // Wire speed 1 is step 1, which is DCC speed byte 2: 0x80 | 2 = 130.
+    //
+    // This test now asserts what its name says. It previously pinned 129, which
+    // in the forward direction *is* emergency stop -- so the slowest possible
+    // speed was reported to the host as an estop, colliding with the value the
+    // test below asserts for a genuine one. Both came from an undocumented
+    // subtract-one in getDccExCabUpdate().
+    assert_string_equal(packet.getDccExCabUpdate(), "<l 3 0 130 0>");
+
+    // The two must not be the same value.
+    char estop[64];
+    copy_command(estop, sizeof(estop), "t 3 -1 1");
+    PicoDccExPacket estop_packet(estop);
+    assert_string_not_equal(packet.getDccExCabUpdate(), estop_packet.getDccExCabUpdate());
+}
+
+// The full <l> speed-byte mapping, against the published DCC-EX format:
+// bit 7 is direction, and the low 7 bits are 0 = stop, 1 = emergency stop,
+// 2..127 = speed steps 1..126. So wire speed N maps to N + 1.
+//
+// This whole table was two steps low before, because getDccExCabUpdate()
+// subtracted one instead of adding one.
+static void test_cab_update_speed_byte_matches_the_published_format(void **state)
+{
+    (void)state;
+    struct { const char *cmd; const char *expected; } cases[] = {
+        { "t 3 0 1",   "<l 3 0 128 0>" },  // stop, forward
+        { "t 3 0 0",   "<l 3 0 0 0>"   },  // stop, reverse
+        { "t 3 -1 1",  "<l 3 0 129 0>" },  // emergency stop, forward
+        { "t 3 -1 0",  "<l 3 0 1 0>"   },  // emergency stop, reverse
+        { "t 3 1 1",   "<l 3 0 130 0>" },  // slowest step, forward
+        { "t 3 1 0",   "<l 3 0 2 0>"   },  // slowest step, reverse
+        { "t 3 126 1", "<l 3 0 255 0>" },  // full speed, forward
+        { "t 3 126 0", "<l 3 0 127 0>" },  // full speed, reverse
+    };
+
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        char buffer[64];
+        copy_command(buffer, sizeof(buffer), cases[i].cmd);
+        PicoDccExPacket packet(buffer);
+        assert_string_equal(packet.getDccExCabUpdate(), cases[i].expected);
+    }
+}
+
+// The deprecated 4-field form <t REGISTER CAB SPEED DIR> must be rejected, not
+// misparsed. sscanf stops when its format is exhausted, so without an explicit
+// end-of-command check the extra field is silently ignored and every field
+// shifts one place left: <t 1 3 50 1> became cab 1, speed 3, direction 50 --
+// commanding a locomotive nobody addressed (#7).
+static void test_deprecated_four_field_throttle_is_not_misparsed(void **state)
+{
+    (void)state;
+    char buffer[64];
+    copy_command(buffer, sizeof(buffer), "t 1 3 50 1");
+    PicoDccExPacket packet(buffer);
+
+    assert_false(packet.isValid());
+    assert_int_equal(packet.getCab(), -1);
+
+    // The 3-field form of the same intent is still accepted.
+    char ok[64];
+    copy_command(ok, sizeof(ok), "t 3 50 1");
+    PicoDccExPacket good(ok);
+    assert_true(good.isValid());
+    assert_int_equal(good.getCab(), 3);
+
+    // Trailing whitespace is not "extra fields" and must still parse.
+    char spaced[64];
+    copy_command(spaced, sizeof(spaced), "t 3 50 1  ");
+    PicoDccExPacket padded(spaced);
+    assert_true(padded.isValid());
+    assert_int_equal(padded.getCab(), 3);
+
+    // <F> shares the parse and gets the same treatment.
+    char func[64];
+    copy_command(func, sizeof(func), "F 1 3 8 1");
+    PicoDccExPacket fn(func);
+    assert_false(fn.isValid());
 }
 
 static void test_estop_response_reports_estop_not_full_speed(void **state)
@@ -424,7 +498,7 @@ static void test_cab_update_is_not_truncated_for_long_addresses(void **state)
     copy_command(buffer, sizeof(buffer), "t 10239 126 1");
     PicoDccExPacket packet(buffer);
 
-    assert_string_equal(packet.getDccExCabUpdate(), "<l 10239 0 253 0>");
+    assert_string_equal(packet.getDccExCabUpdate(), "<l 10239 0 255 0>");
 }
 
 static void test_power_update_response_format(void **state)
@@ -512,6 +586,8 @@ int main(int argc, char *argv[])
         cmocka_unit_test_setup(test_cab_update_response_format, setup),
         cmocka_unit_test_setup(test_cab_update_speed_extremes, setup),
         cmocka_unit_test_setup(test_cab_update_speed_one_reports_one_not_estop, setup),
+        cmocka_unit_test_setup(test_cab_update_speed_byte_matches_the_published_format, setup),
+        cmocka_unit_test_setup(test_deprecated_four_field_throttle_is_not_misparsed, setup),
         cmocka_unit_test_setup(test_estop_response_reports_estop_not_full_speed, setup),
         cmocka_unit_test_setup(test_cab_update_is_not_truncated_for_long_addresses, setup),
         cmocka_unit_test_setup(test_power_update_response_format, setup),
