@@ -148,7 +148,7 @@ After exiting maintenance mode:
 
 ### Flash Firmware
 - **UF2 Method**: Hold BOOTSEL, copy `PicoDCC.uf2` to USB drive
-- **Picotool**: `picotool load -x build/src/PicoDCC.elf`
+- **Picotool**: `picotool load -x build/pico/src/PicoDCC.elf`
 - **OpenOCD**: Standard flash via debugger
 
 ### After Update (5 minutes)

@@ -11,16 +11,20 @@ instead.
 
 ## What to run
 
-Default is **test mode only** — that is the cheap, fast path and covers most changes:
+Default is the **host preset only** — that is the cheap, fast path and covers most changes:
 
 ```bash
-cmake -B build -G Ninja -DTEST_BUILD=ON
-cmake --build build
-cd build && ctest --output-on-failure
+cmake --preset host
+cmake --build --preset host
+ctest --preset host
 ```
 
-Expect **9 suites / 113 tests**, under a second. If the suite or test count differs from
+Expect **10 suites / 145 tests**, under a second. If the suite or test count differs from
 that, say so explicitly — it means suites were added or removed and the docs may be stale.
+
+On Windows, run these from PowerShell, or prepend `/c/msys64/ucrt64/bin` to `PATH` first if
+you are in bash. Without it the compiler fails to load its DLLs and ninja prints `FAILED:`
+with no compiler diagnostic — an environment problem that reads as a code failure.
 
 ## When to also run the hardware build
 
@@ -31,21 +35,19 @@ Run it when you were asked to, or when the diff touches any of:
 - shared headers: `lib/dcc_types.h`, `lib/pico_diagnostic.h`, `lib/dccex_communication.h`
 - `lib/PicoDCCDisplay/` (LVGL is hardware-only)
 
-`build/` is shared between the two modes, so the cache **must** be cleared first:
+The firmware has its own tree (`build/pico`), so there is nothing to clear and nothing to
+switch back:
 
 ```bash
-rm -f build/CMakeCache.txt && rm -rf build/CMakeFiles
-cmake -B build -G Ninja -DTEST_BUILD=OFF
-cmake --build build
+cmake --preset pico
+cmake --build --preset pico
 ```
 
 This needs `PICO_SDK_PATH` and `PICO_TOOLCHAIN_PATH` set, and the LVGL submodule present
 (`git submodule update --init --depth 1 lib/external/lvgl`). If either is missing, report
 that as the reason rather than as a code failure — they are environment problems.
 
-**Leave `build/` configured for test mode when you finish.** Re-run the test-mode configure
-at the end if you switched. A hardware-configured `build/` silently disables the Stop hook
-and makes the next person's `ctest` fail confusingly.
+Running the firmware build leaves `build/host` untouched, so no restore step is needed.
 
 ## Reporting
 

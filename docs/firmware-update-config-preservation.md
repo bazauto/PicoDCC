@@ -40,7 +40,7 @@ The project now uses a custom linker script that **automatically preserves confi
 
 Check firmware size at any time:
 ```bash
-cd build/src
+cd build/pico/src
 arm-none-eabi-size PicoDCC.elf
 
 # Expected output:
@@ -272,14 +272,14 @@ Application-level firmware update that:
 
 After building firmware:
 ```bash
-ls -lh build/src/PicoDCC.elf
-arm-none-eabi-size build/src/PicoDCC.elf
+ls -lh build/pico/src/PicoDCC.elf
+arm-none-eabi-size build/pico/src/PicoDCC.elf
 ```
 
 **Expected Output**:
 ```
    text    data     bss     dec     hex filename
- 123456    5678   12345  141479   22857 build/src/PicoDCC.elf
+ 123456    5678   12345  141479   22857 build/pico/src/PicoDCC.elf
 ```
 
 **Safe Zone**: text + data < 4,190,208 bytes (4092KB)

@@ -12,9 +12,13 @@
             "statusBarVisibility": "hidden"
         }
     },
-    "cmake.configureOnEdit": true,
-    "cmake.automaticReconfigure": true,
-    "cmake.configureOnOpen": true,
+    // Off deliberately. The builds here are driven by the presets, from the
+    // terminal and scripts. Letting the extension configure on its own put a
+    // tree into a mode nobody asked for, and a mis-moded tree used to return a
+    // green ctest against stale binaries (issue #25).
+    "cmake.configureOnEdit": false,
+    "cmake.automaticReconfigure": false,
+    "cmake.configureOnOpen": false,
     "cmake.generator": "Ninja",
     "cmake.cmakePath": "${userHome}/.pico-sdk/cmake/v3.31.5/bin/cmake",
     "C_Cpp.debugShortcut": false,
@@ -51,12 +55,12 @@
     // C++ TestMate Configuration (for gcov coverage integration)
     "testMate.cpp.test.advancedExecutables": [
         {
-            "pattern": "build/test/*_tests{.exe,}",
-            "cwd": "${workspaceFolder}/build/test",
+            "pattern": "build/host/test/*_tests{.exe,}",
+            "cwd": "${workspaceFolder}/build/host/test",
             "env": {}
         }
     ],
-    "testMate.cpp.test.workingDirectory": "${workspaceFolder}/build/test",
+    "testMate.cpp.test.workingDirectory": "${workspaceFolder}/build/host/test",
     "testMate.cpp.discovery.testListCaching": false,
     
     // Coverage settings for gcov

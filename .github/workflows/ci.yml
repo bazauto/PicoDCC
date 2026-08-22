@@ -24,12 +24,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build libcmocka-dev
 
-      - name: Configure (TEST_BUILD=ON)
-        run: cmake -B build -G Ninja -DTEST_BUILD=ON
+      # Presets, so CI and a developer's machine invoke the build the same way
+      # and cannot drift apart. The host preset builds into build/host.
+      - name: Configure
+        run: cmake --preset host
 
       - name: Build
-        run: cmake --build build
+        run: cmake --build --preset host
 
       - name: Run tests
-        working-directory: build
-        run: ctest --output-on-failure
+        run: ctest --preset host

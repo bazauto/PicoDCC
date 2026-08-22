@@ -30,7 +30,7 @@ that never touch the area. Keep it minimal. Check specifically:
 - The **component table** — new component, or a component whose ownership moved.
 - The **transport facts** — new command form, changed UART or stdio wiring, changed
   emergency-stop or protocol behaviour. These are the facts people get wrong from memory.
-- The **build commands** and the **test count** (currently 9 suites / 113 tests). Adding or
+- The **build commands** and the **test count** (currently 10 suites / 145 tests). Adding or
   removing a suite falsifies this file and `docs/architecture.md` together.
 
 Reasoning belongs in `docs/`, not here. One line pointing at the doc.

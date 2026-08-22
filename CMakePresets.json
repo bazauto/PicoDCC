@@ -1,0 +1,55 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "host",
+      "displayName": "host - unit tests (CMocka)",
+      "description": "Host compiler. Builds lib/ against the mocks in test/ and the CMocka suites. This is the mode for almost everything.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/host",
+      "cacheVariables": {
+        "TEST_BUILD": {
+          "type": "BOOL",
+          "value": "ON"
+        }
+      }
+    },
+    {
+      "name": "pico",
+      "displayName": "pico - RP2350 firmware",
+      "description": "ARM GCC cross-build, produces build/pico/src/PicoDCC.uf2. Needs PICO_SDK_PATH and PICO_TOOLCHAIN_PATH in the environment, and the LVGL submodule checked out.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/pico",
+      "cacheVariables": {
+        "TEST_BUILD": {
+          "type": "BOOL",
+          "value": "OFF"
+        }
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "host",
+      "configurePreset": "host"
+    },
+    {
+      "name": "pico",
+      "configurePreset": "pico"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "host",
+      "configurePreset": "host",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

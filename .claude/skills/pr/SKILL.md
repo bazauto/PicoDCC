@@ -37,16 +37,16 @@ untrue is incomplete work, not a tidy-up for later.
 Run the test build and the suite, and read the actual summary:
 
 ```powershell
-cmake -B build -G Ninja -DTEST_BUILD=ON
-cmake --build build
-cd build ; ctest --output-on-failure
+cmake --preset host
+cmake --build --preset host
+ctest --preset host
 ```
 
 If the change touches CMake files, shared headers, `PicoDCCDisplay`, or anything behind
-`#ifdef TEST_BUILD`, **also run the hardware build** — CI does not cross-compile, so
-hardware-mode breakage reaches `main` unless you catch it here. Clear the cache first (see
-`CLAUDE.md`) and leave `build/` back in test mode afterwards. The `/verify` agent does the
-full sweep.
+`#ifdef TEST_BUILD`, **also run the firmware build** (`cmake --build --preset pico`) — CI does
+not cross-compile, so hardware-mode breakage reaches `main` unless you catch it here. It builds
+into its own tree, so nothing needs clearing or restoring. The `/verify` agent does the full
+sweep.
 
 Never write a passing test count into a PR body without having run it in this session.
 

@@ -119,10 +119,13 @@ the code gives the truth.
 
 Full commands are in [`CLAUDE.md`](../CLAUDE.md). In short:
 
-- Two modes selected by `TEST_BUILD`, **sharing the same `build/` directory** — clear the
-  CMake cache when switching, or you will get confusing failures.
-- Test mode: host GCC + Ninja + CMocka. 10 suites, ~0.5s.
-- Hardware mode: ARM GCC + Pico SDK. Requires the LVGL submodule
+- Two presets in `CMakePresets.json`, **each with its own build tree** — `host` builds into
+  `build/host`, `pico` into `build/pico`. Nothing to clear, nothing to switch.
+- `host`: host GCC + Ninja + CMocka. 10 suites, ~0.5s. `cmake --build --preset host` then
+  `ctest --preset host`. On Windows this needs the MSYS2 toolchain ahead of Git's on `PATH`
+  (see `CLAUDE.md`), or the compiler fails to load its DLLs and ninja reports a `FAILED:`
+  edge carrying no diagnostic.
+- `pico`: ARM GCC + Pico SDK. Requires the LVGL submodule
   (`git submodule update --init --depth 1 lib/external/lvgl`) or CMake fails at
   `add_subdirectory` with no useful hint.
 - `.github/workflows/ci.yml` runs the test build and `ctest` on every push and PR. It does

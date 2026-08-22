@@ -28,16 +28,17 @@ To install these extensions:
 
 2. **View Available Tests**:
    - Tests are organized by suite:
-     - `pico_dcc_controller_tests` (13 tests)
-     - `pico_dcc_track_tests` (21 tests)
+     - `pico_dcc_controller_tests` (19 tests)
+     - `pico_dcc_track_tests` (25 tests)
      - `pico_dcc_loco_tests` (11 tests)
      - `pico_dcc_locos_tests` (11 tests)
      - `pico_dcc_packet_tests` (25 tests)
+     - `pico_dcc_wire_format_tests` (22 tests)
      - `pico_config_storage_tests` (11 tests)
      - `pico_dcc_display_tests` (9 tests)
      - `pico_diagnostic_tests` (9 tests)
      - `pico_dcc_dccex_tests` (3 tests)
-   - **Total: 113 tests** across 9 test suites
+   - **Total: 145 tests** across 10 test suites
 
 3. **Run Tests**:
    - Click the play button (▶) next to any test suite or individual test
@@ -100,12 +101,12 @@ The PicoDCC project supports two ways to view code coverage:
 #### Setup
 1. Install the "Coverage Gutters" extension
 2. Build and run tests with coverage:
-   ```bash
-   cd build
-   Remove-Item * -Recurse -Force
-   cmake -G "Ninja" -DTEST_BUILD=ON -DCMAKE_CXX_FLAGS="--coverage" ..
-   cmake --build .
-   .\test\pico_dcc_controller_tests.exe
+   ```powershell
+   # Run from the project root -- presets resolve against the source directory.
+   Remove-Item build/host -Recurse -Force -ErrorAction SilentlyContinue
+   cmake --preset host -DCMAKE_CXX_FLAGS="--coverage"
+   cmake --build --preset host
+   .\build\host\test\pico_dcc_controller_tests.exe
    ```
 3. Convert coverage for VS Code:
    ```bash
@@ -165,7 +166,7 @@ Gcov generates line-by-line coverage files with execution counts:
 
 ```bash
 # Generate coverage
-cd build/lib/PicoDCCController/CMakeFiles/PicoDCCController.dir
+cd build/host/lib/PicoDCCController/CMakeFiles/PicoDCCController.dir
 gcov pico_dcccontroller.cpp.gcno
 
 # View detailed coverage
@@ -210,10 +211,9 @@ const struct CMUnitTest controller_tests[] = {
 # Via task (recommended)
 Ctrl+Shift+P → Tasks: Run Task → Test with Coverage (Full)
 
-# Or manually
-cd build
-cmake --build .
-.\test\pico_dcc_controller_tests.exe
+# Or manually, from the project root
+cmake --build --preset host
+.\build\host\test\pico_dcc_controller_tests.exe
 ```
 
 ### 4. Check Coverage
@@ -231,10 +231,9 @@ Then open the source file and press `Ctrl+Shift+7`.
 
 ### Tests Don't Appear in Test Explorer
 
-1. Ensure CMake is configured for TEST_BUILD:
+1. Ensure the host tree is configured (run from the project root):
    ```bash
-   cd build
-   cmake -G "Ninja" -DTEST_BUILD=ON ..
+   cmake --preset host
    ```
 
 2. Reload CMake project:
@@ -289,7 +288,7 @@ However, Coverage Gutters provides better visual feedback and is already configu
 
 Ensure you're using the GNU compiler (not MSVC):
 ```bash
-cmake -G "Ninja" -DTEST_BUILD=ON -DCMAKE_CXX_FLAGS="--coverage" ..
+cmake --preset host -DCMAKE_CXX_FLAGS="--coverage"
 ```
 
 Check compiler:

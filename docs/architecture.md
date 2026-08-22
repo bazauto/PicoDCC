@@ -320,8 +320,10 @@ typedef struct {
 
 ### Build System
 - **Dual-Mode Architecture**: CMake supports both test (host GCC + Ninja + CMocka mocks) and
-  hardware (ARM GCC / Pico SDK) builds, selected by the `TEST_BUILD` flag. Both use the same
-  `build/` directory, so the CMake cache must be cleared when switching between them.
+  hardware (ARM GCC / Pico SDK) builds, selected by the `TEST_BUILD` flag and exposed as the
+  `host` and `pico` presets in `CMakePresets.json`. Each preset owns its own build tree
+  (`build/host`, `build/pico`), so the two modes are independent: no cache clearing, and a
+  build in one never invalidates the other.
 - **CI**: `.github/workflows/ci.yml` runs the test build and `ctest` on every push and PR. It
   does **not** cross-compile, so hardware-mode breakage must be caught locally.
 - **Validation**: `.\scripts\Validate-DualMode.ps1` covers both modes. It resolves the SDK and

@@ -521,7 +521,7 @@
 **Phase 3: Flash New Firmware (Automatic Preservation)**
 - **VS Code Method** (Recommended): Press F5 to debug/flash
 - **UF2 Method**: Hold BOOTSEL, copy `PicoDCC.uf2` to USB drive
-- **Picotool**: `picotool load -x build/src/PicoDCC.elf`
+- **Picotool**: `picotool load -x build/pico/src/PicoDCC.elf`
 - **OpenOCD**: Flash via debugger
 
 **Phase 4: Verify Configuration Persists (NO MANUAL RESTORE NEEDED)**
@@ -669,14 +669,14 @@
 
 **Method 2: Picotool** (Requires debugger):
 ```bash
-picotool load -x build/src/PicoDCC.elf
+picotool load -x build/pico/src/PicoDCC.elf
 ```
 
 **Method 3: OpenOCD** (Requires debugger):
 ```bash
 openocd -f interface/cmsis-dap.cfg -f target/rp2350.cfg \
   -c "adapter speed 5000" \
-  -c "program build/src/PicoDCC.elf verify reset exit"
+  -c "program build/pico/src/PicoDCC.elf verify reset exit"
 ```
 
 ### Restore Configuration After Update

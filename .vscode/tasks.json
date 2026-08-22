@@ -6,7 +6,7 @@
             "type": "process",
             "isBuildCommand": true,
             "command": "${userHome}/.pico-sdk/ninja/v1.12.1/ninja",
-            "args": ["-C", "${workspaceFolder}/build"],
+            "args": ["-C", "${workspaceFolder}/build/pico"],
             "group": "build",
             "presentation": {
                 "reveal": "always",
@@ -107,7 +107,7 @@
                 "-DTEST_BUILD=ON",
                 "-DCMAKE_C_FLAGS=--coverage",
                 "-DCMAKE_CXX_FLAGS=--coverage",
-                "-B", "${workspaceFolder}/build",
+                "-B", "${workspaceFolder}/build/pico",
                 "-S", "${workspaceFolder}"
             ],
             "group": "build",
@@ -124,7 +124,7 @@
             "args": [
                 "--output-on-failure",
                 "--test-dir",
-                "${workspaceFolder}/build"
+                "${workspaceFolder}/build/pico"
             ],
             "dependsOn": "Build Tests with Coverage",
             "group": {
