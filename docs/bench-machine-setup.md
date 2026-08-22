@@ -150,6 +150,29 @@ changelog is the thing to read, not the version number.
 > to DC, which means full speed if the track is live. Read-only host inventory over SSH is
 > safe; anything that reaches the board is not.
 
+These operations are scripted. Prefer the scripts over the raw recipes below — they carry
+the preflight checks, and the flash script proves the config sector survived rather than
+assuming it.
+
+```bash
+# Safe: never touches the board
+pwsh -NoProfile -File scripts/Deploy-Firmware.ps1   # build, validate, stage to the bench
+bash scripts/bench.sh inventory                     # probe, devices, contention, toolchain
+bash scripts/bench.sh dry-run                       # flash preflight, writes nothing
+
+# Touches the board: approval + track power off
+bash scripts/bench.sh flash --expect <sha256>       # program over SWD
+bash scripts/bench.sh fault                         # halt, registers + backtrace, resume
+bash scripts/bench.sh config                        # read and decode the config sector
+bash scripts/bench.sh dccex '<s>'                   # DCC-EX health check
+```
+
+`Deploy-Firmware.ps1` prints the exact `flash` line, including the `--expect` hash, so the
+flash refuses any image other than the one just validated. The split is deliberate: the safe
+half runs unattended, and the board-touching half stays behind a per-use approval prompt.
+
+### The underlying recipes
+
 Flash over SWD, no BOOTSEL button needed:
 
 ```bash
@@ -166,16 +189,19 @@ openocd -f interface/cmsis-dap.cfg -f target/rp2350.cfg -c "adapter speed 5000"
 arm-none-eabi-gdb PicoDCC.elf -ex "target extended-remote localhost:3333"
 ```
 
+`bash scripts/bench.sh fault` is usually the better tool: it captures both cores' registers
+and backtraces in one batch and puts the core back, where an interactive session holds it
+halted — and therefore holds DCC output stopped — for as long as it is open.
+
 OpenOCD's telnet console is on 4444 by default. Earlier versions of this document referred to
 a long-running server on port 50002; there is no such daemon — OpenOCD is started on demand,
 and the VS Code Raspberry Pi extension used to do it invisibly.
 
-DCC-EX traffic, for protocol-level testing against real hardware:
-
-```bash
-# 115200 8N1 on the probe's CDC interface
-picocom -b 115200 /dev/picodcc-dccex
-```
+DCC-EX traffic, for protocol-level testing against real hardware — 115200 8N1 on the probe's
+CDC interface. **`picocom` is not installed on the bench**, so `scripts/bench-dccex.sh` drives
+the port with the Python standard library instead (no `pyserial` dependency either). It also
+refuses commands that can energise the track or move a locomotive unless given `--force`,
+which a raw terminal will not do for you.
 
 ---
 

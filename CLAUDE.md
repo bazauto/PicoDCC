@@ -180,6 +180,21 @@ packet generation — both drop the signal, and a decoder that loses it falls ba
 which is full speed on a live track. Read-only host inventory over SSH is fine; anything
 that reaches the board is not.
 
+Deploy and debug are scripted — use the scripts, do not hand-roll `openocd`, `scp` or `ssh`
+one-liners. The `bench` skill routes to them. The split is the safety boundary:
+
+- **Safe, allowlisted, runs unattended**: `scripts/Deploy-Firmware.ps1` (build, validate,
+  stage), `bash scripts/bench.sh inventory`, `bash scripts/bench.sh dry-run`.
+- **Touches the board, prompts every time**: `bash scripts/bench.sh flash|fault|config|dccex`.
+
+Do not add the board-touching subcommands to `.claude/settings.json`, and do not widen the
+existing rules to a `scripts/bench.sh:*` wildcard — that per-use prompt is the enforcement
+of the rule above.
+
+`Deploy-Firmware.ps1` fails the build if any LOAD segment reaches the config sector, and
+`flash` reads that sector before and after and refuses to report success if it changed.
+`dccex` gates any command that can energise the track or move a locomotive behind `--force`.
+
 There is no long-running OpenOCD daemon and no port 50002 — that was the VS Code Raspberry
 Pi extension starting it invisibly. OpenOCD is launched on demand.
 
