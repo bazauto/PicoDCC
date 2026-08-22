@@ -22,7 +22,11 @@
       "Bash(gh run list:*)",
       "Bash(gh run view:*)",
       "Bash(arm-none-eabi-size:*)",
-      "Bash(arm-none-eabi-nm:*)"
+      "Bash(arm-none-eabi-nm:*)",
+
+      "Bash(bash scripts/bench.sh inventory:*)",
+      "Bash(bash scripts/bench.sh dry-run:*)",
+      "Bash(pwsh -NoProfile -File scripts/Deploy-Firmware.ps1:*)"
     ]
   },
   "hooks": {

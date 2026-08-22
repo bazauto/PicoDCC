@@ -138,6 +138,23 @@ timing and ADC problems need the Linux bench machine at `pbarrett@172.18.10.240`
 over SSH. See [`bench-machine-setup.md`](bench-machine-setup.md) for access, stable device
 names, provisioning and the OpenOCD/GDB recipes.
 
+Deploy and debug are scripted, split by whether they reach the board:
+
+| Command | Touches the board? |
+|---|---|
+| `pwsh -NoProfile -File scripts/Deploy-Firmware.ps1` | No — build, validate, stage |
+| `bash scripts/bench.sh inventory` | No — probe, devices, contention, toolchain |
+| `bash scripts/bench.sh dry-run` | No — flash preflight only |
+| `bash scripts/bench.sh flash --expect <sha256>` | **Yes** — programs over SWD |
+| `bash scripts/bench.sh fault` | **Yes** — halts both cores |
+| `bash scripts/bench.sh config` | **Yes** — halts to read flash |
+| `bash scripts/bench.sh dccex '<s>'` | **Yes** — sends a command |
+
+Only the first three are on the Claude Code allowlist; the rest prompt every time, which is
+the remote counterpart of the rule that `LAYOUT_MAINTENANCE` is entered only from the LCD.
+`Deploy-Firmware.ps1` refuses to stage an image whose LOAD segments reach the config sector,
+and `flash` reads that sector before and after to prove it survived.
+
 Flashing and debug attaches both need explicit approval with track power confirmed first —
 halting the core stops DCC generation, and decoders that lose the signal fall back to DC.
 
