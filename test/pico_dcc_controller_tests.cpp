@@ -42,6 +42,21 @@ static int teardown(void **state)
 
 // GPIO mock functions are implemented in mocks.cpp
 
+// Search the diagnostic log for a message. The boot cascade this guards against
+// was reported from the LCD log, so asserting on the log is asserting on exactly
+// what the operator sees.
+static bool log_contains(const char *needle)
+{
+    uint8_t count = diag_log_get_count();
+    for (uint8_t i = 0; i < count; i++) {
+        diagnostic_msg_t entry;
+        if (diag_log_get_entry(i, &entry) && strstr(entry.message, needle) != nullptr) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Test cases
 
 // Test timing safety features
@@ -69,8 +84,15 @@ static void test_timing_safety_cutoff(void **state)
     assert_true(controller.isTrackPowerOn(false)); // Main track
     assert_true(controller.isTrackPowerOn(true));  // Prog track
 
+    // Let Core 1 run so the monitor has both a real starting point and a real
+    // last-command time. Before its first pass it cannot tell "nothing sent yet"
+    // from "commands have stopped", and every boot looks like a fault. Run it at
+    // a non-zero time so neither value can be confused with "unset".
+    mock_time_ms = 10;
+    controller.dccLoop();
+
     // Move time forward past safety threshold
-    mock_time_ms = 150; // 150ms since last command
+    mock_time_ms = 150; // 140ms since the last command
 
     // Run the DCC loop which should trigger safety cutoff
     controller.dccLoop();
@@ -79,6 +101,75 @@ static void test_timing_safety_cutoff(void **state)
     assert_false(controller.isTrackPowerOn(false));
     assert_false(controller.isTrackPowerOn(true));
     assert_true(gpio_states[25]); // Timing LED should be on
+
+    // Prove it tripped on the command gap specifically, and not incidentally via
+    // the PIO health branch that shares this cutoff.
+    assert_true(log_contains("DCC timing violation detected"));
+}
+
+// Boot produces a long delay between construction and the first loop pass: LCD
+// init and the boot sequence run in between, and Core 1 is not launched until
+// after them. The monitors must not read that delay as Core 1 having died --
+// this cascaded into "Emergency power cutoff activated", "DCC timing violation
+// detected" and "Core 1 heartbeat failure detected" on every single boot.
+static void test_no_false_cutoff_during_boot_delay(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    // Construction happened at t=0; the first Core 0 pass does not come around
+    // until the display is up. Core 1 has not been launched yet, so it has never
+    // ticked -- which is exactly what the old check mistook for a dead core.
+    mock_time_ms = 200;
+    controller.dccexLoop();
+
+    assert_false(gpio_states[25]); // No emergency cutoff
+
+    // These are the exact three entries that appeared on the LCD every boot.
+    assert_false(log_contains("Emergency power cutoff activated"));
+    assert_false(log_contains("Core 1 heartbeat failure detected"));
+    assert_false(log_contains("DCC timing violation detected"));
+}
+
+// The grace period above must not become a blind spot: a Core 1 that is launched
+// and never runs is a real failure, and still has to cut power.
+static void test_core1_that_never_starts_still_cuts_power(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    mock_time_ms = 200;
+    controller.dccexLoop();      // arms the monitor
+    assert_false(gpio_states[25]);
+
+    // Still nothing from Core 1 once the startup deadline has passed.
+    mock_time_ms = 200 + CORE1_STARTUP_GRACE_MS + 50;
+    controller.dccexLoop();
+
+    assert_true(gpio_states[25]); // Emergency cutoff fired
+    assert_true(log_contains("Core 1 failed to start"));
 }
 
 // Test core communication through command queue
@@ -820,6 +911,8 @@ int main(void)
 
     const struct CMUnitTest tests[] = {
         cmocka_unit_test_setup_teardown(test_timing_safety_cutoff, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_no_false_cutoff_during_boot_delay, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_core1_that_never_starts_still_cuts_power, setup, teardown),
         cmocka_unit_test_setup_teardown(test_command_queue_processing, setup, teardown),
         cmocka_unit_test_setup_teardown(test_emergency_stop, setup, teardown),
         cmocka_unit_test_setup_teardown(test_track_power_control, setup, teardown),
