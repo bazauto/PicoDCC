@@ -21,7 +21,7 @@ project deliberately got rid of (issue #25).
 # host — host compiler + Ninja + CMocka. This is what you run for almost everything.
 cmake --preset host
 cmake --build --preset host
-ctest --preset host                       # 11 suites, 167 tests, ~0.5s
+ctest --preset host                       # 11 suites, 198 tests, ~0.5s
 
 # pico — ARM GCC cross-build, produces build/pico/src/PicoDCC.uf2
 # Needs PICO_SDK_PATH and PICO_TOOLCHAIN_PATH (VS Code sets both; see .vscode/settings.json).

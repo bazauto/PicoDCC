@@ -170,17 +170,29 @@ void PicoDccController::dccexLoop()
                     // Try to update existing loco, or add new one if not found
                     if (!pico_locos->updateLocoThrottle(packet.getCab(), &packet, cmd))
                     {
-                        // Loco not found in collection, add it
-                        pico_locos->addLoco(&packet, cmd);
+                        // Loco not found in collection, add it. Rejection (bad
+                        // opcode, bad address, bad speed, or the collection is
+                        // full) leaves cmd zeroed -- nothing goes on the rails,
+                        // nothing is queued, nothing is written to the UART.
+                        if (!pico_locos->addLoco(&packet, cmd))
+                        {
+                            LOG_WARNING(COMPONENT_CONTROLLER, "Throttle command rejected");
+                        }
                     }
-                    
+
                     if (cmd.length > 0) // Only queue if we have a valid command
                     {
                         main_cmd_queue.push(cmd);
                     }
-                    
-                    // Send locomotive status acknowledgment
-                    DCCEX_RESPONSE(packet.getDccExCabUpdate());
+
+                    // Send locomotive status acknowledgment for throttle commands
+                    // only (D5): <F> has no way to report a function map or the
+                    // loco's real speed, and reporting the function number as a
+                    // speed (the previous behaviour) is worse than no reply.
+                    if (packet.isThrottleCommand())
+                    {
+                        DCCEX_RESPONSE(packet.getDccExCabUpdate());
+                    }
                 }
             }
 

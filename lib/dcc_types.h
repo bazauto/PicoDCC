@@ -23,6 +23,44 @@
 static_assert(DCC_MAX_DATA_BYTES <= DCC_PACKET_FIRST_BYTE,
               "payload plus checksum overflows the 64-bit PIO packet word");
 
+// DCC address and throttle-speed limits. These used to be duplicated (and, in
+// one case, missing entirely) across PicoDCCLoco, PicoDCCLocos and
+// PicoDCCTrack; they live here once so every component checks the same
+// numbers (#11, #12, #16).
+#define DCC_MIN_LOCO_ADDR 1
+#define DCC_MAX_LOCO_ADDR 10239   // top of the 14-bit long-address space; first packet byte 0xE7
+#define HIGHEST_SHORT_ADDR 127    // short/long address boundary
+#define INVALID_LOCO_ADDR 65535   // sentinel: no such loco / not yet assigned
+#define DCC_MAX_THROTTLE_SPEED 126  // highest speed value a DCC-EX host sends
+#define DCC_SPEED_ESTOP 255         // internal sentinel: never a wire value
+
+static_assert(DCC_SPEED_ESTOP > DCC_MAX_THROTTLE_SPEED,
+              "estop sentinel collides with a legal speed");
+
+// 1..10239: the DCC address range this firmware accepts. Address 0 is the
+// broadcast address and must be rejected, not silently retargeted (#12);
+// anything above the 14-bit long-address space must be rejected rather than
+// emitting an idle/reserved packet (#16).
+static inline bool dcc_is_valid_loco_address(int addr)
+{
+    return addr >= DCC_MIN_LOCO_ADDR && addr <= DCC_MAX_LOCO_ADDR;
+}
+
+// -1 (emergency stop), or 0..126: the full range a DCC-EX throttle sends.
+// 127 and above are rejected outright rather than being masked into range (#11).
+static inline bool dcc_is_valid_throttle_speed(int speed)
+{
+    return speed == -1 || (speed >= 0 && speed <= DCC_MAX_THROTTLE_SPEED);
+}
+
+// Only meaningful for a speed that has already passed
+// dcc_is_valid_throttle_speed(): -1 becomes the DCC_SPEED_ESTOP sentinel,
+// anything else is returned unchanged.
+static inline uint8_t dcc_speed_code(int speed)
+{
+    return speed == -1 ? DCC_SPEED_ESTOP : (uint8_t)speed;
+}
+
 typedef struct
 {
     bool is_prog;

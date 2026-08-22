@@ -47,7 +47,8 @@ class PicoDccLocos;
 #define TRACK_POWER_TRIP_PERCENT 90
 #define TRACK_POWER_TRIP_THRESHOLD ((TRACK_POWER_ADC_RANGE * TRACK_POWER_TRIP_PERCENT) / 100)
 
-#define HIGHEST_SHORT_ADDR 127
+// HIGHEST_SHORT_ADDR lives in dcc_types.h now, alongside the other address
+// and speed limits.
 
 #define CMD_QUEUE_LENGTH 5
 

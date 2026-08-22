@@ -38,7 +38,7 @@ To install these extensions:
      - `pico_dcc_display_tests` (9 tests)
      - `pico_diagnostic_tests` (9 tests)
      - `pico_dcc_dccex_tests` (3 tests)
-   - **Total: 167 tests** across 11 test suites
+   - **Total: 198 tests** across 11 test suites
 
 3. **Run Tests**:
    - Click the play button (▶) next to any test suite or individual test

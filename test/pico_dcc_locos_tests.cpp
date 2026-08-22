@@ -45,14 +45,14 @@ void test_update_loco(void **state) {
     locos.addLoco(&packet, cmd);
 
     PicoDccLoco *loco = locos.findLoco(3);
-    const char *bufferUpdate = "t 3 128 1";
+    const char *bufferUpdate = "t 3 126 1";
     PicoDccExPacket packetUpdate((char *)bufferUpdate);
     loco->update(&packetUpdate);
 
     raw_dcc_cmd_t cmdUpdated = loco->getThrottleCommand();
     assert_int_equal(cmdUpdated.length, 2);
     assert_int_equal(cmdUpdated.data[0], 3);
-    assert_int_equal(cmdUpdated.data[1], 113);
+    assert_int_equal(cmdUpdated.data[1], 0x7F);
 }
 
 void test_forget_loco(void **state) {
@@ -323,6 +323,119 @@ void test_thread_safe_loco_count(void **state) {
     assert_int_equal(locos.getLocoCount(), 0);
 }
 
+// ---------------------------------------------------------------------------
+// Rejection at the collection level (#2, #11, #12, #16)
+// ---------------------------------------------------------------------------
+
+void test_add_loco_returns_true_for_valid_packet(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    const char *buffer = "t 3 10 1";
+    PicoDccExPacket packet((char *)buffer);
+
+    assert_true(locos.addLoco(&packet, cmd));
+    assert_int_equal(locos.getLocoCount(), 1);
+}
+
+void test_add_loco_rejects_cab_zero(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    const char *buffer = "t 0 10 1";
+    PicoDccExPacket packet((char *)buffer);
+
+    assert_false(locos.addLoco(&packet, cmd));
+    assert_int_equal(locos.getLocoCount(), 0);
+    assert_int_equal(cmd.length, 0);
+}
+
+void test_add_loco_rejects_address_above_14_bits(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    const char *buffer = "t 65535 10 1";
+    PicoDccExPacket packet((char *)buffer);
+
+    assert_false(locos.addLoco(&packet, cmd));
+    assert_int_equal(locos.getLocoCount(), 0);
+}
+
+// This is #2's crash path: before the fix, constructing a PicoDccLoco from a
+// non-throttle/function packet reached std::terminate and aborted the test
+// binary. Reaching the assertions below at all is part of what this proves.
+void test_add_loco_rejects_non_throttle_packet(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    const char *buffer = "s";
+    PicoDccExPacket packet((char *)buffer);
+
+    assert_false(locos.addLoco(&packet, cmd));
+    assert_int_equal(locos.getLocoCount(), 0);
+}
+
+void test_add_loco_caps_at_max_loco(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    for (uint16_t addr = 1; addr <= MAX_LOCO; addr++) {
+        char buffer[32];
+        snprintf(buffer, sizeof(buffer), "t %u 10 1", addr);
+        PicoDccExPacket packet(buffer);
+        assert_true(locos.addLoco(&packet, cmd));
+    }
+    assert_int_equal(locos.getLocoCount(), MAX_LOCO);
+
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "t %u 10 1", MAX_LOCO + 1);
+    PicoDccExPacket packet(buffer);
+    assert_false(locos.addLoco(&packet, cmd));
+    assert_int_equal(locos.getLocoCount(), MAX_LOCO);
+}
+
+void test_update_loco_rejects_out_of_range_speed(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    const char *buffer = "t 3 10 1";
+    PicoDccExPacket packet((char *)buffer);
+    locos.addLoco(&packet, cmd);
+    assert_int_equal(cmd.data[1], 0x72);
+
+    const char *bufferUpdate = "t 3 128 1";
+    PicoDccExPacket packetUpdate((char *)bufferUpdate);
+    raw_dcc_cmd_t updated;
+    bool found = locos.updateLocoThrottle(3, &packetUpdate, updated);
+
+    assert_true(found);
+    assert_false(locos.findLoco(3) == nullptr);
+    assert_int_equal(updated.data[1], 0x72);  // unchanged: rejected
+}
+
+void test_update_loco_estop_and_reminder(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    const char *buffer = "t 3 20 1";
+    PicoDccExPacket packet((char *)buffer);
+    locos.addLoco(&packet, cmd);
+
+    const char *bufferUpdate = "t 3 -1 1";
+    PicoDccExPacket packetUpdate((char *)bufferUpdate);
+    raw_dcc_cmd_t updated;
+    assert_true(locos.updateLocoThrottle(3, &packetUpdate, updated));
+    assert_int_equal(updated.length, 2);
+    assert_int_equal(updated.data[0], 0x03);
+    assert_int_equal(updated.data[1], 0x61);
+
+    raw_dcc_cmd_t reminder;
+    assert_true(locos.getNextReminder(reminder));
+    assert_int_equal(reminder.data[0], 0x03);
+    assert_int_equal(reminder.data[1], 0x61);
+    assert_int_equal(reminder.repeats, 0);
+}
+
 // Merge with existing tests
 int main(int argc, char *argv[]) {
     printf("Running Tests\n");
@@ -339,6 +452,13 @@ int main(int argc, char *argv[]) {
         cmocka_unit_test(test_get_next_reminder_single_loco_cycle),
         cmocka_unit_test(test_get_next_reminder_middle_loco_removal),
         cmocka_unit_test(test_thread_safe_loco_count),
+        cmocka_unit_test(test_add_loco_returns_true_for_valid_packet),
+        cmocka_unit_test(test_add_loco_rejects_cab_zero),
+        cmocka_unit_test(test_add_loco_rejects_address_above_14_bits),
+        cmocka_unit_test(test_add_loco_rejects_non_throttle_packet),
+        cmocka_unit_test(test_add_loco_caps_at_max_loco),
+        cmocka_unit_test(test_update_loco_rejects_out_of_range_speed),
+        cmocka_unit_test(test_update_loco_estop_and_reminder),
     };
 
     return cmocka_run_group_tests(all_tests, NULL, NULL);
