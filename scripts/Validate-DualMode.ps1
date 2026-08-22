@@ -3,11 +3,16 @@ param([switch]$SkipTests = $false)
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$BuildDir = Join-Path $ProjectRoot "build"
+
+# One tree per mode, as defined by CMakePresets.json. They are independent, so
+# validating both no longer means rebuilding either from scratch.
+$HostBuildDir = Join-Path $ProjectRoot "build\host"
+$PicoBuildDir = Join-Path $ProjectRoot "build\pico"
 
 Write-Host "=== PicoDCC Dual-Mode Build Validation ===" -ForegroundColor Cyan
 Write-Host "Project Root: $ProjectRoot"
-Write-Host "Build Directory: $BuildDir"
+Write-Host "Host tests:   $HostBuildDir"
+Write-Host "Firmware:     $PicoBuildDir"
 
 # --- Environment discovery -------------------------------------------------
 #
@@ -63,34 +68,26 @@ function Test-LvglSubmodule {
     return $false
 }
 
-function Clear-CMakeCache {
-    # Both modes share build/, so the cache must go when switching between them.
-    if (Test-Path $BuildDir) {
-        Write-Host "Cleared CMake cache" -ForegroundColor Yellow
-        Remove-Item "$BuildDir\CMakeCache.txt" -Force -ErrorAction SilentlyContinue
-        Remove-Item "$BuildDir\CMakeFiles" -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
-
 function Invoke-Build {
-    param([string]$Mode, [string[]]$ConfigureArgs)
+    param([string]$Preset, [string]$Mode, [string[]]$ConfigureArgs = @())
 
     Write-Host ""
-    Write-Host "--- Switching to $Mode Mode ---" -ForegroundColor Yellow
-    Clear-CMakeCache
+    Write-Host "--- Building $Mode Mode (preset: $Preset) ---" -ForegroundColor Yellow
 
     try {
         Push-Location $ProjectRoot
 
+        # No cache clearing: each preset owns its own binaryDir, so the two modes
+        # cannot overwrite one another and neither needs wiping to switch.
         Write-Host "Configuring CMake for $Mode mode..." -ForegroundColor Gray
-        cmake -B build -G "Ninja" @ConfigureArgs 2>&1 | Out-Host
+        cmake --preset $Preset @ConfigureArgs 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) {
             Write-Host "CMake configuration failed" -ForegroundColor Red
             return $false
         }
 
         Write-Host "Building in $Mode mode..." -ForegroundColor Gray
-        cmake --build build 2>&1 | Out-Host
+        cmake --build --preset $Preset 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0) {
             Write-Host "Build failed" -ForegroundColor Red
             return $false
@@ -111,8 +108,8 @@ function Invoke-TestSuite {
     Write-Host "--- Running Test Suite ---" -ForegroundColor Green
 
     try {
-        Push-Location $BuildDir
-        ctest --output-on-failure 2>&1 | Out-Host
+        Push-Location $ProjectRoot
+        ctest --preset host 2>&1 | Out-Host
         return $LASTEXITCODE -eq 0
     }
     finally {
@@ -124,7 +121,7 @@ function Test-HardwareArtifacts {
     Write-Host ""
     Write-Host "--- Validating Hardware Build Output ---" -ForegroundColor Green
 
-    $srcDir = Join-Path $BuildDir "src"
+    $srcDir = Join-Path $PicoBuildDir "src"
     $expectedFiles = @("PicoDCC.elf", "PicoDCC.uf2")
 
     $found = 0
@@ -151,7 +148,7 @@ if (-not $ninja) {
 Write-Host "Ninja: $ninja" -ForegroundColor Gray
 
 # Test mode: host compiler, no Pico SDK involvement.
-$testModeSuccess = Invoke-Build "TEST" @("-DTEST_BUILD=ON")
+$testModeSuccess = Invoke-Build "host" "TEST"
 
 if ($testModeSuccess -and -not $SkipTests) {
     $testsSuccess = Invoke-TestSuite
@@ -186,8 +183,7 @@ if (-not $sdkPath) {
     $env:PICO_SDK_PATH = $sdkPath
     $env:PICO_TOOLCHAIN_PATH = $toolchainPath
 
-    $hardwareModeSuccess = Invoke-Build "HARDWARE" @(
-        "-DTEST_BUILD=OFF",
+    $hardwareModeSuccess = Invoke-Build "pico" "HARDWARE" @(
         "-DPICO_SDK_PATH=$sdkPath",
         "-DPICO_TOOLCHAIN_PATH=$toolchainPath"
     )
@@ -231,6 +227,6 @@ if ($overallSuccess) {
 Write-Host ""
 Write-Host "=== Dual-Mode Validation Complete ===" -ForegroundColor Cyan
 
-# The build directory is left in hardware mode. Clear the cache before the next
-# test build (see CLAUDE.md).
+# Both trees are left configured and warm. There is no mode to restore and no
+# cache to clear: build/host and build/pico are independent.
 if (-not $overallSuccess) { exit 1 }

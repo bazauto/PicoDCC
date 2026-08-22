@@ -11,31 +11,40 @@ when nobody asked it to. Weight decisions accordingly.
 
 ## Build and test
 
-Two mutually exclusive modes selected by the `TEST_BUILD` CMake flag. **Both share the
-`build/` directory**, so switching modes needs the cache cleared first — that is the single
-most common way to lose an hour here.
+Two mutually exclusive modes, each with **its own build tree**, defined by `CMakePresets.json`:
+`host` builds into `build/host`, `pico` into `build/pico`. They are independent — no cache
+clearing, no mode to restore, and both stay warm instead of each full rebuild costing the other.
+Always drive the build through a preset; a bare `cmake -B build` re-creates the shared tree this
+project deliberately got rid of (issue #25).
 
 ```bash
-# Test mode — host compiler + Ninja + CMocka. This is what you run for almost everything.
-cmake -B build -G Ninja -DTEST_BUILD=ON
-cmake --build build
-cd build && ctest --output-on-failure     # 10 suites, 145 tests, ~0.5s
+# host — host compiler + Ninja + CMocka. This is what you run for almost everything.
+cmake --preset host
+cmake --build --preset host
+ctest --preset host                       # 10 suites, 145 tests, ~0.5s
 
-# Hardware mode — ARM GCC cross-build, produces build/src/PicoDCC.uf2
+# pico — ARM GCC cross-build, produces build/pico/src/PicoDCC.uf2
 # Needs PICO_SDK_PATH and PICO_TOOLCHAIN_PATH (VS Code sets both; see .vscode/settings.json).
 # Local install is Pico SDK 2.2.0 + ARM GCC 14.2.Rel1, both under ~/.pico-sdk.
-rm -f build/CMakeCache.txt && rm -rf build/CMakeFiles     # REQUIRED when switching modes
-cmake -B build -G Ninja -DTEST_BUILD=OFF
-cmake --build build
+cmake --preset pico
+cmake --build --preset pico
 ```
 
-`scripts/Validate-DualMode.ps1` runs both modes in sequence and is the quickest way to check
+**On Windows, the host build needs the MSYS2 toolchain ahead of Git's on PATH.** Git Bash puts
+its own `mingw64/bin` near the front, and that directory ships `zlib1.dll` and
+`libwinpthread-1.dll` which shadow the copies `cc1.exe` links against. The compiler then dies at
+DLL load and ninja reports `FAILED:` with **no compiler diagnostic at all** — a failure that
+looks unreal, because the same build from PowerShell succeeds. Prepend
+`/c/msys64/ucrt64/bin` to `PATH` when building from bash. The Stop hook does this for itself;
+`PICODCC_HOST_TOOLCHAIN_BIN` overrides the location. A machine-local `CMakeUserPresets.json`
+(gitignored) is the place for any other environment fix.
+
+`scripts/Validate-DualMode.ps1` runs both presets in sequence and is the quickest way to check
 a change end to end. It resolves the SDK and ARM toolchain from `PICO_SDK_PATH` /
 `PICO_TOOLCHAIN_PATH`, falling back to the newest install under `~/.pico-sdk`, and exits
-non-zero if anything fails. It needs Ninja for both modes, and it leaves `build/` configured
-for hardware mode, so clear the cache before the next test build.
+non-zero if anything fails. It needs Ninja for both modes, and leaves both trees configured.
 
-Both modes generate `build/generated/version.h` from `cmake/generate_version.cmake` — build
+Both modes generate `generated/version.h` inside their own tree from `cmake/generate_version.cmake` — build
 date plus `git rev-parse --short HEAD`, with a trailing `+` when the tree is dirty. That
 string *is* the DCC-EX identity (`PICODCC_IDENTITY` in `lib/dccex_communication.h`), so the
 `<s>` reply names the commit the running image was built from. Generation happens at configure

@@ -3,7 +3,7 @@
 # Generates gcov coverage files in a format that Coverage Gutters extension can read
 
 param(
-    [string]$BuildDir = "build"
+    [string]$BuildDir = "build/host"
 )
 
 $ErrorActionPreference = "Stop"

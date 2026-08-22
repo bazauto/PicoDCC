@@ -98,9 +98,8 @@ This automatically:
 ## 🔄 Regenerate Coverage After Code Changes
 
 ```powershell
-cd build
-cmake --build .
-ctest --output-on-failure
+cmake --build --preset host
+ctest --preset host
 .\scripts\Convert-Coverage-For-VSCode.ps1
 ```
 

@@ -3,7 +3,7 @@
 # Generates code coverage reports for PicoDCC project using gcov
 
 param(
-    [string]$BuildDir = "build",
+    [string]$BuildDir = "build/host",
     [switch]$Detailed = $false
 )
 

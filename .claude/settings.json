@@ -1,8 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cmake -B build:*)",
-      "Bash(cmake --build build:*)",
+      "Bash(cmake --preset:*)",
+      "Bash(cmake --build --preset:*)",
+      "Bash(ctest --preset:*)",
       "Bash(ctest:*)",
       "Bash(ninja:*)",
       "Bash(git status:*)",

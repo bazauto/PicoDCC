@@ -101,9 +101,8 @@ CMake cache before the next test build.
 ```powershell
 # 1. Write/modify code
 # 2. Run tests with coverage
-cd build
-cmake --build .
-ctest --output-on-failure
+cmake --build --preset host
+ctest --preset host
 
 # 3. Generate coverage for VS Code
 .\scripts\Convert-Coverage-For-VSCode.ps1

@@ -13,9 +13,13 @@ CircuitDesign
 lcov.info
 coverage/
 
-# Stray in-source CMake artifacts (build/ is the only build tree)
+# Stray in-source CMake artifacts (build/host and build/pico are the only trees)
 /CMakeFiles/
 /CMakeCache.txt
+
+# Machine-local preset overrides (toolchain paths, PATH fixes). CMakePresets.json
+# is committed and portable; anything specific to one machine belongs here.
+CMakeUserPresets.json
 
 # Claude Code local state (agents, skills and settings.json ARE committed)
 .claude/settings.local.json

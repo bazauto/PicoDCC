@@ -25,7 +25,9 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$BuildDir    = Join-Path $ProjectRoot "build"
+# The firmware tree from CMakePresets.json. Separate from build/host, so a deploy
+# never disturbs the test tree and never needs the cache cleared.
+$BuildDir    = Join-Path $ProjectRoot "build\pico"
 $ElfPath     = Join-Path $BuildDir "src\PicoDCC.elf"
 $Uf2Path     = Join-Path $BuildDir "src\PicoDCC.uf2"
 
@@ -119,23 +121,21 @@ if (-not $SkipBuild) {
     Say ""
     Say "-- build (hardware mode)"
 
-    # Both modes share build/, so the cache must go when switching. This is the
-    # single most common way to lose an hour on this project.
-    if (Test-Path $BuildDir) {
-        Remove-Item (Join-Path $BuildDir "CMakeCache.txt") -Force -ErrorAction SilentlyContinue
-        Remove-Item (Join-Path $BuildDir "CMakeFiles") -Recurse -Force -ErrorAction SilentlyContinue
-        Ok "cmake cache" "cleared (was test mode?)"
-    }
-
-    $cfg = & cmake -B $BuildDir -G Ninja -DTEST_BUILD=OFF 2>&1
+    # No cache clearing. build/pico is only ever the firmware tree, so there is
+    # no mode to switch away from and nothing stale to wipe.
+    Push-Location $ProjectRoot
+    $cfg = & cmake --preset pico 2>&1
+    Pop-Location
     if ($LASTEXITCODE -ne 0) {
         $cfg | Select-Object -Last 20 | ForEach-Object { Write-Host "    $_" }
         Bad "configure" "cmake failed"
         exit 1
     }
-    Ok "configure" "TEST_BUILD=OFF, Ninja"
+    Ok "configure" "preset pico (TEST_BUILD=OFF, Ninja)"
 
-    $bld = & cmake --build $BuildDir 2>&1
+    Push-Location $ProjectRoot
+    $bld = & cmake --build --preset pico 2>&1
+    Pop-Location
     if ($LASTEXITCODE -ne 0) {
         $bld | Select-Object -Last 30 | ForEach-Object { Write-Host "    $_" }
         Bad "compile" "build failed"
@@ -238,7 +238,7 @@ Ok "ssh" "$BenchHost reachable"
 # copy, transfers nothing, prints nothing and exits 0. Run from the project root
 # and pass colon-free relative paths so both sources are unambiguously local.
 Push-Location $ProjectRoot
-$ScpOut = & scp -o BatchMode=yes "build/src/PicoDCC.elf" "build/src/PicoDCC.uf2" "${BenchHost}:${RemoteDir}/" 2>&1
+$ScpOut = & scp -o BatchMode=yes "build/pico/src/PicoDCC.elf" "build/pico/src/PicoDCC.uf2" "${BenchHost}:${RemoteDir}/" 2>&1
 $ScpExit = $LASTEXITCODE
 Pop-Location
 if ($ScpExit -ne 0) {
@@ -270,9 +270,8 @@ Say ""
 Say "  Nothing has touched the board. To flash (needs approval, track power off):"
 Say "    bash scripts/bench.sh flash --expect $LocalHash"
 Say ""
-# build/ is shared between modes and is now configured for hardware. Say how to
-# get back, because the test-mode configure has to run from PowerShell: under
-# Git Bash CMake picks up a broken msys64 cc.exe and fails at project().
-Say "  build/ is now in hardware mode. To return to tests (from PowerShell, not bash):"
-Say "    cmake -B build -G Ninja -DTEST_BUILD=ON; cmake --build build; cd build; ctest"
+# Nothing to restore: build/host was never touched by this run, and its binaries
+# are still the ones the last test run produced.
+Say "  build/host is untouched. Tests, whenever you want them:"
+Say "    cmake --build --preset host; ctest --preset host"
 Say ""

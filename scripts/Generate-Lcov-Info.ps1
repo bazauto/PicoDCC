@@ -3,7 +3,7 @@
 # This is more compatible than raw .gcov files
 
 param(
-    [string]$BuildDir = "build"
+    [string]$BuildDir = "build/host"
 )
 
 $ErrorActionPreference = "Stop"

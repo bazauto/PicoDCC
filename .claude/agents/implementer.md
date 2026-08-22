@@ -32,14 +32,14 @@ land them correctly, with tests, and report honestly.
 5. **Prove it.** Before reporting, run:
 
    ```bash
-   cmake -B build -G Ninja -DTEST_BUILD=ON
-   cmake --build build
-   cd build && ctest --output-on-failure
+   cmake --preset host
+   cmake --build --preset host
+   ctest --preset host
    ```
 
    If the change touches CMake files, shared headers, `PicoDCCDisplay`, or anything behind
-   `#ifdef TEST_BUILD`, also run the hardware build (clear the cache first — see `CLAUDE.md`)
-   and leave `build/` back in test mode afterwards.
+   `#ifdef TEST_BUILD`, also run the firmware build (`cmake --build --preset pico`). It has
+   its own tree, so there is no cache to clear and no mode to restore.
 
 6. **Docs move with the code.** If your change alters component responsibilities, the test
    count, the command set, or anything `CLAUDE.md` or `docs/architecture.md` asserts, update

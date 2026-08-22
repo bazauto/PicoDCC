@@ -2,7 +2,7 @@
 # This script converts gcov data to lcov format for CMake Test Explorer integration
 
 $ErrorActionPreference = "Stop"
-$buildDir = "$PSScriptRoot\..\build"
+$buildDir = "$PSScriptRoot\..\build\host"
 
 Write-Host "`n=== Generating LCov Coverage Data ===" -ForegroundColor Cyan
 

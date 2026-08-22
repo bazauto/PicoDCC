@@ -18,8 +18,9 @@ bash scripts/bench.sh inventory                      # is the bench ready?
 pwsh -NoProfile -File scripts/Deploy-Firmware.ps1    # build + validate + stage
 ```
 
-`Deploy-Firmware.ps1` clears the CMake cache, configures `TEST_BUILD=OFF`, builds,
-then checks size, that no LOAD segment reaches the config sector at `0x103FF000`,
+`Deploy-Firmware.ps1` configures and builds the `pico` preset into `build/pico`, leaving
+the host test tree untouched, then checks size, that no LOAD segment reaches the config
+sector at `0x103FF000`,
 that `__flash_binary_end` agrees with the segment table, and that the SHA256 matches
 on both machines. On success it prints the exact flash command including `--expect`.
 
