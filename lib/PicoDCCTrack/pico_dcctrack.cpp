@@ -14,6 +14,10 @@
 #include "dcc.pio.h"
 #endif
 
+// The ADC block is a single shared peripheral. Both tracks want it initialised;
+// exactly one of them should do it. See the constructor.
+bool PicoDccTrack::adc_block_initialised = false;
+
 PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings, PicoDccLocos *locos)
 {
     is_prog = is_prog_in;
@@ -41,12 +45,24 @@ PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings, PicoDccLo
     gpio_set_dir(power_ctrl_pin, GPIO_OUT);
     gpio_put(power_ctrl_pin, 0);
 
-    // Setup for current reading
+    // Setup for current reading.
+    //
+    // adc_init() resets and enables the whole ADC block, so it belongs to the
+    // system rather than to a track. Calling it per track meant the second track
+    // constructed reset the peripheral the first had already configured (#14).
+    // The per-pin work below is genuinely per track and stays here.
+    //
+    // No channel is selected here on purpose. The mux is shared, so a selection
+    // made at construction says nothing about which channel is live by the time
+    // loop() reads -- loop() selects immediately before each read instead.
     if (canReadCurrent())
     {
-        adc_init();
+        if (!adc_block_initialised)
+        {
+            adc_init();
+            adc_block_initialised = true;
+        }
         adc_gpio_init(power_adc_pin);
-        adc_select_input(power_adc_number);
     }
 
     // Setup the PIO to run the track signal
@@ -76,13 +92,21 @@ void PicoDccTrack::setPower(bool on)
 
     if (on) {
         tripped = false;  // Clear trip flag when powering on
+        // Start a fresh averaging window rather than carrying samples across a
+        // power cycle, which would mix two unrelated load conditions.
+        current_sum = 0;
+        current_cnt = 0;
         if (short_led_pin != UNUSED_PIN)
         {
             // If we have a short LED then turn it off
             gpio_put(short_led_pin, 0);
         }
     }
-
+    else {
+        // An unpowered track draws nothing. Leaving the last average in place
+        // would show the LCD a current that is no longer flowing.
+        average_current_reading = 0.0f;
+    }
 }
 
 void PicoDccTrack::loop()
@@ -90,13 +114,23 @@ void PicoDccTrack::loop()
     // Check PIO health before processing commands
     checkPIOHealth();
     
-    // Process current monitoring only if available
-    if (canReadCurrent())
+    // Process current monitoring only if available, and only while the track is
+    // energised. With the H-bridge disabled the sense input is not driving a
+    // meaningful value; sampling it anyway could trip and latch `tripped` on a
+    // track that was already off, showing a fault on the LCD with no fault
+    // present (#36).
+    if (canReadCurrent() && power_on)
     {
+        // Select this track's channel immediately before reading. The ADC mux is
+        // shared between both tracks, so a selection made anywhere else -- in the
+        // constructor, or by the other track's own loop() -- does not survive to
+        // here. Without this the main track sampled the programming track's sense
+        // resistor and its overcurrent trip was inoperative (#14).
+        adc_select_input(power_adc_number);
         uint reading = adc_read();
-        
+
         // Check for overcurrent condition (short circuit protection)
-        if (reading > (TRACK_POWER_ADC_RANGE / 100 * 90))   // 90% 
+        if (reading > TRACK_POWER_TRIP_THRESHOLD)
         {
             // If the current is too high then we need to stop the track
             setPower(false);
@@ -109,17 +143,18 @@ void PicoDccTrack::loop()
                 gpio_put(short_led_pin, 1);
             }
         }
-        
-        // Update current averaging
-        if (current_cnt++ >= TRACK_POWER_CURRENT_SAMPLES)
+
+        // Update current averaging.
+        //
+        // Accumulate first, then test. The original tested first and discarded
+        // the sample that closed the window, and divided a 2000-sample sum by a
+        // count of 2001 (#36).
+        current_sum += reading;
+        if (++current_cnt >= TRACK_POWER_CURRENT_SAMPLES)
         {
-            average_current_reading = (float)current_sum / current_cnt;
+            average_current_reading = (float)current_sum / (float)current_cnt;
             current_cnt = 0;
             current_sum = 0;
-        }
-        else
-        {
-            current_sum += reading;
         }
     }
 

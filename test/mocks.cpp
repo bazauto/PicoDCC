@@ -138,12 +138,14 @@ extern "C" {
 namespace {
 uint8_t adc_selected = 0;
 uint32_t adc_selects = 0;
+uint32_t adc_inits = 0;
+uint32_t adc_gpio_inits = 0;
 bool adc_channel_set[5] = {false, false, false, false, false};
 uint32_t adc_channel_value[5] = {0, 0, 0, 0, 0};
 } // namespace
 
-void adc_init() {}
-void adc_gpio_init(uint8_t gpio) { (void)gpio; }
+void adc_init() { adc_inits++; }
+void adc_gpio_init(uint8_t gpio) { adc_gpio_inits++; (void)gpio; }
 
 void adc_select_input(uint8_t adc_num)
 {
@@ -356,6 +358,14 @@ void mock_adc_clear_channels(void)
 
 uint8_t mock_adc_selected_channel(void) { return adc_selected; }
 uint32_t mock_adc_select_count(void) { return adc_selects; }
+uint32_t mock_adc_init_count(void) { return adc_inits; }
+uint32_t mock_adc_gpio_init_count(void) { return adc_gpio_inits; }
+
+void mock_adc_reset_init_counts(void)
+{
+    adc_inits = 0;
+    adc_gpio_inits = 0;
+}
 
 void mock_register_power_pin(uint8_t gpio, int track_index)
 {
