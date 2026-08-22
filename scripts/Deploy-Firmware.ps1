@@ -231,8 +231,21 @@ Say "-- stage to $BenchHost"
 if ($LASTEXITCODE -ne 0) { Bad "ssh" "cannot reach $BenchHost"; exit 1 }
 Ok "ssh" "$BenchHost reachable"
 
-& scp -o BatchMode=yes -q $ElfPath $Uf2Path "${BenchHost}:${RemoteDir}/" 2>&1 | Out-Null
-if ($LASTEXITCODE -ne 0) { Bad "scp" "transfer failed"; exit 1 }
+# Keep scp output rather than discarding it. scp can exit 0 having transferred
+# nothing, and when it does its stderr is the only thing that says why.
+# scp reads a Windows absolute path as a remote spec: "E:uild\..." parses as
+# host "E". Every argument then looks remote, so scp attempts a remote-to-remote
+# copy, transfers nothing, prints nothing and exits 0. Run from the project root
+# and pass colon-free relative paths so both sources are unambiguously local.
+Push-Location $ProjectRoot
+$ScpOut = & scp -o BatchMode=yes "build/src/PicoDCC.elf" "build/src/PicoDCC.uf2" "${BenchHost}:${RemoteDir}/" 2>&1
+$ScpExit = $LASTEXITCODE
+Pop-Location
+if ($ScpExit -ne 0) {
+    Bad "scp" "transfer failed (exit $ScpExit)"
+    $ScpOut | ForEach-Object { Say "        $_" }
+    exit 1
+}
 
 # Verify what landed rather than trusting scp's exit code. A truncated or
 # corrupted image that still flashes cleanly is the failure mode worth ruling
@@ -240,6 +253,8 @@ if ($LASTEXITCODE -ne 0) { Bad "scp" "transfer failed"; exit 1 }
 $RemoteHash = (& ssh -o BatchMode=yes $BenchHost "sha256sum $RemoteDir/PicoDCC.elf" 2>&1) -split '\s+' | Select-Object -First 1
 if ($RemoteHash -ne $LocalHash) {
     Bad "transfer" "sha256 mismatch -- local $($LocalHash.Substring(0,16)) vs remote $($RemoteHash.Substring(0,16))"
+    Say "        scp exited 0 but the remote file is not the one just built."
+    $ScpOut | ForEach-Object { Say "        $_" }
     exit 1
 }
 Ok "transfer" "sha256 identical both ends"
