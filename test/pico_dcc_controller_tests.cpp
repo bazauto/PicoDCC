@@ -361,8 +361,9 @@ static void test_command_queue_processing(void **state)
     // Clear any queued commands from power on
     queued_commands.clear();
 
-    // Send a throttle command
-    uart_test_write("<t 3 128 1>");
+    // Send a throttle command. 126 is the highest speed a DCC-EX host sends;
+    // 128 is now rejected outright (#11), so this must stay a legal speed.
+    uart_test_write("<t 3 126 1>");
 
     // Process the packet in core 0 loop
     controller.dccexLoop();
@@ -401,12 +402,13 @@ static void test_emergency_stop(void **state)
     uart_test_write("<1>");
     controller.dccexLoop();
 
-    // Add some locos first
-    uart_test_write("<t 3 128 1>");
+    // Add some locos first. 128 is now rejected outright (#11); use the
+    // highest legal speed instead.
+    uart_test_write("<t 3 126 1>");
     controller.dccexLoop(); // Process loco command
     controller.dccLoop();   // Process the command in core 1
 
-    uart_test_write("<t 4 128 1>");
+    uart_test_write("<t 4 126 1>");
     controller.dccexLoop(); // Process loco command
     controller.dccLoop();   // Process the command in core 1
 
@@ -594,14 +596,15 @@ static void test_dccex_acknowledgments(void **state)
     assert_true(uart_output_log[0].find("0>") == uart_output_log[0].length() - 2);
     uart_output_log.clear();
 
-    // Test function command acknowledgment
+    // Test function command acknowledgment. <F> used to reply with a loco
+    // status update that reported the function number as a speed (D5); it now
+    // sends no reply at all -- the packet class has no way to report a
+    // function map or the loco's real speed, and reporting the function
+    // number as a speed is worse than reporting nothing.
     uart_test_write("<F 3 144 1>");
     controller.dccexLoop();
-    
-    assert_int_equal(uart_output_log.size(), 1);
-    // Should respond with loco status - check format
-    assert_true(uart_output_log[0].find("<l 3 0") == 0);
-    assert_true(uart_output_log[0].find("0>") == uart_output_log[0].length() - 2);
+
+    assert_int_equal(uart_output_log.size(), 0);
     uart_output_log.clear();
 
     // Test emergency stop acknowledgment
@@ -709,6 +712,12 @@ static void test_queue_timeout_safety(void **state)
     // Test that the system continues to operate with normal commands
     // This verifies that we're no longer using blocking queue operations
     // which would have caused the system to freeze if the queue was full
+    //
+    // "<t 1 3 1 1>" is the legacy 4-field <t reg cab speed dir> form, which
+    // this parser misreads as cab=1 (the "reg" field), speed=3 (the real cab
+    // address). It still parses to a valid cab/speed pair here by coincidence,
+    // so it is left as-is; the misinterpretation itself is a sibling of #2 and
+    // is not fixed by this change.
     uart_test_write("<t 1 3 1 1>");  // Throttle command
     controller.dccexLoop();
     
@@ -1054,6 +1063,111 @@ static void test_controller_rejects_colliding_pins(void **state)
     assert_true(mock_assert_failures > 0);
 }
 
+// ---------------------------------------------------------------------------
+// Throttle validation end to end (#2, #11, #12, #16)
+// ---------------------------------------------------------------------------
+
+// Before the fix, a throttle command with an out-of-range speed (999) reached
+// PicoDccLoco's throwing constructor with no handler anywhere on the path, and
+// std::terminate() aborted the process running this test. Reaching the
+// assertions below at all -- across all four malformed inputs -- is as much
+// the point of this test as what they assert.
+static void test_ISSUE_2_rejected_throttle_does_not_abort(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    uart_output_log.clear();
+    queued_commands.clear();
+
+    uart_test_write("<t 0 126 1>");       // cab 0: broadcast address (#12)
+    controller.dccexLoop();
+    uart_test_write("<t 65535 126 1>");   // above the 14-bit address space (#16)
+    controller.dccexLoop();
+    uart_test_write("<t 3 999 1>");       // speed out of range -- used to abort here
+    controller.dccexLoop();
+    uart_test_write("<t 3>");             // malformed: sscanf sentinel path
+    controller.dccexLoop();
+
+    assert_int_equal(controller.getLocoCount(), 0);
+    for (const auto &output : uart_output_log) {
+        assert_true(output.find("<l ") == std::string::npos);
+    }
+    assert_true(queued_commands.empty());
+}
+
+// D5: <F> must not write the function number into the loco's speed. Drive a
+// loco to a stop, press a function key, and confirm every transmitted
+// non-idle packet for that cab is still the stop encoding -- never a packet
+// carrying speed 8.
+static void test_function_command_does_not_queue_a_speed_change(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    // sent_track_packets is a global that this suite's other tests leave
+    // populated -- they only ever check for the presence of a match, so the
+    // accumulation is harmless there. This test checks for the *absence* of a
+    // bad packet, so it needs a clean slate.
+    extern std::vector<uint64_t> sent_track_packets;
+    sent_track_packets.clear();
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+
+    uart_test_write("<t 3 0 1>");
+    controller.dccexLoop();
+    // Drain fully: the repeat/interleave logic moves one command per
+    // dccexLoop() pass, so a single pass is not enough to guarantee the
+    // explicit command (repeats = 3) has actually reached the rails.
+    for (int i = 0; i < 8; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    uart_test_write("<F 3 8 1>");
+    controller.dccexLoop();
+    for (int i = 0; i < 8; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    bool found_cab3 = false;
+    for (size_t i = 0; i < sent_track_packets.size(); ++i) {
+        std::vector<uint8_t> bytes = unpack_sent_packet(sent_track_packets[i]);
+        if (bytes.empty() || bytes[0] != 0x03) {
+            continue;
+        }
+        found_cab3 = true;
+        assert_true(bytes == (std::vector<uint8_t>{0x03, 0x71, 0x72}));
+    }
+    assert_true(found_cab3);
+}
+
 int main(void)
 {
     printf("Running Controller Tests\n");
@@ -1081,6 +1195,8 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_ISSUE_17_emergency_stop_writes_one_response_per_loco, setup, teardown),
         cmocka_unit_test_setup_teardown(test_controller_construction_fires_no_asserts, setup, teardown),
         cmocka_unit_test_setup_teardown(test_controller_rejects_colliding_pins, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_ISSUE_2_rejected_throttle_does_not_abort, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_function_command_does_not_queue_a_speed_change, setup, teardown),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

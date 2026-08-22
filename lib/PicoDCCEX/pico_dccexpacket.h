@@ -31,7 +31,10 @@ private:
     bool valid_packet = false;
 
     raw_dcc_cmd_t raw_dcc_cmd;
-    char dccex_cab_update[16] = {'\0'};
+    // Longest possible reply is "<l 10239 0 255 0>" -- 17 chars + NUL. This was
+    // 16 bytes, which truncated the reply for any 4- or 5-digit address,
+    // emitting "<l 10239 0 253 " with no closing '>'.
+    char dccex_cab_update[24] = {'\0'};
     char dccex_power_update[10] = {'\0'};
 
     void decodePacket(char *buffer);

@@ -17,7 +17,7 @@
 #include "../PicoDCCTrack/pico_dcctrack.h"
 
 #define MAX_LOCO 50
-#define INVALID_LOCO_ADDR 65535
+// INVALID_LOCO_ADDR lives in dcc_types.h now.
 
 class PicoDccLocos
 {
@@ -32,7 +32,10 @@ public:
 
     size_t getLocoCount();
 
-    void addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
+    // Returns false, and leaves cmd zeroed, when the candidate loco is invalid
+    // (bad opcode, bad address, bad speed) or the collection is already at
+    // MAX_LOCO. Nothing is pushed, nothing is queued, on a false return.
+    bool addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
     
     void forgetLoco(uint16_t address);
     void forgetAllLocos();

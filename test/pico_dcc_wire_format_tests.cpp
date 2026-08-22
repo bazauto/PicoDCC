@@ -123,9 +123,14 @@ static void test_speed_zero_encodes_as_a_stop(void **state)
 
     // 0x71 == 0b0111_0001: forward, SSSS=0001, C=1, so the 5-bit speed value is
     // 3. That is a stop encoding rather than a moving step -- the locomotive
-    // does stop. It is the emergency-stop form rather than the controlled-stop
-    // form (value 0), which is worth confirming at the bench when issue #11 is
-    // addressed, since that fix has to pick an emergency-stop encoding too.
+    // does stop. It is the emergency-stop form (value 3, "ignore direction")
+    // rather than the controlled-stop form (value 0, 0x60/0x40) that the
+    // DCC-EX host actually asked for -- a genuine defect, deliberately left in
+    // place by the #11/#12/#16 fix: it changes the single most frequently sent
+    // command in the system and needs its own bench test. The new single-loco
+    // estop this fix adds (see test_speed_minus_one_is_an_emergency_stop,
+    // below) uses value 2 (0x61/0x41), so speed 0 and speed -1 are now both
+    // emergency stops, but with different bytes, until that follow-up lands.
     assert_int_equal(cmd.data[1], 0x71);
 }
 
@@ -181,6 +186,21 @@ static void test_direction_bit_is_0x20(void **state)
     assert_int_equal(fwd.data[1] ^ rev.data[1], 0x20);
 }
 
+// #11: DCC-EX sends speed -1 to emergency-stop a single locomotive. It used to
+// be masked into a plain uint8_t and encoded as speed 127 -- full speed, byte
+// for byte what "t 3 126 1" produces. It is now the same instruction byte as
+// the <!> broadcast estop, addressed to one loco.
+static void test_speed_minus_one_is_an_emergency_stop(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t cmd = throttle_update_for("t 3 10 1", "t 3 -1 1");
+
+    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.data[0], 0x03);
+    assert_int_equal(cmd.data[1], 0x61);
+    assert_int_not_equal(cmd.data[1], throttle_for("t 3 126 1").data[1]);
+}
+
 // ---------------------------------------------------------------------------
 // Address encoding
 // ---------------------------------------------------------------------------
@@ -219,6 +239,49 @@ static void test_highest_legal_long_address(void **state)
     assert_int_equal(cmd.data[0], 0xE7);
     assert_int_equal(cmd.data[1], 0xFF);
     assert_int_equal(cmd.data[2], 0x71);
+}
+
+// #12: cab 0 is the DCC broadcast address. It used to be accepted and encoded
+// as an address-0 throttle packet -- a broadcast to every decoder on the
+// layout. It is now refused outright: nothing is emitted, no loco is created.
+static void test_cab_zero_emits_nothing(void **state)
+{
+    (void)state;
+    char buffer[64];
+    copy_command(buffer, sizeof(buffer), "t 0 126 1");
+    PicoDccExPacket packet(buffer);
+
+    assert_false(packet.isValid());
+
+    raw_dcc_cmd_t cmd = throttle_for("t 0 126 1");
+    assert_int_equal(cmd.length, 0);
+}
+
+// #16: an address above the 14-bit long-address space used to mask down to
+// 0xFF -- the idle packet address -- rather than being rejected. It is now
+// refused outright: nothing is emitted, no loco is created.
+static void test_address_above_14_bits_emits_nothing(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t cmd = throttle_for("t 65535 126 1");
+
+    assert_int_equal(cmd.length, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Function commands
+//
+// D5: <F cab func state> must not write the function number into the loco's
+// speed. Function support itself is still a stub; this just makes it inert
+// rather than dangerous.
+// ---------------------------------------------------------------------------
+
+static void test_function_command_does_not_move_a_loco(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t cmd = throttle_update_for("t 3 0 1", "F 3 8 1");
+
+    assert_int_equal(cmd.data[1], 0x71);  // unchanged
 }
 
 // ---------------------------------------------------------------------------
@@ -344,6 +407,26 @@ static void test_cab_update_speed_one_reports_one_not_estop(void **state)
     assert_string_equal(packet.getDccExCabUpdate(), "<l 3 0 129 0>");
 }
 
+static void test_estop_response_reports_estop_not_full_speed(void **state)
+{
+    (void)state;
+    char buffer[64];
+    copy_command(buffer, sizeof(buffer), "t 3 -1 1");
+    PicoDccExPacket packet(buffer);
+
+    assert_string_equal(packet.getDccExCabUpdate(), "<l 3 0 129 0>");
+}
+
+static void test_cab_update_is_not_truncated_for_long_addresses(void **state)
+{
+    (void)state;
+    char buffer[64];
+    copy_command(buffer, sizeof(buffer), "t 10239 126 1");
+    PicoDccExPacket packet(buffer);
+
+    assert_string_equal(packet.getDccExCabUpdate(), "<l 10239 0 253 0>");
+}
+
 static void test_power_update_response_format(void **state)
 {
     (void)state;
@@ -369,47 +452,12 @@ static void test_power_update_response_format(void **state)
 // Each of these asserts what the firmware does *today*, naming the issue that
 // covers it. They are here so that a fix shows up as an explicit, reviewable
 // change to the wire format rather than a silent one.
+//
+// #11, #12 and #16 used to live here too (speed -1, cab 0, and addresses above
+// the 14-bit long-address space). They are fixed now, so their tests moved up
+// into the correct-behaviour sections above. Only the accessory encoding
+// issues remain unaddressed.
 // ---------------------------------------------------------------------------
-
-static void test_ISSUE_11_speed_minus_one_currently_means_full_speed(void **state)
-{
-    (void)state;
-    // DCC-EX sends speed -1 to emergency-stop a single locomotive.
-    raw_dcc_cmd_t cmd = throttle_update_for("t 3 10 1", "t 3 -1 1");
-
-    // -1 becomes uint8_t 255, masked to 127, encoded as 28-step code 31.
-    // 0x7F is maximum speed -- byte for byte what "t 3 126 1" produces.
-    assert_int_equal(cmd.data[1], 0x7F);
-    assert_int_equal(cmd.data[1], throttle_for("t 3 126 1").data[1]);
-}
-
-static void test_ISSUE_12_cab_zero_currently_emits_a_broadcast(void **state)
-{
-    (void)state;
-    char buffer[64];
-    copy_command(buffer, sizeof(buffer), "t 0 126 1");
-    PicoDccExPacket packet(buffer);
-
-    // Accepted as valid; no address range check exists for opcode 't'.
-    assert_true(packet.isValid());
-
-    raw_dcc_cmd_t cmd = throttle_for("t 0 126 1");
-    assert_int_equal(cmd.length, 2);
-    assert_int_equal(cmd.data[0], 0x00);  // address 0 == DCC broadcast
-    assert_int_equal(cmd.data[1], 0x7F);  // at full speed
-}
-
-static void test_ISSUE_16_address_above_14_bits_emits_idle_address(void **state)
-{
-    (void)state;
-    raw_dcc_cmd_t cmd = throttle_for("t 65535 126 1");
-
-    // (65535 >> 8) | 0xC0 == 0xFF, which is the idle packet address rather than
-    // anything in the 0xC0-0xE7 long-address range.
-    assert_int_equal(cmd.length, 3);
-    assert_int_equal(cmd.data[0], 0xFF);
-    assert_int_equal(cmd.data[1], 0xFF);
-}
 
 static void test_ISSUE_15_accessory_high_bits_not_ones_complemented(void **state)
 {
@@ -450,9 +498,13 @@ int main(int argc, char *argv[])
         cmocka_unit_test_setup(test_speed_max_128_step_input, setup),
         cmocka_unit_test_setup(test_low_speeds_quantise_together, setup),
         cmocka_unit_test_setup(test_direction_bit_is_0x20, setup),
+        cmocka_unit_test_setup(test_speed_minus_one_is_an_emergency_stop, setup),
         cmocka_unit_test_setup(test_short_address_is_one_byte, setup),
         cmocka_unit_test_setup(test_long_address_is_two_bytes, setup),
         cmocka_unit_test_setup(test_highest_legal_long_address, setup),
+        cmocka_unit_test_setup(test_cab_zero_emits_nothing, setup),
+        cmocka_unit_test_setup(test_address_above_14_bits_emits_nothing, setup),
+        cmocka_unit_test_setup(test_function_command_does_not_move_a_loco, setup),
         cmocka_unit_test_setup(test_explicit_command_repeats_three_times, setup),
         cmocka_unit_test_setup(test_reminder_does_not_repeat, setup),
         cmocka_unit_test_setup(test_reminders_rotate_between_locos, setup),
@@ -460,10 +512,9 @@ int main(int argc, char *argv[])
         cmocka_unit_test_setup(test_cab_update_response_format, setup),
         cmocka_unit_test_setup(test_cab_update_speed_extremes, setup),
         cmocka_unit_test_setup(test_cab_update_speed_one_reports_one_not_estop, setup),
+        cmocka_unit_test_setup(test_estop_response_reports_estop_not_full_speed, setup),
+        cmocka_unit_test_setup(test_cab_update_is_not_truncated_for_long_addresses, setup),
         cmocka_unit_test_setup(test_power_update_response_format, setup),
-        cmocka_unit_test_setup(test_ISSUE_11_speed_minus_one_currently_means_full_speed, setup),
-        cmocka_unit_test_setup(test_ISSUE_12_cab_zero_currently_emits_a_broadcast, setup),
-        cmocka_unit_test_setup(test_ISSUE_16_address_above_14_bits_emits_idle_address, setup),
         cmocka_unit_test_setup(test_ISSUE_15_accessory_high_bits_not_ones_complemented, setup),
         cmocka_unit_test_setup(test_ISSUE_15_accessory_activate_bit_is_stuck_on, setup),
     };

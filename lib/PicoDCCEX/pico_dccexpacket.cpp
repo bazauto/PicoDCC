@@ -98,12 +98,11 @@ void PicoDccExPacket::decodePacket(char *buffer)
     case ('F'):
         if (sscanf(buffer, "%*c %d %d %d", &packet.addr, &packet.param1, &packet.param2) == 3)
         {
-            // Always parse successfully, validation happens in consumer classes
-            // This allows for specific error messages based on which field is invalid
+            // Always parse successfully; validation happens in validatePacket().
             break; // Valid parsing
         }
         // Only mark as invalid if parsing completely failed
-        packet.addr = -1; 
+        packet.addr = -1;
         break;
 
     // Emergency Stop
@@ -205,13 +204,31 @@ void PicoDccExPacket::validatePacket() {
         valid_packet = true;
         break;
 
-    // These opcodes are validated through having successfully parsed parameters
+    // Throttle: reject cab addresses outside 1..10239 (#12, #16) and speeds
+    // outside -1 (estop), 0..126 (#11). packet.addr == -1 is the sscanf-failed
+    // sentinel decodePacket() sets on a malformed command -- it is subsumed by
+    // this range check, not lost: -1 is outside 1..10239 either way.
     case ('t'):
+        if (dcc_is_valid_loco_address(packet.addr) && dcc_is_valid_throttle_speed(packet.param1))
+            valid_packet = true;
+        else
+            LOG_WARNING(COMPONENT_DCCEX, "Throttle rejected: cab or speed out of range");
+        break;
+
+    // Function: only the cab address is meaningful -- see D5, PicoDccLoco no
+    // longer uses param1/param2 to command anything for this opcode.
     case ('F'):
+        if (dcc_is_valid_loco_address(packet.addr))
+            valid_packet = true;
+        else
+            LOG_WARNING(COMPONENT_DCCEX, "Function rejected: cab out of range");
+        break;
+
+    // Accessory: validated through having successfully parsed parameters.
     case ('a'):
         if (packet.addr != -1) {
             valid_packet = true;
-        } 
+        }
         break;
 
     // Emergency Stop
@@ -256,13 +273,19 @@ char *PicoDccExPacket::getDccExCabUpdate()
         return dccex_cab_update;
     }
 
-    uint8_t speed128 = (getSpeed() & 0x7f);
-    int8_t responseSpeed = 0;
-    if (speed128 == 1)
-        responseSpeed = -1;
-
-    if (speed128 > 1)
-        speed128 = speed128 - 1;
+    uint8_t speed128;
+    if (getSpeed() < 0)
+    {
+        // DCC-EX speedByte 1 is emergency stop, so <t 3 -1 1> -> <l 3 0 129 0>
+        // and <t 3 -1 0> -> <l 3 0 1 0> (#11).
+        speed128 = 1;
+    }
+    else
+    {
+        speed128 = (getSpeed() & 0x7f);
+        if (speed128 > 1)
+            speed128 = speed128 - 1;
+    }
 
     speed128 = speed128 | (getDirection() * 128);
 
