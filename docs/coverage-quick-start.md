@@ -1,48 +1,23 @@
-# VS Code Coverage Quick Start
+# Coverage quick start
 
-## ✅ Current Status
-- Coverage Gutters extension: **INSTALLED**
-- Coverage data: **GENERATED** (28 .gcda files, 7 .gcov files)
-- Configuration: **COMPLETE**
+gcov/lcov coverage for the host test build, driven from `scripts/`. Everything here runs from
+a terminal — there is no IDE setup to do, and no editor extension is required.
 
-## 🎯 How to View Coverage RIGHT NOW
+> This document used to be written around the VS Code Test Explorer and the Coverage Gutters
+> extension. That workflow is not used on this project and the instructions had gone stale, so
+> they were removed rather than left to rot. `docs/vscode-test-integration.md` was deleted for
+> the same reason.
 
-### Option 1: Coverage Gutters (Visual - RECOMMENDED)
-
-1. **You already have the file open**: `lib/PicoDCCController/pico_dcccontroller.cpp`
-
-2. **Enable Coverage Display**:
-   - Press `Ctrl+Shift+7` (or click "Watch" in status bar)
-   
-3. **What You'll See**:
-   - **Green gutter**: Line covered by tests ✅
-   - **Red gutter**: Line NOT covered by tests ❌
-   - **No gutter**: Not executable (comment/whitespace)
-   - **Status bar**: Overall coverage percentage
-
-4. **Coverage Files Available**:
-   ```
-   ✅ lib\PicoDCCController\pico_dcccontroller.cpp.gcov
-   ✅ lib\PicoConfigStorage\pico_config_storage.cpp.gcov
-   ✅ lib\PicoDCCEX\pico_dccex.cpp.gcov
-   ✅ lib\PicoDCCLoco\pico_dccloco.cpp.gcov
-   ✅ lib\PicoDCCLoco\pico_dcclocos.cpp.gcov
-   ✅ lib\PicoDCCTrack\pico_dcctrack.cpp.gcov
-   ✅ lib\PicoDiagnostic\pico_diagnostic.cpp.gcov
-   ```
-
-5. **Keyboard Shortcuts**:
-   - `Ctrl+Shift+7` - Watch/enable coverage
-   - `Ctrl+Shift+8` - Display coverage
-   - `Ctrl+Shift+9` - Remove watch/disable
-
-### Option 2: Text-Based Coverage Report
+## Generate a report
 
 ```powershell
+cmake --build --preset host
+ctest --preset host
 .\scripts\Generate-Coverage-Report.ps1
 ```
 
-Shows:
+`Generate-Coverage-Report.ps1` prints a per-component summary:
+
 ```
 PicoConfigStorage    [##############------------------------------------]  27.8%
 PicoDCCLocos         [############################----------------------]  57.0%
@@ -51,66 +26,50 @@ PicoDCCController    [###################################---------------]  70.3%
 Overall Coverage: 64.96%
 ```
 
-## 📋 Running Tests with Coverage
+The percentages above are illustrative, not current. Run the script for real numbers —
+`docs/test-coverage-report.md` is a captured snapshot from one particular run and is not
+regenerated automatically.
 
-### Quick Workflow (Test Explorer)
+## The other scripts
 
-1. **Open Test Explorer**: Click beaker icon (or `Ctrl+Shift+T`)
-2. **Run tests**: Click ▶ button next to any suite
-3. **View coverage**: Press `Ctrl+Shift+7` in source file
+| Script | What it does |
+|---|---|
+| `Generate-Coverage-Report.ps1` | The per-component text summary above |
+| `Generate-LCov-Coverage.ps1` | Produces `lcov.info`, for any tool that consumes lcov |
+| `Convert-Coverage-For-VSCode.ps1` | Emits `.gcov` files beside their sources, plus `lcov.info` |
 
-### Full Workflow (Tasks)
+`docs/coverage-scripts-overview.md` covers what each one does in detail.
+
+`Convert-Coverage-For-VSCode.ps1` is named for the editor extension it was written to feed. The
+`.gcov` files it produces are plain text and readable on their own, so the script is still
+useful even without that extension — read them directly, or point any lcov-aware tool at
+`lcov.info`.
+
+## Reading a `.gcov` file
+
+Each line is prefixed with its execution count, `#####` for an executable line that never ran,
+or `-` for a line that is not executable:
 
 ```
-Ctrl+Shift+P → Tasks: Run Task → Test with Coverage (Full)
+        -:   14:void PicoDccTrack::setPower(bool on)
+       42:   15:{
+       42:   16:    power_on = on;
+    #####:   17:    // never reached by any test
 ```
 
-This automatically:
-- Builds tests with coverage flags
-- Runs all test suites
-- Generates coverage report
+So `grep -n '#####' <file>.gcov` lists exactly the uncovered lines.
 
-## ⚠️ About "No coverage info files" Message
+## Coverage after a code change
 
-**If you see this in CMake Test Explorer**: This is **EXPECTED** and **NOT AN ERROR**.
+Coverage data is stale the moment the code changes. Rebuild, re-run, regenerate — in that
+order. A stale `.gcda` will produce a confident and wrong report rather than an error.
 
-- CMake Test Explorer's "Run with Coverage" button requires `lcov` tool
-- `lcov` is not available on Windows by default
-- You don't need it - Coverage Gutters works better!
+## What to aim for
 
-**What to do**:
-- Ignore the message
-- Use Coverage Gutters instead (press `Ctrl+Shift+7`)
-- Or run: `.\scripts\Convert-Coverage-For-VSCode.ps1`
+There is no enforced gate. As a rough guide, the components that put current on the rails —
+`PicoDCCTrack`, `PicoDCCController`, `PicoDCCEX`, `PicoDCCLoco` — deserve materially better
+coverage than the display and config layers, because a defect in them moves a locomotive.
 
-## 🎨 Coverage Targets
-
-| Component | Current | Target | Status |
-|-----------|---------|--------|--------|
-| PicoDCCEX | 89% | 70%+ | ✅ Excellent |
-| PicoDCCTrack | 82% | 70%+ | ✅ Excellent |
-| PicoDCCController | 70% | 70%+ | ✅ Met |
-| PicoDCCLoco | 70% | 70%+ | ✅ Met |
-| PicoDCCLocos | 57% | 70%+ | ⚠️ Needs work |
-| PicoConfigStorage | 28% | 60%+ | ❌ Needs tests |
-| **Overall** | **65%** | **65%+** | ✅ Met |
-
-## 🔄 Regenerate Coverage After Code Changes
-
-```powershell
-cmake --build --preset host
-ctest --preset host
-.\scripts\Convert-Coverage-For-VSCode.ps1
-```
-
-This will:
-1. Build tests with coverage
-2. Run all test suites
-3. Generate `.gcov` files in source directories
-4. Generate `lcov.info` in workspace root (used by Coverage Gutters)
-
-Then reload in VS Code: `Ctrl+Shift+9` then `Ctrl+Shift+7`
-
----
-
-**TL;DR**: Press `Ctrl+Shift+7` in `pico_dcccontroller.cpp` RIGHT NOW to see coverage!
+Coverage is a floor, not a target. `test/pico_dcc_wire_format_tests.cpp` and
+`test/pico_dcc_pio_tests.cpp` exist precisely because a line can be fully covered and still put
+the wrong bytes on the rails — see issues #31 and #33.

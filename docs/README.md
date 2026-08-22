@@ -26,7 +26,9 @@ Project rules — build commands, safety constraints, conventions, workflow — 
 | CV programming | ❌ Declarations only | Method bodies are absent on `main` |
 | Sensors (`<S>`) | ❌ Not supported | Parsed, then rejected as invalid |
 
-**Tests**: 208 across 11 CMocka suites, all passing. CI runs them on every push and PR.
+**Tests**: 11 CMocka suites, all passing. CI runs them on every push and PR. The per-suite
+test counts live in [`architecture.md`](architecture.md) and nowhere else — repeating them
+here only guaranteed they would disagree.
 
 ### Known gaps
 
@@ -107,8 +109,7 @@ the code gives the truth.
 | [`hardware-test-quick-reference.md`](hardware-test-quick-reference.md) | What to do at the bench, with a Pico attached |
 | [`bench-machine-setup.md`](bench-machine-setup.md) | The Linux bench machine: SSH access, attached devices, provisioning, toolchain update policy |
 | [`hardware-test-plan-nv-storage.md`](hardware-test-plan-nv-storage.md) | Detailed test plan for the flash storage subsystem |
-| [`vscode-test-integration.md`](vscode-test-integration.md) | CTest and TestMate setup in the IDE |
-| [`coverage-quick-start.md`](coverage-quick-start.md) | The short version of the gcov/lcov workflow |
+| [`coverage-quick-start.md`](coverage-quick-start.md) | The gcov/lcov workflow, driven from `scripts/` |
 | [`coverage-scripts-overview.md`](coverage-scripts-overview.md) | What each of the four `scripts/Generate-*.ps1` scripts does |
 | [`test-coverage-report.md`](test-coverage-report.md) | A captured coverage snapshot — a point-in-time artifact, not live data |
 | [`diagnostic-log-display-quick-reference.md`](diagnostic-log-display-quick-reference.md) | Using the LCD log viewer, and the ARM alignment lessons from building it |
