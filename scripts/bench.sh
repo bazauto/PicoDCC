@@ -27,7 +27,22 @@ run() {
     local script="$1"; shift
     [ -f "$ROOT/scripts/$script" ] || { echo "missing: scripts/$script" >&2; exit 1; }
     if [ $# -gt 0 ]; then
-        ssh "${SSH_OPTS[@]}" "$BENCH" bash -s -- "$@" < "$ROOT/scripts/$script"
+        # ssh joins its command arguments into one string that the *remote login
+        # shell* parses -- fish here. A DCC-EX command like <s> is a redirection
+        # to fish, which fails before bash -s ever runs. Single-quote each
+        # argument so fish passes them through untouched. An argument containing
+        # a single quote cannot be quoted this way, and nothing we send needs
+        # one, so reject it rather than emit a mis-quoted command line.
+        local quoted="bash -s --" arg
+        for arg in "$@"; do
+            case $arg in
+                *"'"*)
+                    echo "bench.sh: single quotes are not supported in arguments: $arg" >&2
+                    exit 2 ;;
+            esac
+            quoted="$quoted '$arg'"
+        done
+        ssh "${SSH_OPTS[@]}" "$BENCH" "$quoted" < "$ROOT/scripts/$script"
     else
         ssh "${SSH_OPTS[@]}" "$BENCH" bash -s < "$ROOT/scripts/$script"
     fi

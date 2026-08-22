@@ -23,6 +23,11 @@ Key-based auth from the Windows dev machine. Two things that bite:
   ```bash
   ssh pbarrett@172.18.10.240 bash -s < scripts/provision-bench.sh
   ```
+  Arguments go through fish too, before `bash -s` ever runs. A DCC-EX command like `<s>`
+  reads as a redirection and dies with `Expected a string, but found end of the input`, so
+  each argument has to be single-quoted inside the command string. `scripts/bench.sh` does
+  that for you, which is the reason to go through it rather than building the `ssh` line by
+  hand.
 - Non-interactive sessions have no controlling tty, so nothing that prompts will work. Use
   `-o BatchMode=yes` so a would-be prompt fails fast instead of hanging.
 
