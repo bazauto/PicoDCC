@@ -1,0 +1,15 @@
+// Auto-generated version header
+// DO NOT EDIT - Generated at build time by cmake/generate_version.cmake
+
+#ifndef PICODCC_VERSION_H
+#define PICODCC_VERSION_H
+
+#define PICODCC_BUILD_DATE "@BUILD_DATE@"
+#define PICODCC_GIT_HASH "@GIT_HASH@"
+
+// The command station's identity on the DCC-EX protocol. The git hash is what
+// makes a running image traceable back to a commit -- the build date alone
+// cannot distinguish two builds from the same day.
+#define PICODCC_VERSION_STRING "<iDCC-EX V-5.0.0 / PICODCC / BUILD " PICODCC_BUILD_DATE " G-" PICODCC_GIT_HASH ">"
+
+#endif // PICODCC_VERSION_H
