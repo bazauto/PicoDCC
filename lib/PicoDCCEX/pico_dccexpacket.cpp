@@ -1,6 +1,26 @@
 #include "pico_dccexpacket.h"
 #include "../pico_diagnostic.h"
 
+namespace {
+
+// True when everything left in the command is whitespace -- i.e. the fields we
+// scanned were the whole command, not a prefix of it. Used to reject a command
+// carrying more fields than the opcode takes, which sscanf alone will not do
+// because it stops once its format is exhausted.
+bool is_only_trailing_space(const char *rest)
+{
+    for (; *rest != '\0'; rest++)
+    {
+        if (*rest != ' ' && *rest != '\t' && *rest != '\r' && *rest != '\n')
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
 PicoDccExPacket::PicoDccExPacket(char *buffer)
 {
     // Initialize raw_dcc_cmd to zero
@@ -96,14 +116,28 @@ void PicoDccExPacket::decodePacket(char *buffer)
     // <t cab speed direction> and <F cab funct state>
     case ('t'):
     case ('F'):
-        if (sscanf(buffer, "%*c %d %d %d", &packet.addr, &packet.param1, &packet.param2) == 3)
+    {
+        // Three fields exactly, and nothing after them.
+        //
+        // sscanf stops as soon as its format is exhausted, so without the %n
+        // check below the deprecated 4-field form <t REGISTER CAB SPEED DIR>
+        // parsed as a perfectly valid 3-field command with everything shifted
+        // one place left: <t 1 3 50 1> became cab 1, speed 3, direction 50, and
+        // commanded a locomotive nobody addressed. It was only ever caught when
+        // the real address happened to exceed the speed limit, so locos 1..126
+        // went through silently (#7).
+        int consumed = -1;
+        if (sscanf(buffer, "%*c %d %d %d%n", &packet.addr, &packet.param1, &packet.param2, &consumed) == 3
+            && consumed >= 0 && is_only_trailing_space(buffer + consumed))
         {
-            // Always parse successfully; validation happens in validatePacket().
-            break; // Valid parsing
+            // Parsed cleanly; range validation happens in validatePacket().
+            break;
         }
-        // Only mark as invalid if parsing completely failed
+        // Malformed, or carrying extra fields. Either way we do not know what was
+        // meant, and guessing moves a train.
         packet.addr = -1;
         break;
+    }
 
     // Emergency Stop
     case ('!'):
@@ -273,23 +307,40 @@ char *PicoDccExPacket::getDccExCabUpdate()
         return dccex_cab_update;
     }
 
-    uint8_t speed128;
+    // DCC-EX <l cab reg speedByte functMap>. The speed byte is the DCC 128-step
+    // byte: bit 7 is direction, and the low 7 bits are 0 = stop, 1 = emergency
+    // stop, 2..127 = speed steps 1..126. So a wire speed of N maps to N + 1.
+    //
+    // This previously subtracted one instead of adding one, which reported every
+    // moving speed two steps low (126 became 253, not 255) and made wire speed 1
+    // report as 129 -- which in the forward direction *is* emergency stop, the
+    // exact collision the old test claimed to prevent. The shift was an
+    // undocumented JMRI workaround from before this was checked against the
+    // published format.
+    uint8_t speedByte;
     if (getSpeed() < 0)
     {
-        // DCC-EX speedByte 1 is emergency stop, so <t 3 -1 1> -> <l 3 0 129 0>
-        // and <t 3 -1 0> -> <l 3 0 1 0> (#11).
-        speed128 = 1;
+        speedByte = 1;                          // emergency stop
+    }
+    else if (getSpeed() == 0)
+    {
+        speedByte = 0;                          // stop
     }
     else
     {
-        speed128 = (getSpeed() & 0x7f);
-        if (speed128 > 1)
-            speed128 = speed128 - 1;
+        speedByte = (uint8_t)(getSpeed() + 1);  // steps 1..126 -> 2..127
     }
 
-    speed128 = speed128 | (getDirection() * 128);
+    // Direction is not range-checked on the way in, so anything that is not 1
+    // means reverse. Multiplying by 128 instead would overflow the byte for a
+    // direction field carrying anything else -- which is exactly what a
+    // misparsed 4-field <t> produces.
+    if (getDirection() == 1)
+    {
+        speedByte |= 0x80;
+    }
 
-    snprintf(dccex_cab_update, sizeof(dccex_cab_update), "<l %d 0 %d 0>", getCab(), speed128);
+    snprintf(dccex_cab_update, sizeof(dccex_cab_update), "<l %d 0 %d 0>", getCab(), speedByte);
 
     return dccex_cab_update;
 }
