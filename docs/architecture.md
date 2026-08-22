@@ -72,6 +72,12 @@ so it can never stall Core 1's DCC timing.
   at construction are already stale and used to fire a full emergency cutoff on every boot.
   The grace period is bounded: a Core 1 that never produces a heartbeat within
   `CORE1_STARTUP_GRACE_MS` still cuts power, so startup is not a monitoring blind spot.
+- **Millisecond clock**: every timestamp in the firmware comes from `dcc_millis()`
+  (`lib/dcc_time.h`), which is `to_ms_since_boot(get_absolute_time())`. The previous idiom,
+  `time_us_32() / 1000`, wrapped at 4,294,967ms — 71.6 minutes — and unsigned deltas across
+  that boundary yielded roughly 2^32, firing every timeout in the firmware at once (#32).
+  `dcc_millis()` wraps at 49.7 days with correct deltas across the wrap. Compare
+  differences, never absolute stored timestamps.
 
 ### Core 1 - Hardware Control & Safety
 - **Track Management**: Separate `PicoDccTrack` instances for main and programming tracks
@@ -284,7 +290,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **164 total tests** across all components: Controller (19), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22), PIO Wire Format (13)
+- **167 total tests** across all components: Controller (22), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22), PIO Wire Format (13)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

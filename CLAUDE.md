@@ -21,7 +21,7 @@ project deliberately got rid of (issue #25).
 # host — host compiler + Ninja + CMocka. This is what you run for almost everything.
 cmake --preset host
 cmake --build --preset host
-ctest --preset host                       # 11 suites, 164 tests, ~0.5s
+ctest --preset host                       # 11 suites, 167 tests, ~0.5s
 
 # pico — ARM GCC cross-build, produces build/pico/src/PicoDCC.uf2
 # Needs PICO_SDK_PATH and PICO_TOOLCHAIN_PATH (VS Code sets both; see .vscode/settings.json).
@@ -120,6 +120,19 @@ the lock is the race, not just mutating it.
 `src/pico_dcc.cpp` holds construction plus a 3-line loop. Components own their own timing,
 data gathering and update logic (`init()`, `runBootSequence()`, `loop(controller)`). No timer
 variables, no cross-component queries, no calculations in `main()`.
+
+### 7. `dcc_millis()` is the only millisecond clock
+
+`lib/dcc_time.h`. **Never write `time_us_32() / 1000`.** Unsigned delta arithmetic
+(`now - then`) survives counter wrap only when the counter wraps at 2^32. `time_us_32()`
+does; dividing first produces a value that wraps at 4,294,967 — every **71.6 minutes** of
+uptime — and across that boundary every timeout in the firmware fires at once. That was
+issue #32, and it was seen in operation: both tracks powered off with "DCC timing violation
+detected", the error LED clearing on the next pass while the power stayed off.
+
+`dcc_millis()` is `to_ms_since_boot(get_absolute_time())` — a latched read of the 64-bit
+hardware timer, equally multicore-safe, wrapping at 49.7 days with correct deltas across
+that wrap. Compare differences, never absolute stored timestamps.
 
 ---
 
