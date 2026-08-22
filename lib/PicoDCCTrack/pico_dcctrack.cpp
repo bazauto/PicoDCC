@@ -1,5 +1,6 @@
 #include "pico_dcctrack.h"
 #include "../pico_diagnostic.h"
+#include "../dcc_time.h"
 #include "../PicoDCCLoco/pico_dcclocos.h"
 
 #ifdef TEST_BUILD
@@ -79,8 +80,8 @@ PicoDccTrack::PicoDccTrack(bool is_prog_in, track_settings_t settings, PicoDccLo
     dcc_program_init((PIO)pio, pio_sm, offset, signal_pin, (is_prog ? DCC_PROG_PREAMBLE : DCC_MAIN_PREAMBLE));
     pio_sm_set_enabled((PIO)pio, pio_sm, true);
     
-    // Initialize PIO health monitoring (use time_us_32 for multicore safety)
-    pio_health.last_activity_time = time_us_32() / 1000;
+    // Initialize PIO health monitoring
+    pio_health.last_activity_time = dcc_millis();
     pio_health.last_pio_check_time = pio_health.last_activity_time;
     pio_health.last_interrupt_time = pio_health.last_activity_time;
 }
@@ -167,21 +168,21 @@ void PicoDccTrack::loop()
         // Priority 1: Explicit command from Core 0
         sendCommand(&cmd);
         pio_health.commands_sent++;
-        pio_health.last_activity_time = time_us_32() / 1000;  // Multicore-safe timer
+        pio_health.last_activity_time = dcc_millis();
     }
     else if (locos_collection != nullptr && locos_collection->getNextReminder(cmd))
     {
         // Priority 2: Locomotive reminder (main track only, when no explicit commands waiting)
         sendCommand(&cmd);
         pio_health.commands_sent++;
-        pio_health.last_activity_time = time_us_32() / 1000;  // Multicore-safe timer
+        pio_health.last_activity_time = dcc_millis();
     }
     else
     {
         // Priority 3: Idle packet (when no commands or reminders available)
         sendIdle();
         pio_health.idle_packets_sent++;
-        pio_health.last_activity_time = time_us_32() / 1000;  // Multicore-safe timer
+        pio_health.last_activity_time = dcc_millis();
     }
 }
 
@@ -193,7 +194,7 @@ void PicoDccTrack::queueCommand(raw_dcc_cmd_t *cmd)
 
 void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
 {
-    last_command_time = time_us_32() / 1000;  // Multicore-safe timer
+    last_command_time = dcc_millis();
     if (cmd->cmd_data == 0)
     {
         // build the data and checksum to send to the PIO
@@ -222,7 +223,7 @@ void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
     }
     
     // Option 4: Track PIO transmission activity (simulated interrupt)
-    pio_health.last_interrupt_time = time_us_32() / 1000;  // Multicore-safe timer
+    pio_health.last_interrupt_time = dcc_millis();
 }
 
 void PicoDccTrack::sendIdle()
@@ -242,7 +243,7 @@ void PicoDccTrack::sendIdle()
 // PIO Health Monitoring Implementation (Options 1, 3, 4)
 void PicoDccTrack::checkPIOHealth()
 {
-    uint32_t now = time_us_32() / 1000;  // Multicore-safe timer
+    uint32_t now = dcc_millis();
     bool was_healthy = pio_health.is_healthy;
     
 

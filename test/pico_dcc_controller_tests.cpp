@@ -15,6 +15,7 @@ extern "C"
 #include "../lib/PicoDCCController/pico_dcccontroller.h"
 #include "../lib/pico_diagnostic.h"  // For diag_log_init()
 #include "../lib/dccex_communication.h"  // For PICODCC_IDENTITY
+#include "../lib/dcc_time.h"  // For dcc_millis()
 
 // Mock state tracking
 extern bool track_power_states[2];
@@ -189,6 +190,118 @@ static void test_core1_that_never_starts_still_cuts_power(void **state)
 
     assert_true(gpio_states[25]); // Emergency cutoff fired
     assert_true(log_contains("Core 1 failed to start"));
+}
+
+// ---------------------------------------------------------------------------
+// Millisecond clock wrap (issue #32)
+//
+// `time_us_32() / 1000` produces a value that wraps every 4,294,967 ms -- 71.6
+// minutes of uptime. Unsigned delta arithmetic only survives a wrap at 2^32, so
+// across that boundary `current_time - last_cmd` yields roughly 2^32 instead of
+// a small positive number and every timeout in the firmware fires at once.
+//
+// Observed in operation: both tracks powered off with "DCC timing violation
+// detected" and nothing turning them back on. The recovery is asymmetric, which
+// is what made it baffling -- the next pass agrees again so the error LED goes
+// back out, but setPower(false) is never undone. The layout stays dead until
+// someone sends <1>.
+//
+// 4,294,967 ms is the exact boundary: 4294967 * 1000 fits in a uint32, and
+// 4294968 * 1000 does not.
+// ---------------------------------------------------------------------------
+
+// The helper itself, and the idiom it replaced, side by side. This is the whole
+// bug in six lines.
+static void test_dcc_millis_deltas_survive_the_old_wrap_point(void **state)
+{
+    mock_time_ms = 4294960;
+    uint32_t before = dcc_millis();
+    mock_time_ms = 4294970;
+    uint32_t after = dcc_millis();
+    assert_int_equal(after - before, 10);
+
+    // What was being differenced before: dividing first moves the wrap from 2^32
+    // to 4,294,967, and the delta across it is meaningless.
+    mock_time_ms = 4294960;
+    uint32_t old_before = time_us_32() / 1000;
+    mock_time_ms = 4294970;
+    uint32_t old_after = time_us_32() / 1000;
+    assert_true((uint32_t)(old_after - old_before) > 100);
+}
+
+static void test_no_false_timing_violation_across_the_71_minute_wrap(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    assert_true(controller.isTrackPowerOn(false));
+    assert_true(controller.isTrackPowerOn(true));
+
+    // Just below the boundary. Core 1 runs, establishing a real start time and a
+    // real last-command time -- main_track->loop() sends an idle packet.
+    mock_time_ms = 4294960;
+    controller.dccLoop();
+    assert_true(controller.isTrackPowerOn(false));
+
+    // 10ms later, and now across the boundary. This is a perfectly healthy
+    // 10ms gap; the old clock read it as about 4.29 billion milliseconds.
+    mock_time_ms = 4294970;
+    controller.dccLoop();
+
+    assert_true(controller.isTrackPowerOn(false));
+    assert_true(controller.isTrackPowerOn(true));
+    assert_false(gpio_states[25]);
+    assert_false(log_contains("DCC timing violation detected"));
+    assert_false(log_contains("PIO transmission stall detected"));
+    assert_false(log_contains("PIO transmission completely stopped"));
+}
+
+// The fix must not blunt the check it was breaking: a genuine stall on the far
+// side of the wrap still has to cut power.
+static void test_real_timing_violation_still_detected_after_the_wrap(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+
+    mock_time_ms = 4294960;
+    controller.dccLoop();
+    assert_true(controller.isTrackPowerOn(false));
+
+    // 140ms with nothing sent, straddling the boundary. That is a real fault.
+    mock_time_ms = 4294960 + 140;
+    controller.dccLoop();
+
+    assert_false(controller.isTrackPowerOn(false));
+    assert_false(controller.isTrackPowerOn(true));
+    assert_true(gpio_states[25]);
+    assert_true(log_contains("DCC timing violation detected"));
 }
 
 // The startup banner and the <s> reply must be the same string. They were not:
@@ -947,6 +1060,9 @@ int main(void)
 
     const struct CMUnitTest tests[] = {
         cmocka_unit_test_setup_teardown(test_timing_safety_cutoff, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_dcc_millis_deltas_survive_the_old_wrap_point, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_no_false_timing_violation_across_the_71_minute_wrap, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_real_timing_violation_still_detected_after_the_wrap, setup, teardown),
         cmocka_unit_test_setup_teardown(test_no_false_cutoff_during_boot_delay, setup, teardown),
         cmocka_unit_test_setup_teardown(test_core1_that_never_starts_still_cuts_power, setup, teardown),
         cmocka_unit_test_setup_teardown(test_version_reply_matches_startup_banner, setup, teardown),

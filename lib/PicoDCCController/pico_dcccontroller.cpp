@@ -3,6 +3,7 @@
 #include "../PicoDCCTrack/pico_dcctrack.h"
 #include "pico_dcccontroller.h"
 #include "../dccex_communication.h"
+#include "../dcc_time.h"
 #include "../pico_diagnostic.h"
 
 PicoDccController::PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s, uint8_t timing_led_pin)
@@ -58,7 +59,7 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
 void PicoDccController::dccexLoop()
 {
     // Core 1 health monitoring - check every 50ms
-    uint32_t current_time = time_us_32() / 1000;  // Multicore-safe timer
+    uint32_t current_time = dcc_millis();
 
     // Arm the monitor on the first pass. Construction happens before LCD init,
     // the boot sequence and multicore_launch_core1(), so a baseline of 0 is
@@ -242,7 +243,7 @@ void PicoDccController::dccLoop()
 {
     static uint32_t last_command_check = 0;
     static uint32_t heartbeat_counter = 0;
-    uint32_t current_time = time_us_32() / 1000;  // Multicore-safe timer
+    uint32_t current_time = dcc_millis();
     
     // Update Core 1 heartbeat for health monitoring
     core1_heartbeat = ++heartbeat_counter;

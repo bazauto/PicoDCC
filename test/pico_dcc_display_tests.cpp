@@ -19,6 +19,14 @@ struct track_settings_t;
 // Mock timing control for tests (external linkage for pico_dcc_display.cpp)
 uint32_t mock_time_ms = 0;
 
+// This suite deliberately links a reduced set and not test/mocks.cpp, so it
+// supplies the two time functions dcc_millis() is built from itself. They match
+// mocks.cpp's definitions: absolute_time_t is milliseconds here.
+extern "C" {
+uint32_t get_absolute_time(void) { return mock_time_ms; }
+uint32_t to_ms_since_boot(uint32_t t) { return t; }
+}
+
 void test_advance_time_ms(uint32_t ms) {
     mock_time_ms += ms;
 }

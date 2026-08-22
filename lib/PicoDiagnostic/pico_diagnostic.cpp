@@ -1,9 +1,7 @@
 /* lib/pico_diagnostic.cpp */
 #include "pico_diagnostic.h"
 #include <string.h>
-#ifndef TEST_BUILD
-#include "pico/time.h"  // For time_us_32()
-#endif
+#include "../dcc_time.h"
 
 // Global log buffer instance - initialized explicitly to avoid C++11 initialization issues
 diagnostic_log_buffer_t g_diag_log_buffer;
@@ -186,7 +184,7 @@ void diag_log_clear(void) {
  * Thread-safety:
  * - Uses static allocation with 8-byte alignment to prevent UNALIGNED faults
  * - Copies strings byte-by-byte into fixed buffers for multicore safety
- * - time_us_32() is atomic (single register read, multicore-safe)
+ * - dcc_millis() is a latched read of the hardware timer, multicore-safe
  * - Non-blocking read operations prevent Core 1 blocking during display updates
  */
 void log_diagnostic(diagnostic_level_t level, const char* component, const char* message) {
@@ -199,11 +197,7 @@ void log_diagnostic(diagnostic_level_t level, const char* component, const char*
     static diagnostic_msg_t msg __attribute__((aligned(8)));
     
     msg.level = level;
-#ifdef TEST_BUILD
-    msg.timestamp = mock_time_ms;  // Use mock time in test mode
-#else
-    msg.timestamp = time_us_32() / 1000;  // Convert to milliseconds
-#endif
+    msg.timestamp = dcc_millis();
     
     // Use safer string copy with explicit length check
     size_t comp_len = 0;
