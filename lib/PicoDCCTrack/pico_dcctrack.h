@@ -28,10 +28,24 @@ class PicoDccLocos;
 #define DCC_MAIN_PREAMBLE 14
 #define DCC_PROG_PREAMBLE 20
 
-#define TRACK_POWER_CURRENT_SAMPLES 2000
+// loop() is paced by pio_sm_put_blocking, so it runs roughly once per transmitted
+// packet -- on the order of 7ms. 128 samples is therefore a window of about 0.9s:
+// fast enough that the LCD follows a change in draw, slow enough to smooth
+// packet-to-packet ripple. It was 2000 (~14 seconds), which made the displayed
+// current useless for diagnosis -- see #36.
+#define TRACK_POWER_CURRENT_SAMPLES 128
 #define TRACK_POWER_ADC_VREF 3.3
 #define TRACK_POWER_ADC_RANGE (1 << 12)
 #define TRACK_POWER_ADC_CONVERT (TRACK_POWER_ADC_VREF / (TRACK_POWER_ADC_RANGE - 1))
+
+// Overcurrent trip point, as a percentage of ADC full scale.
+//
+// Multiply before dividing. The original expression was
+// `TRACK_POWER_ADC_RANGE / 100 * 90`, where the integer division truncates 40.96
+// to 40 and the trip lands at 3600 -- 87.9%, not the 90% the comment claimed
+// (#36). Naming the threshold keeps the arithmetic in one place.
+#define TRACK_POWER_TRIP_PERCENT 90
+#define TRACK_POWER_TRIP_THRESHOLD ((TRACK_POWER_ADC_RANGE * TRACK_POWER_TRIP_PERCENT) / 100)
 
 #define HIGHEST_SHORT_ADDR 127
 
@@ -63,6 +77,10 @@ private:
     uint8_t power_ctrl_pin = UNUSED_PIN;
     uint8_t power_adc_pin = UNUSED_PIN;
     uint8_t power_adc_number;
+
+    // The ADC block is one shared peripheral, initialised by whichever track is
+    // constructed first. Defined in pico_dcctrack.cpp.
+    static bool adc_block_initialised;
     uint8_t short_led_pin = UNUSED_PIN;
 
     float average_current_reading = 0.0;

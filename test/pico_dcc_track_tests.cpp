@@ -459,13 +459,146 @@ static void test_current_averaging(void **state)
     settings.short_pin = 16;
 
     PicoDccTrack track(false, settings);
-    
+
     // Initial average should be 0
     assert_float_equal(track.getAverageCurrent(), 0.0, 0.01);
-    
-    // Note: Full current averaging testing would require multiple loop() calls
-    // with different mock_adc_reading values to simulate the averaging process
-    // This is a basic test to verify the getter works
+
+    track.powerOn();
+    mock_adc_set_channel(0, 500);
+
+    // One short of a full window: nothing published yet.
+    for (int i = 0; i < TRACK_POWER_CURRENT_SAMPLES - 1; i++) {
+        track.loop();
+    }
+    assert_float_equal(track.getAverageCurrent(), 0.0, 0.01);
+
+    // The sample that closes the window must be counted, not discarded, and the
+    // sum must be divided by the window size -- not by size + 1 (#36).
+    track.loop();
+    assert_float_equal(track.getAverageCurrent(), 500.0, 0.01);
+}
+
+// Every sample in the window contributes exactly once. Feeding a window that is
+// half one value and half another must land exactly on the midpoint; the old
+// code's dropped sample and off-by-one divisor both skewed this.
+static void test_current_average_counts_every_sample_exactly_once(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = 0;
+    settings.short_pin = 16;
+
+    PicoDccTrack track(false, settings);
+    track.powerOn();
+
+    for (int i = 0; i < TRACK_POWER_CURRENT_SAMPLES / 2; i++) {
+        mock_adc_set_channel(0, 1000);
+        track.loop();
+    }
+    for (int i = 0; i < TRACK_POWER_CURRENT_SAMPLES / 2; i++) {
+        mock_adc_set_channel(0, 2000);
+        track.loop();
+    }
+
+    assert_float_equal(track.getAverageCurrent(), 1500.0, 0.01);
+}
+
+// ---------------------------------------------------------------------------
+// Overcurrent trip threshold (issue #36)
+//
+// The threshold was written `TRACK_POWER_ADC_RANGE / 100 * 90`, where the
+// integer division truncates and the trip actually landed at 3600 (87.9%) while
+// the comment claimed 90%. These tests pin the boundary so the arithmetic
+// cannot silently drift again.
+// ---------------------------------------------------------------------------
+
+static void test_trip_threshold_is_ninety_percent_of_full_scale(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = 0;
+    settings.short_pin = 16;
+
+    // 90% of a 4096 range, computed multiply-first.
+    assert_int_equal(TRACK_POWER_TRIP_THRESHOLD, 3686);
+
+    // Exactly at the threshold is not over it -- the test is `>`.
+    PicoDccTrack at_threshold(false, settings);
+    at_threshold.powerOn();
+    mock_adc_set_channel(0, TRACK_POWER_TRIP_THRESHOLD);
+    at_threshold.loop();
+    assert_true(at_threshold.getPower());
+
+    // One count above trips.
+    PicoDccTrack over_threshold(false, settings);
+    over_threshold.powerOn();
+    mock_adc_set_channel(0, TRACK_POWER_TRIP_THRESHOLD + 1);
+    over_threshold.loop();
+    assert_false(over_threshold.getPower());
+    assert_true(over_threshold.isTripped());
+
+    // A reading between the old 3600 and the corrected 3686 must no longer trip.
+    PicoDccTrack between(false, settings);
+    between.powerOn();
+    mock_adc_set_channel(0, 3650);
+    between.loop();
+    assert_true(between.getPower());
+}
+
+// ---------------------------------------------------------------------------
+// Overcurrent is not evaluated on an unpowered track (issue #36)
+//
+// With the H-bridge disabled the sense input is not driving a meaningful value.
+// Sampling it anyway could latch `tripped` on a track that was already off,
+// which the LCD then shows as a fault with no fault present.
+// ---------------------------------------------------------------------------
+
+static void test_unpowered_track_does_not_trip_or_sample(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = 0;
+    settings.short_pin = 16;
+
+    PicoDccTrack track(false, settings);
+    assert_false(track.getPower());  // constructed with power off
+
+    mock_adc_set_channel(0, 4095);  // sense input floating at full scale
+
+    uint32_t selects_before = mock_adc_select_count();
+    track.loop();
+
+    // Not read at all, so nothing to misinterpret.
+    assert_int_equal(mock_adc_select_count(), selects_before);
+    assert_false(track.isTripped());
+    assert_false(gpio_states[16]);
+    assert_false(track.getPower());
+}
+
+// An unpowered track draws nothing, so the LCD must not keep showing the last
+// current that flowed before power was cut.
+static void test_power_off_clears_the_displayed_average(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = 0;
+    settings.short_pin = 16;
+
+    PicoDccTrack track(false, settings);
+    track.powerOn();
+
+    mock_adc_set_channel(0, 800);
+    for (int i = 0; i < TRACK_POWER_CURRENT_SAMPLES; i++) {
+        track.loop();
+    }
+    assert_float_equal(track.getAverageCurrent(), 800.0, 0.01);
+
+    track.powerOff();
+    assert_float_equal(track.getAverageCurrent(), 0.0, 0.01);
 }
 
 // Test that current monitoring improvement works correctly
@@ -648,17 +781,16 @@ static void test_pio_health_status(void **state)
 // ---------------------------------------------------------------------------
 // ADC channel routing (issue #14)
 //
-// adc_select_input() is called once, in the constructor, and loop() then calls
-// a bare adc_read(). PicoDccController constructs the main track first and the
-// programming track second, so the mux is left on the programming track's
-// channel for the life of the firmware and both tracks read it.
+// The ADC mux is shared. Selecting a channel at construction says nothing about
+// which channel is live by the time loop() reads, because the other track's
+// constructor -- and, once running, the other track's own loop() -- moves it.
+// loop() must therefore select immediately before each read.
 //
-// These two tests pin that down from both directions. When #14 is fixed they
-// should invert: a short on the main channel must trip the main track, and a
-// short on the programming channel must not.
+// These two tests pin that from both directions: a short on a track's own
+// channel must trip it, and a short on the other track's channel must not.
 // ---------------------------------------------------------------------------
 
-static void test_ISSUE_14_main_track_misses_a_short_on_its_own_channel(void **state)
+static void test_main_track_trips_on_a_short_on_its_own_channel(void **state)
 {
     track_settings_t settings;
     settings.signal_pin = 18;
@@ -668,24 +800,24 @@ static void test_ISSUE_14_main_track_misses_a_short_on_its_own_channel(void **st
 
     PicoDccTrack track(false, settings);
 
-    // Stand in for the programming track being constructed afterwards, which is
-    // what leaves the mux pointing at ADC 1.
+    // Stand in for the programming track being constructed afterwards, or for
+    // its loop() having just sampled -- either way the mux is left elsewhere.
     adc_select_input(1);
 
-    mock_adc_set_channel(0, 4000);  // main track: hard short, well over the 90% trip
+    mock_adc_set_channel(0, 4000);  // main track: hard short, well over the trip
     mock_adc_set_channel(1, 0);     // programming track: quiet
 
     track.setPower(true);
     track.loop();
 
-    // loop() never reselected ADC 0, so it sampled the programming track and saw
-    // nothing wrong. Power stays on into a dead short.
-    assert_int_equal(mock_adc_selected_channel(), 1);
-    assert_true(track.getPower());
-    assert_false(gpio_states[16]);  // short LED never lit
+    // loop() reselected ADC 0 for itself, saw the short, and cut power.
+    assert_int_equal(mock_adc_selected_channel(), 0);
+    assert_false(track.getPower());
+    assert_true(track.isTripped());
+    assert_true(gpio_states[16]);  // short LED lit
 }
 
-static void test_ISSUE_14_main_track_trips_on_the_other_tracks_current(void **state)
+static void test_main_track_ignores_the_other_tracks_current(void **state)
 {
     track_settings_t settings;
     settings.signal_pin = 18;
@@ -703,10 +835,92 @@ static void test_ISSUE_14_main_track_trips_on_the_other_tracks_current(void **st
     track.setPower(true);
     track.loop();
 
-    // The failure is wrong in both directions: a healthy main track is cut
-    // because the programming track drew current.
-    assert_false(track.getPower());
-    assert_true(gpio_states[16]);
+    // A healthy main track must not be cut because the programming track drew
+    // current.
+    assert_int_equal(mock_adc_selected_channel(), 0);
+    assert_true(track.getPower());
+    assert_false(track.isTripped());
+    assert_false(gpio_states[16]);
+}
+
+// Two tracks alternating, which is what actually happens on Core 1: each loop()
+// must reclaim the mux rather than trusting what it finds.
+static void test_two_tracks_each_read_their_own_channel(void **state)
+{
+    track_settings_t main_settings;
+    main_settings.signal_pin = 18;
+    main_settings.ctrl_pin = 22;
+    main_settings.adc_num = 0;
+    main_settings.short_pin = 16;
+
+    track_settings_t prog_settings;
+    prog_settings.signal_pin = 19;
+    prog_settings.ctrl_pin = 23;
+    prog_settings.adc_num = 1;
+    prog_settings.short_pin = 17;
+
+    // Construction order matches PicoDccController: main first, prog second.
+    PicoDccTrack main_track(false, main_settings);
+    PicoDccTrack prog_track(true, prog_settings);
+
+    mock_adc_set_channel(0, 0);     // main: quiet
+    mock_adc_set_channel(1, 4000);  // prog: short
+
+    main_track.setPower(true);
+    prog_track.setPower(true);
+
+    main_track.loop();
+    prog_track.loop();
+
+    assert_true(main_track.getPower());   // untouched by the prog track's fault
+    assert_false(prog_track.getPower());  // tripped on its own channel
+    assert_true(prog_track.isTripped());
+
+    // And the reverse, with the fault moved to the main track.
+    mock_adc_set_channel(0, 4000);
+    mock_adc_set_channel(1, 0);
+    prog_track.setPower(true);
+
+    main_track.loop();
+    prog_track.loop();
+
+    assert_false(main_track.getPower());
+    assert_true(main_track.isTripped());
+    assert_true(prog_track.getPower());
+}
+
+// ---------------------------------------------------------------------------
+// ADC block initialisation (issue #14)
+//
+// adc_init() resets and enables the whole ADC block. Called once per track, the
+// second track reset the peripheral the first had configured. adc_gpio_init()
+// is per pin and must still happen for each track that senses current.
+// ---------------------------------------------------------------------------
+
+static void test_adc_block_is_initialised_once_but_each_pin_is_configured(void **state)
+{
+    track_settings_t main_settings;
+    main_settings.signal_pin = 18;
+    main_settings.ctrl_pin = 22;
+    main_settings.adc_num = 0;
+
+    track_settings_t prog_settings;
+    prog_settings.signal_pin = 19;
+    prog_settings.ctrl_pin = 23;
+    prog_settings.adc_num = 1;
+
+    mock_adc_reset_init_counts();
+
+    PicoDccTrack main_track(false, main_settings);
+    PicoDccTrack prog_track(true, prog_settings);
+
+    // The guard is process-lifetime, so an earlier test in this binary may
+    // already have consumed the one permitted call. What must never happen is a
+    // second reset of a configured block, which is what "at most one" pins.
+    assert_true(mock_adc_init_count() <= 1);
+
+    // Both pins are still configured -- the per-track work did not get lost.
+    assert_int_equal(mock_adc_gpio_init_count(), 2);
 }
 
 // ---------------------------------------------------------------------------
@@ -750,14 +964,20 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_send_idle, setup, teardown),
         cmocka_unit_test_setup_teardown(test_command_data_building, setup, teardown),
         cmocka_unit_test_setup_teardown(test_current_averaging, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_current_average_counts_every_sample_exactly_once, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_trip_threshold_is_ninety_percent_of_full_scale, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_unpowered_track_does_not_trip_or_sample, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_power_off_clears_the_displayed_average, setup, teardown),
         cmocka_unit_test_setup_teardown(test_current_monitoring_improvement, setup, teardown),
         cmocka_unit_test_setup_teardown(test_pio_transmission_monitoring, setup, teardown),
         cmocka_unit_test_setup_teardown(test_pio_transmission_stall, setup, teardown),
         cmocka_unit_test_setup_teardown(test_pio_idle_packet_tracking, setup, teardown),
         cmocka_unit_test_setup_teardown(test_pio_transmission_failure, setup, teardown),
         cmocka_unit_test_setup_teardown(test_pio_health_status, setup, teardown),
-        cmocka_unit_test_setup_teardown(test_ISSUE_14_main_track_misses_a_short_on_its_own_channel, setup, teardown),
-        cmocka_unit_test_setup_teardown(test_ISSUE_14_main_track_trips_on_the_other_tracks_current, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_main_track_trips_on_a_short_on_its_own_channel, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_main_track_ignores_the_other_tracks_current, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_two_tracks_each_read_their_own_channel, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_adc_block_is_initialised_once_but_each_pin_is_configured, setup, teardown),
         cmocka_unit_test_setup_teardown(test_construction_fires_no_asserts, setup, teardown),
     };
 

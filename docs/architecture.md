@@ -245,8 +245,19 @@ are safety requirements rather than UX choices. Do not relax them.
 
 ### Current Monitoring
 - **Conditional Operation**: Only active when ADC is configured (`canReadCurrent()`)
-- **Overcurrent Protection**: Automatic power cutoff at 70% of ADC range
-- **Current Averaging**: Running average over configurable sample count
+  **and the track is powered** — an unpowered H-bridge is not driving the sense
+  input, so a reading taken then means nothing and must not be able to trip
+- **Channel selection**: the ADC mux is shared between the two tracks, so `loop()`
+  calls `adc_select_input()` immediately before each `adc_read()`. Selecting once
+  at construction is not enough — the other track moves the mux (#14). `adc_init()`
+  resets the whole block and is therefore done once, by whichever track is
+  constructed first; `adc_gpio_init()` stays per track
+- **Overcurrent Protection**: automatic power cutoff above
+  `TRACK_POWER_TRIP_THRESHOLD`, 90% of ADC full scale (3686 of 4096). Multiply
+  before dividing — the original `RANGE / 100 * 90` truncated to 87.9% (#36)
+- **Current Averaging**: mean of the last `TRACK_POWER_CURRENT_SAMPLES` (128)
+  readings, about 0.9s at the ~7ms packet cadence that paces `loop()`. Reset on
+  power-on and zeroed on power-off, so the LCD never shows current on a dead track
 - **Visual Feedback**: Short circuit LED indication when available
 
 ## Error Handling & Diagnostics
@@ -273,7 +284,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **158 total tests** across all components: Controller (19), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (25), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22), PIO Wire Format (13)
+- **164 total tests** across all components: Controller (19), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22), PIO Wire Format (13)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

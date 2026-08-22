@@ -117,6 +117,13 @@ void mock_adc_clear_channels(void);
 uint8_t mock_adc_selected_channel(void);
 uint32_t mock_adc_select_count(void);
 
+// adc_init() resets the whole ADC block, so it must happen once for the system
+// and not once per track. adc_gpio_init() is per pin and must happen for every
+// track that senses current. These counters let a test tell the two apart.
+uint32_t mock_adc_init_count(void);
+uint32_t mock_adc_gpio_init_count(void);
+void mock_adc_reset_init_counts(void);
+
 // GPIO: power control pins are registered by the track that owns them, so
 // track_power_states[] follows the pins actually passed in rather than a pair
 // of hardcoded pin numbers.

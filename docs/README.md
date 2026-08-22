@@ -26,7 +26,7 @@ Project rules — build commands, safety constraints, conventions, workflow — 
 | CV programming | ❌ Declarations only | Method bodies are absent on `main` |
 | Sensors (`<S>`) | ❌ Not supported | Parsed, then rejected as invalid |
 
-**Tests**: 158 across 11 CMocka suites, all passing. CI runs them on every push and PR.
+**Tests**: 164 across 11 CMocka suites, all passing. CI runs them on every push and PR.
 
 ### Known gaps
 
