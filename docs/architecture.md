@@ -159,6 +159,9 @@ so it can never stall Core 1's DCC timing.
 - **Responsibilities**:
   - Owns its own timing, data gathering, screen rendering and UI state
   - Boot sequence, main status screen, diagnostic log viewer, maintenance-mode UI
+  - Boot goes straight to the diagnostic screen; the colour test pattern was removed
+  - The status screen shows a smoothed packets-per-second rate, and distinguishes a
+    track the operator switched off from one that overcurrent tripped (`isTripped()`)
   - Reads controller and track state itself — `main()` never gathers data on its behalf
 - **Hardware**: Waveshare WAV-27579, ST7789T3 controller, LVGL graphics, resistive touch
 - **Structure**: `LcdDriver` and `LvglRenderer` are injected by reference, so the component
@@ -265,7 +268,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **141 total tests** across all components: Controller (16), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (24), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22)
+- **142 total tests** across all components: Controller (16), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (25), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

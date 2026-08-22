@@ -69,6 +69,7 @@ private:
     uint current_sum = 0;
     uint current_cnt = 0;
     bool power_on = false;
+    bool tripped = false;  // Set when overcurrent protection activates
 
     // PIO Health Monitoring (Options 1, 3, 4)
     struct {
@@ -106,6 +107,7 @@ public:
     void powerOn() { setPower(true); }
     void powerOff() { setPower(false); }
     void setPower(bool on);
+    bool isTripped() { return tripped; }
 
     float getAverageCurrent() { return average_current_reading; }
 

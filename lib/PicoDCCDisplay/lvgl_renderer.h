@@ -44,18 +44,16 @@ private:
     // LVGL objects for diagnostic screen
     lv_obj_t* screen_;
     lv_obj_t* title_label_;
-    lv_obj_t* main_power_label_;
-    lv_obj_t* main_current_label_;
-    lv_obj_t* prog_power_label_;
-    lv_obj_t* prog_current_label_;
     lv_obj_t* packets_label_;
     lv_obj_t* locos_label_;
+    uint32_t last_packet_sample_time_ms_ = 0;  // Timestamp of last packet sample
+    uint32_t last_packet_count_ = 0;           // Commands sent count at last sample
+    float packet_rate_pps_ = 0.0f;             // Smoothed packets-per-second rate
     
     // Phase 4: Touch button objects
-    lv_obj_t* btn_main_power_;
-    lv_obj_t* btn_prog_power_;
-    lv_obj_t* btn_reset_trips_;
-    lv_obj_t* btn_calibrate_;
+    lv_obj_t* btn_main_power_;      // Label updated to show power state + current
+    lv_obj_t* btn_prog_power_;      // Label updated to show power state + current
+    lv_obj_t* btn_calibrate_;       // Moved to settings screen
     
     // Log viewer screen objects
     lv_obj_t* log_screen_;
@@ -104,8 +102,6 @@ private:
     // Phase 4: Button event handlers
     static void onMainPowerClicked(lv_event_t* e);
     static void onProgPowerClicked(lv_event_t* e);
-    static void onResetTripsClicked(lv_event_t* e);
-    static void onCalibrateClicked(lv_event_t* e);
     
     // Log viewer event handlers
     static void onViewLogsClicked(lv_event_t* e);
