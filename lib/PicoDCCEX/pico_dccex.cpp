@@ -8,6 +8,7 @@
 #include <functional>
 #include "pico_dccex.h"
 #include "../dccex_communication.h"
+#include "../pico_diagnostic.h"
 
 PicoDccEx::PicoDccEx(int maxCab)
 {
@@ -51,6 +52,12 @@ bool PicoDccEx::processCommand(pico_dccex_packet* packet)
         case (DCCEX_RECIVING):
             if (bufferLength >= COMMAND_BUFFER_SIZE)
             {
+                // A '<' with no closing '>' within COMMAND_BUFFER_SIZE. Everything
+                // typed since that '<' has been swallowed, including any complete
+                // commands that followed it, so this is exactly when the host most
+                // needs telling -- silence here is indistinguishable from a hang.
+                DCCEX_RESPONSE("<X>");
+                LOG_WARNING(COMPONENT_DCCEX, "Command discarded: no terminator within buffer");
                 reset();
                 return false;
             }
@@ -88,6 +95,17 @@ bool PicoDccEx::processCommand(pico_dccex_packet* packet)
                     }
                     else
                     {
+                        // The single choke point for every command that fails
+                        // validatePacket(): out-of-range throttle, function or
+                        // accessory parameters, a <D> subcommand that is not a
+                        // valid ACK tuning value, and every unsupported opcode
+                        // (which is what <S> and any JMRI query fall through to).
+                        //
+                        // <X> is the DCC-EX generic rejection, and is what real
+                        // DCC-EX answers here. Silence is the worse failure: a
+                        // headless host cannot tell it apart from a dropped
+                        // command or a hung station (#4).
+                        DCCEX_RESPONSE("<X>");
                         reset();
                         return false;
                     }

@@ -895,21 +895,101 @@ static void test_maintenance_mode_command_rejection(void **state)
     controller.enterMaintenanceMode();
     assert_true(controller.isMaintenanceModeActive());
 
-    // Try throttle command - should be silently rejected
+    // Throttle command: rejected, and it must say so. A headless host cannot see
+    // the LCD, so a discarded throttle that draws no reply is indistinguishable
+    // from one that worked (#4).
     int initial_loco_count = controller.getLocoCount();
-    uart_test_write("<t 1 3 50 1>");
+    uart_output_log.clear();
+    uart_test_write("<t 3 50 1>");
     controller.dccexLoop();
     assert_int_equal(controller.getLocoCount(), initial_loco_count); // No new loco
+    assert_int_equal(uart_output_log.size(), 1);
+    assert_string_equal(uart_output_log[0].c_str(), "<X>");
 
-    // Try function command - should be silently rejected
-    uart_test_write("<f 3 128>");
+    // Function command: same rule.
+    uart_output_log.clear();
+    uart_test_write("<F 3 8 1>");
     controller.dccexLoop();
-    // No assertions needed - just verifying no crash
+    assert_int_equal(uart_output_log.size(), 1);
+    assert_string_equal(uart_output_log[0].c_str(), "<X>");
 
-    // Try accessory command - should be silently rejected
-    uart_test_write("<a 10 1>");
+    // Accessory command: same rule. Note this must be a *valid* accessory
+    // command, or it is rejected one layer earlier by validatePacket() and never
+    // reaches the maintenance-mode check at all.
+    uart_output_log.clear();
+    uart_test_write("<a 10 0 1>");
     controller.dccexLoop();
-    // No assertions needed - just verifying no crash
+    assert_int_equal(uart_output_log.size(), 1);
+    assert_string_equal(uart_output_log[0].c_str(), "<X>");
+}
+
+// A throttle command the collection cannot accept must not draw an affirmative
+// reply. getDccExCabUpdate() is built from the *packet*, not from loco state, so
+// the old code answered <l cab 0 speed 0> reporting the speed that had just been
+// thrown away -- worse than silence, because the host is told it worked (#4).
+static void test_rejected_throttle_does_not_get_an_affirmative_reply(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    // Fill the collection. Addresses start at 1 and every one is legal.
+    for (int addr = 1; addr <= MAX_LOCO; addr++) {
+        char cmd[32];
+        snprintf(cmd, sizeof(cmd), "<t %d 50 1>", addr);
+        uart_test_write(cmd);
+        controller.dccexLoop();
+    }
+    assert_int_equal(controller.getLocoCount(), MAX_LOCO);
+
+    // One more. The address and speed are both legal, so it passes
+    // validatePacket() and is only refused by the collection being full.
+    uart_output_log.clear();
+    uart_test_write("<t 9999 50 1>");
+    controller.dccexLoop();
+
+    assert_int_equal(controller.getLocoCount(), MAX_LOCO);   // not added
+    assert_int_equal(uart_output_log.size(), 1);
+    assert_string_equal(uart_output_log[0].c_str(), "<X>");
+    // Specifically: no <l ...> claiming the speed was set.
+    assert_null(strstr(uart_output_log[0].c_str(), "<l"));
+}
+
+// The converse, so the rule cannot drift into "every command answers <X>": an
+// accepted throttle still gets its <l> cab update and nothing else.
+static void test_accepted_throttle_still_gets_its_cab_update(void **state)
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_output_log.clear();
+    uart_test_write("<t 3 50 1>");
+    controller.dccexLoop();
+
+    assert_int_equal(uart_output_log.size(), 1);
+    assert_non_null(strstr(uart_output_log[0].c_str(), "<l 3"));
+    assert_null(strstr(uart_output_log[0].c_str(), "<X>"));
 }
 
 // NOTE: Config command tests (<D ACK>, <E>, <s>) omitted pending Phase 2 implementation
@@ -1191,6 +1271,8 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_maintenance_mode_entry_requirements, setup, teardown),
         cmocka_unit_test_setup_teardown(test_maintenance_mode_power_lockout, setup, teardown),
         cmocka_unit_test_setup_teardown(test_maintenance_mode_command_rejection, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_rejected_throttle_does_not_get_an_affirmative_reply, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_accepted_throttle_still_gets_its_cab_update, setup, teardown),
         cmocka_unit_test_setup_teardown(test_maintenance_mode_exit, setup, teardown),
         cmocka_unit_test_setup_teardown(test_ISSUE_17_emergency_stop_writes_one_response_per_loco, setup, teardown),
         cmocka_unit_test_setup_teardown(test_controller_construction_fires_no_asserts, setup, teardown),
