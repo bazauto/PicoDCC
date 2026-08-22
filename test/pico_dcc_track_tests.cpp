@@ -300,6 +300,42 @@ static void test_current_monitoring_short_circuit(void **state)
     assert_true(gpio_states[16]); // Short LED should be on
 }
 
+// The LCD reads isTripped() to tell "operator switched the track off" apart from
+// "overcurrent switched it off" -- both leave getPower() false, so the flag is the
+// only thing carrying that distinction to the display.
+static void test_trip_flag_set_on_overcurrent_and_cleared_on_power_on(void **state)
+{
+    track_settings_t settings;
+    settings.signal_pin = 18;
+    settings.ctrl_pin = 22;
+    settings.adc_num = 0;
+    settings.short_pin = 16;
+
+    PicoDccTrack track(false, settings);
+
+    track.powerOn();
+    assert_false(track.isTripped()); // Healthy track is not tripped
+
+    // Operator-initiated power off must not look like a trip
+    track.powerOff();
+    assert_false(track.isTripped());
+
+    track.powerOn();
+    mock_adc_reading = 3800; // Above 90% of 4096 (3686)
+    track.loop();
+
+    assert_false(track.getPower());
+    assert_true(track.isTripped()); // Overcurrent did this, not the operator
+
+    // Trip state survives until power is deliberately restored
+    track.loop();
+    assert_true(track.isTripped());
+
+    mock_adc_reading = 1000;
+    track.powerOn();
+    assert_false(track.isTripped());
+}
+
 static void test_current_monitoring_no_adc(void **state)
 {
     track_settings_t settings;
@@ -708,6 +744,7 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_send_command_prog_track, setup, teardown),
         cmocka_unit_test_setup_teardown(test_current_monitoring_normal, setup, teardown),
         cmocka_unit_test_setup_teardown(test_current_monitoring_short_circuit, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_trip_flag_set_on_overcurrent_and_cleared_on_power_on, setup, teardown),
         cmocka_unit_test_setup_teardown(test_current_monitoring_no_adc, setup, teardown),
         cmocka_unit_test_setup_teardown(test_timing_tracking, setup, teardown),
         cmocka_unit_test_setup_teardown(test_send_idle, setup, teardown),

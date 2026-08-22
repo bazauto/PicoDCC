@@ -8,7 +8,7 @@
    COLOR SETTINGS
  *====================*/
 #define LV_COLOR_DEPTH 16          // 16-bit RGB565
-#define LV_COLOR_16_SWAP 0         // No byte swap for RP2040 SPI
+#define LV_COLOR_16_SWAP 1         // ST7789T3 over SPI wants big-endian RGB565
 
 /*====================
    MEMORY SETTINGS

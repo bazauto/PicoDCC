@@ -5,6 +5,7 @@
 #include "../PicoDCCController/pico_dcccontroller.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
 #include "../pico_diagnostic.h"
+#include "../dccex_communication.h"
 #include <cstdio>
 #include <cstdlib>  // For abs()
 
@@ -17,6 +18,42 @@
 #define COLOR_CYAN    0x07FF
 #define COLOR_MAGENTA 0xF81F
 #define COLOR_WHITE   0xFFFF
+
+// Theme color definitions - Use lv_color_make() with 8-bit RGB values (0-255)
+// With LV_COLOR_16_SWAP=1, colors now work correctly!
+// Background colors
+#define THEME_BG_SCREEN              lv_color_black()
+
+// Track button state colors  
+#define THEME_TRACK_OFF              lv_color_make(80, 80, 100)    // Dark grey
+#define THEME_TRACK_ON               lv_color_make(255, 165, 0)    // Orange
+#define THEME_TRACK_TRIPPED          lv_color_make(200, 40, 40)    // Red
+
+// UI button colors
+#define THEME_BTN_SECONDARY          lv_color_make(80, 80, 100)    // Dark grey (Logs/Settings)
+#define THEME_BTN_SECONDARY_PRESSED  lv_color_make(100, 100, 130)  // Lighter grey when pressed
+
+// Text colors
+#define THEME_TEXT_NORMAL            lv_color_white()              // Normal text
+#define THEME_TEXT_STATS             lv_color_make(180, 180, 180)  // Stats text (light grey)
+#define THEME_TEXT_STATS_ALERT       lv_color_make(255, 255, 100)  // Stats alert (yellow)
+#define THEME_TEXT_WARNING           lv_color_make(255, 255, 0)    // Warning text (yellow)
+
+// Modal colors
+#define THEME_MODAL_BG               lv_color_make(32, 32, 32)     // Dark grey background
+#define THEME_MODAL_BTN_YES          lv_color_make(0, 170, 0)      // Green
+#define THEME_MODAL_BTN_NO           lv_color_make(170, 0, 0)      // Red
+
+// Diagnostic log severity colors
+#define THEME_DIAG_INFO              lv_color_white()              // White
+#define THEME_DIAG_WARNING           lv_color_make(255, 255, 0)    // Yellow
+#define THEME_DIAG_ERROR             lv_color_make(255, 128, 0)    // Orange
+#define THEME_DIAG_CRITICAL          lv_color_make(255, 0, 0)      // Red
+#define THEME_DIAG_UNKNOWN           lv_color_make(128, 128, 128)  // Grey
+
+// Status indicator colors
+#define THEME_STATUS_SUCCESS         lv_color_make(0, 200, 0)      // Green
+#define THEME_STATUS_WARNING         lv_color_make(255, 165, 0)    // Orange
 
 // Static member initialization
 lv_disp_draw_buf_t LvglRenderer::disp_buf_;
@@ -31,15 +68,10 @@ LvglRenderer::LvglRenderer(LcdDriver& lcd, TouchDriver& touch)
     , controller_ref_(nullptr)
     , screen_(nullptr)
     , title_label_(nullptr)
-    , main_power_label_(nullptr)
-    , main_current_label_(nullptr)
-    , prog_power_label_(nullptr)
-    , prog_current_label_(nullptr)
     , packets_label_(nullptr)
     , locos_label_(nullptr)
     , btn_main_power_(nullptr)
     , btn_prog_power_(nullptr)
-    , btn_reset_trips_(nullptr)
     , btn_calibrate_(nullptr)
     , log_screen_(nullptr)
     , log_title_label_(nullptr)
@@ -130,57 +162,26 @@ void LvglRenderer::showDiagnosticScreen() {
 void LvglRenderer::createDiagnosticScreen() {
     // Create a new screen
     screen_ = lv_obj_create(nullptr);
-    lv_obj_set_style_bg_color(screen_, lv_color_black(), 0);
+    lv_obj_set_style_bg_color(screen_, THEME_BG_SCREEN, 0);
     
-    // Title label (centered at top)
-    title_label_ = lv_label_create(screen_);
-    lv_label_set_text(title_label_, "PicoDCC Status");
-    lv_obj_set_style_text_color(title_label_, lv_color_white(), 0);
-    lv_obj_set_style_text_font(title_label_, &lv_font_montserrat_16, 0);
-    lv_obj_align(title_label_, LV_ALIGN_TOP_MID, 0, 5);
-    
-    // LEFT COLUMN: Main Track
-    main_power_label_ = lv_label_create(screen_);
-    lv_label_set_text(main_power_label_, "Main: OFF");
-    lv_obj_set_style_text_color(main_power_label_, lv_color_make(255, 100, 100), 0);
-    lv_obj_align(main_power_label_, LV_ALIGN_TOP_LEFT, 10, 35);
-    
-    main_current_label_ = lv_label_create(screen_);
-    lv_label_set_text(main_current_label_, "0.0 mA");
-    lv_obj_set_style_text_color(main_current_label_, lv_color_white(), 0);
-    lv_obj_align(main_current_label_, LV_ALIGN_TOP_LEFT, 10, 60);
-    
-    // MIDDLE COLUMN: Prog Track
-    prog_power_label_ = lv_label_create(screen_);
-    lv_label_set_text(prog_power_label_, "Prog: OFF");
-    lv_obj_set_style_text_color(prog_power_label_, lv_color_make(255, 100, 100), 0);
-    lv_obj_align(prog_power_label_, LV_ALIGN_TOP_MID, 0, 35);
-    
-    prog_current_label_ = lv_label_create(screen_);
-    lv_label_set_text(prog_current_label_, "0.0 mA");
-    lv_obj_set_style_text_color(prog_current_label_, lv_color_white(), 0);
-    lv_obj_align(prog_current_label_, LV_ALIGN_TOP_MID, 0, 60);
-    
-    // BOTTOM LEFT: Packet stats
+    // BOTTOM ROW: Stats (fixed positions, won't overlap)
     packets_label_ = lv_label_create(screen_);
-    lv_label_set_text(packets_label_, "Packets: 0");
-    lv_obj_set_style_text_color(packets_label_, lv_color_white(), 0);
+    lv_label_set_text(packets_label_, "Pkt/s:0.0");
+    lv_obj_set_style_text_color(packets_label_, THEME_TEXT_STATS, 0);
     lv_obj_set_style_text_font(packets_label_, &lv_font_montserrat_12, 0);
-    lv_obj_align(packets_label_, LV_ALIGN_BOTTOM_LEFT, 10, -35);
+    lv_obj_set_pos(packets_label_, 10, 215);
     
-    // BOTTOM CENTER: Log count
     log_count_label_ = lv_label_create(screen_);
-    lv_label_set_text(log_count_label_, "Logs: 0");
-    lv_obj_set_style_text_color(log_count_label_, lv_color_white(), 0);
+    lv_label_set_text(log_count_label_, "Log:0");
+    lv_obj_set_style_text_color(log_count_label_, THEME_TEXT_STATS, 0);
     lv_obj_set_style_text_font(log_count_label_, &lv_font_montserrat_12, 0);
-    lv_obj_align(log_count_label_, LV_ALIGN_BOTTOM_MID, 0, -35);
+    lv_obj_set_pos(log_count_label_, 120, 215);
     
-    // BOTTOM RIGHT: Locomotive count
     locos_label_ = lv_label_create(screen_);
-    lv_label_set_text(locos_label_, "Locos: 0");
-    lv_obj_set_style_text_color(locos_label_, lv_color_white(), 0);
+    lv_label_set_text(locos_label_, "Loco:0");
+    lv_obj_set_style_text_color(locos_label_, THEME_TEXT_STATS, 0);
     lv_obj_set_style_text_font(locos_label_, &lv_font_montserrat_12, 0);
-    lv_obj_align(locos_label_, LV_ALIGN_BOTTOM_RIGHT, -10, -35);
+    lv_obj_set_pos(locos_label_, 230, 215);
     
     // Create interactive touch buttons
     createTouchButtons();
@@ -189,123 +190,165 @@ void LvglRenderer::createDiagnosticScreen() {
 void LvglRenderer::createTouchButtons() {
     if (!screen_) return;
     
-    const int btn_width = 70;
-    const int btn_height = 40;
-    const int btn_spacing = 10;
-    const int start_y = 100;
-    int start_x = (320 - (4 * btn_width + 3 * btn_spacing)) / 2;
+    // New layout: 2 large track buttons at top, VIEW LOGS and SETTINGS buttons at bottom
+    const int track_btn_width = 145;   // Larger buttons for track control
+    const int track_btn_height = 90;
+    const int small_btn_width = 145;
+    const int small_btn_height = 50;
+    const int spacing = 10;
+    const int top_margin = 10;
+    const int start_x = (320 - (2 * track_btn_width + spacing)) / 2;
     
-    // Button 1: MAIN PWR
+    // Button 1: MAIN TRACK - Grey by default, Orange when ON, Red when TRIPPED
     btn_main_power_ = lv_btn_create(screen_);
-    lv_obj_set_size(btn_main_power_, btn_width, btn_height);
-    lv_obj_set_pos(btn_main_power_, start_x, start_y);
-    lv_obj_t* label1 = lv_label_create(btn_main_power_);
-    lv_label_set_text(label1, "MAIN\nPWR");
-    lv_obj_set_style_text_font(label1, &lv_font_montserrat_12, 0);
-    lv_obj_center(label1);
+    lv_obj_set_size(btn_main_power_, track_btn_width, track_btn_height);
+    lv_obj_set_pos(btn_main_power_, start_x, top_margin);
+    lv_obj_set_style_bg_color(btn_main_power_, THEME_TRACK_OFF, LV_STATE_DEFAULT);  // Grey (OFF)
+    lv_obj_set_style_border_width(btn_main_power_, 0, LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(btn_main_power_, 12, LV_STATE_DEFAULT);
+    lv_obj_t* main_label = lv_label_create(btn_main_power_);
+    lv_label_set_text(main_label, "MAIN\nOFF\n0.0 mA");
+    lv_obj_set_style_text_font(main_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_align(main_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(main_label);
     lv_obj_add_event_cb(btn_main_power_, onMainPowerClicked, LV_EVENT_CLICKED, nullptr);
     
-    // Button 2: PROG PWR
+    // Button 2: PROG TRACK - Grey by default, Orange when ON, Red when TRIPPED
     btn_prog_power_ = lv_btn_create(screen_);
-    lv_obj_set_size(btn_prog_power_, btn_width, btn_height);
-    lv_obj_set_pos(btn_prog_power_, start_x + btn_width + btn_spacing, start_y);
-    lv_obj_t* label2 = lv_label_create(btn_prog_power_);
-    lv_label_set_text(label2, "PROG\nPWR");
-    lv_obj_set_style_text_font(label2, &lv_font_montserrat_12, 0);
-    lv_obj_center(label2);
+    lv_obj_set_size(btn_prog_power_, track_btn_width, track_btn_height);
+    lv_obj_set_pos(btn_prog_power_, start_x + track_btn_width + spacing, top_margin);
+    lv_obj_set_style_bg_color(btn_prog_power_, THEME_TRACK_OFF, LV_STATE_DEFAULT);  // Grey (OFF)
+    lv_obj_set_style_border_width(btn_prog_power_, 0, LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(btn_prog_power_, 12, LV_STATE_DEFAULT);
+    lv_obj_t* prog_label = lv_label_create(btn_prog_power_);
+    lv_label_set_text(prog_label, "PROG\nOFF\n0.0 mA");
+    lv_obj_set_style_text_font(prog_label, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_align(prog_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_center(prog_label);
     lv_obj_add_event_cb(btn_prog_power_, onProgPowerClicked, LV_EVENT_CLICKED, nullptr);
     
-    // Button 3: RESET TRIPS
-    btn_reset_trips_ = lv_btn_create(screen_);
-    lv_obj_set_size(btn_reset_trips_, btn_width, btn_height);
-    lv_obj_set_pos(btn_reset_trips_, start_x + 2 * (btn_width + btn_spacing), start_y);
-    lv_obj_t* label3 = lv_label_create(btn_reset_trips_);
-    lv_label_set_text(label3, "RESET\nTRIPS");
-    lv_obj_set_style_text_font(label3, &lv_font_montserrat_12, 0);
-    lv_obj_center(label3);
-    lv_obj_add_event_cb(btn_reset_trips_, onResetTripsClicked, LV_EVENT_CLICKED, nullptr);
-    
-    // Button 4: CALIBRATE
-    btn_calibrate_ = lv_btn_create(screen_);
-    lv_obj_set_size(btn_calibrate_, btn_width, btn_height);
-    lv_obj_set_pos(btn_calibrate_, start_x + 3 * (btn_width + btn_spacing), start_y);
-    lv_obj_t* label4 = lv_label_create(btn_calibrate_);
-    lv_label_set_text(label4, "CALI-\nBRATE");
-    lv_obj_set_style_text_font(label4, &lv_font_montserrat_12, 0);
-    lv_obj_center(label4);
-    lv_obj_add_event_cb(btn_calibrate_, onCalibrateClicked, LV_EVENT_CLICKED, nullptr);
-    
-    // Button 5: VIEW LOGS (bottom left)
+    // Button 3: VIEW LOGS - Purple/grey color
     btn_view_logs_ = lv_btn_create(screen_);
-    lv_obj_set_size(btn_view_logs_, 80, 30);
-    lv_obj_align(btn_view_logs_, LV_ALIGN_BOTTOM_LEFT, 80, -5);
-    lv_obj_t* label5 = lv_label_create(btn_view_logs_);
-    lv_label_set_text(label5, "Logs");
-    lv_obj_set_style_text_font(label5, &lv_font_montserrat_12, 0);
-    lv_obj_center(label5);
+    lv_obj_set_size(btn_view_logs_, small_btn_width, small_btn_height);
+    lv_obj_set_pos(btn_view_logs_, start_x, top_margin + track_btn_height + spacing);
+    lv_obj_set_style_bg_color(btn_view_logs_, THEME_BTN_SECONDARY, LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(btn_view_logs_, THEME_BTN_SECONDARY_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(btn_view_logs_, 0, LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(btn_view_logs_, 12, LV_STATE_DEFAULT);
+    lv_obj_t* logs_label = lv_label_create(btn_view_logs_);
+    lv_label_set_text(logs_label, "VIEW LOGS");
+    lv_obj_set_style_text_font(logs_label, &lv_font_montserrat_14, 0);
+    lv_obj_center(logs_label);
     lv_obj_add_event_cb(btn_view_logs_, onViewLogsClicked, LV_EVENT_CLICKED, nullptr);
     
-    // Button 6: SETTINGS (bottom right)
+    // Button 4: SETTINGS - Grey color
     btn_settings_ = lv_btn_create(screen_);
-    lv_obj_set_size(btn_settings_, 80, 30);
-    lv_obj_align(btn_settings_, LV_ALIGN_BOTTOM_RIGHT, -80, -5);
-    lv_obj_t* label6 = lv_label_create(btn_settings_);
-    lv_label_set_text(label6, "Settings");
-    lv_obj_set_style_text_font(label6, &lv_font_montserrat_12, 0);
-    lv_obj_center(label6);
+    lv_obj_set_size(btn_settings_, small_btn_width, small_btn_height);
+    lv_obj_set_pos(btn_settings_, start_x + small_btn_width + spacing, top_margin + track_btn_height + spacing);
+    lv_obj_set_style_bg_color(btn_settings_, THEME_BTN_SECONDARY, LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(btn_settings_, THEME_BTN_SECONDARY_PRESSED, LV_STATE_PRESSED);
+    lv_obj_set_style_border_width(btn_settings_, 0, LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(btn_settings_, 12, LV_STATE_DEFAULT);
+    lv_obj_t* settings_label = lv_label_create(btn_settings_);
+    lv_label_set_text(settings_label, "SETTINGS");
+    lv_obj_set_style_text_font(settings_label, &lv_font_montserrat_14, 0);
+    lv_obj_center(settings_label);
     lv_obj_add_event_cb(btn_settings_, onSettingsClicked, LV_EVENT_CLICKED, nullptr);
 }
 
 void LvglRenderer::updateDiagnosticScreen(const TrackStatus& status) {
     if (!screen_) return;
     
-    // Update main track power
-    if (status.main_power_on) {
-        lv_label_set_text(main_power_label_, "Main: ON");
-        lv_obj_set_style_text_color(main_power_label_, lv_color_make(100, 255, 100), 0);
+    char buf[64];
+    
+    // Update MAIN track button - color and text based on state
+    lv_obj_t* main_label = lv_obj_get_child(btn_main_power_, 0);
+    if (status.main_tripped) {
+        // RED - Tripped state
+        lv_obj_set_style_bg_color(btn_main_power_, THEME_TRACK_TRIPPED, LV_STATE_DEFAULT);
+        snprintf(buf, sizeof(buf), "MAIN\nTRIPPED\n%.1f mA", status.main_current_ma);
+    } else if (status.main_power_on) {
+        // ORANGE - Powered ON
+        lv_obj_set_style_bg_color(btn_main_power_, THEME_TRACK_ON, LV_STATE_DEFAULT);
+        snprintf(buf, sizeof(buf), "MAIN\nON\n%.1f mA", status.main_current_ma);
     } else {
-        lv_label_set_text(main_power_label_, "Main: OFF");
-        lv_obj_set_style_text_color(main_power_label_, lv_color_make(255, 100, 100), 0);
+        // GREY - Powered OFF
+        lv_obj_set_style_bg_color(btn_main_power_, THEME_TRACK_OFF, LV_STATE_DEFAULT);
+        snprintf(buf, sizeof(buf), "MAIN\nOFF\n%.1f mA", status.main_current_ma);
     }
+    lv_label_set_text(main_label, buf);
     
-    // Update main track current
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%.1f mA", status.main_current_ma);
-    lv_label_set_text(main_current_label_, buf);
-    
-    // Update prog track power
-    if (status.prog_power_on) {
-        lv_label_set_text(prog_power_label_, "Prog: ON");
-        lv_obj_set_style_text_color(prog_power_label_, lv_color_make(100, 255, 100), 0);
+    // Update PROG track button - color and text based on state
+    lv_obj_t* prog_label = lv_obj_get_child(btn_prog_power_, 0);
+    if (status.prog_tripped) {
+        // RED - Tripped state
+        lv_obj_set_style_bg_color(btn_prog_power_, THEME_TRACK_TRIPPED, LV_STATE_DEFAULT);
+        snprintf(buf, sizeof(buf), "PROG\nTRIPPED\n%.1f mA", status.prog_current_ma);
+    } else if (status.prog_power_on) {
+        // ORANGE - Powered ON
+        lv_obj_set_style_bg_color(btn_prog_power_, THEME_TRACK_ON, LV_STATE_DEFAULT);
+        snprintf(buf, sizeof(buf), "PROG\nON\n%.1f mA", status.prog_current_ma);
     } else {
-        lv_label_set_text(prog_power_label_, "Prog: OFF");
-        lv_obj_set_style_text_color(prog_power_label_, lv_color_make(255, 100, 100), 0);
+        // GREY - Powered OFF
+        lv_obj_set_style_bg_color(btn_prog_power_, THEME_TRACK_OFF, LV_STATE_DEFAULT);
+        snprintf(buf, sizeof(buf), "PROG\nOFF\n%.1f mA", status.prog_current_ma);
     }
+    lv_label_set_text(prog_label, buf);
     
-    // Update prog track current
-    snprintf(buf, sizeof(buf), "%.1f mA", status.prog_current_ma);
-    lv_label_set_text(prog_current_label_, buf);
-    
-    // Update packet count
-    snprintf(buf, sizeof(buf), "Packets: %lu (%lu idle)", 
-             (unsigned long)status.packets_sent, 
-             (unsigned long)status.idle_packets_sent);
+    // Update packets-per-second indicator using smoothed delta of non-idle commands
+    uint32_t now_ms = time_us_32() / 1000;
+    if (last_packet_sample_time_ms_ == 0) {
+        last_packet_sample_time_ms_ = now_ms;
+        last_packet_count_ = status.packets_sent;
+        packet_rate_pps_ = 0.0f;
+    } else {
+        uint32_t delta_time = now_ms - last_packet_sample_time_ms_;
+        if (delta_time >= 50) {  // 50ms minimum window to reduce noise
+            uint32_t delta_packets;
+            if (status.packets_sent >= last_packet_count_) {
+                delta_packets = status.packets_sent - last_packet_count_;
+            } else {
+                // Counter wrapped or reset; treat as fresh sample
+                delta_packets = status.packets_sent;
+            }
+            float instant_rate = 0.0f;
+            if (delta_time > 0) {
+                instant_rate = (static_cast<float>(delta_packets) * 1000.0f) / static_cast<float>(delta_time);
+            }
+            // Simple smoothing to avoid jitter (60% previous, 40% new sample)
+            packet_rate_pps_ = (packet_rate_pps_ * 0.6f) + (instant_rate * 0.4f);
+            last_packet_sample_time_ms_ = now_ms;
+            last_packet_count_ = status.packets_sent;
+        }
+    }
+    // Format rate with fractional precision for low values, clamp to 3 digits to fit label
+    float clamped_rate = packet_rate_pps_;
+    if (clamped_rate > 999.0f) {
+        clamped_rate = 999.0f;
+    }
+    if (clamped_rate < 9.95f) {
+        snprintf(buf, sizeof(buf), "Pkt/s:%0.1f", clamped_rate);
+    } else {
+        snprintf(buf, sizeof(buf), "Pkt/s:%3.0f", clamped_rate);
+    }
     lv_label_set_text(packets_label_, buf);
     
-    // Update log count
+    // Update log count (limit to 2 digits)
     uint32_t log_count = diag_log_get_count();
-    snprintf(buf, sizeof(buf), "Logs: %lu", (unsigned long)log_count);
+    uint32_t log_display = log_count > 99 ? 99 : log_count;
+    snprintf(buf, sizeof(buf), "Log:%lu", (unsigned long)log_display);
     lv_label_set_text(log_count_label_, buf);
     
-    // Change log count color based on severity (optional: check for critical logs)
+    // Change log count color based on severity
     if (log_count > 0) {
-        lv_obj_set_style_text_color(log_count_label_, lv_color_make(255, 255, 100), 0); // Yellow
+        lv_obj_set_style_text_color(log_count_label_, THEME_TEXT_STATS_ALERT, 0); // Yellow
     } else {
         lv_obj_set_style_text_color(log_count_label_, lv_color_white(), 0);
     }
     
-    // Update locomotive count
-    snprintf(buf, sizeof(buf), "Locos: %u", status.loco_count);
+    // Update locomotive count (limit to 2 digits)
+    uint32_t loco_display = status.loco_count > 99 ? 99 : status.loco_count;
+    snprintf(buf, sizeof(buf), "Loco:%u", loco_display);
     lv_label_set_text(locos_label_, buf);
     
     // Force screen invalidation to trigger redraw
@@ -405,8 +448,27 @@ void LvglRenderer::onMainPowerClicked(lv_event_t* e) {
     
     PicoDccTrack* main_track = instance_->controller_ref_->getTrack(false);
     if (main_track) {
-        bool current_state = main_track->getPower();
-        main_track->setPower(!current_state);
+        if (main_track->isTripped()) {
+            // Reset trip by turning power back on
+            main_track->powerOn();
+            #ifndef TEST_BUILD
+            DCCEX_RESPONSE("<p1 MAIN>");
+            #endif
+        } else {
+            // Normal power toggle
+            bool current_state = main_track->getPower();
+            bool new_state = !current_state;
+            main_track->setPower(new_state);
+            
+            // Send DCC-EX power status update
+            #ifndef TEST_BUILD
+            if (new_state) {
+                DCCEX_RESPONSE("<p1 MAIN>");
+            } else {
+                DCCEX_RESPONSE("<p0 MAIN>");
+            }
+            #endif
+        }
     }
 }
 
@@ -415,58 +477,56 @@ void LvglRenderer::onProgPowerClicked(lv_event_t* e) {
     
     PicoDccTrack* prog_track = instance_->controller_ref_->getTrack(true);
     if (prog_track) {
-        bool current_state = prog_track->getPower();
-        prog_track->setPower(!current_state);
+        if (prog_track->isTripped()) {
+            // Reset trip by turning power back on
+            prog_track->powerOn();
+            #ifndef TEST_BUILD
+            DCCEX_RESPONSE("<p1 PROG>");
+            #endif
+        } else {
+            // Normal power toggle
+            bool current_state = prog_track->getPower();
+            bool new_state = !current_state;
+            prog_track->setPower(new_state);
+            
+            // Send DCC-EX power status update
+            #ifndef TEST_BUILD
+            if (new_state) {
+                DCCEX_RESPONSE("<p1 PROG>");
+            } else {
+                DCCEX_RESPONSE("<p0 PROG>");
+            }
+            #endif
+        }
     }
-}
-
-void LvglRenderer::onResetTripsClicked(lv_event_t* e) {
-    if (!instance_ || !instance_->controller_ref_) return;
-    
-    PicoDccTrack* main_track = instance_->controller_ref_->getTrack(false);
-    PicoDccTrack* prog_track = instance_->controller_ref_->getTrack(true);
-    
-    if (main_track) {
-        main_track->powerOff();
-        sleep_ms(100);
-        main_track->powerOn();
-    }
-    if (prog_track) {
-        prog_track->powerOff();
-        sleep_ms(100);
-        prog_track->powerOn();
-    }
-}
-
-void LvglRenderer::onCalibrateClicked(lv_event_t* e) {
-    // TODO: Implement programming track calibration
 }
 
 void LvglRenderer::createLogScreen() {
     // Create the log screen
     log_screen_ = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(log_screen_, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_color(log_screen_, THEME_BG_SCREEN, 0);
     
     // Create title label
     log_title_label_ = lv_label_create(log_screen_);
     lv_label_set_text(log_title_label_, "Diagnostic Logs");
-    lv_obj_set_style_text_color(log_title_label_, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(log_title_label_, THEME_TEXT_NORMAL, 0);
     lv_obj_set_style_text_font(log_title_label_, &lv_font_montserrat_16, 0);
     lv_obj_align(log_title_label_, LV_ALIGN_TOP_MID, 0, 5);
     
     // Create scrollable textarea for log entries
     log_table_ = lv_textarea_create(log_screen_);
-    lv_obj_set_size(log_table_, 310, 180);
+    lv_obj_set_size(log_table_, 310, 160);
     lv_obj_align(log_table_, LV_ALIGN_TOP_MID, 0, 30);
-    lv_obj_set_style_bg_color(log_table_, lv_color_hex(0x000000), 0);
-    lv_obj_set_style_border_color(log_table_, lv_color_hex(0x404040), 0);
-    lv_obj_set_style_text_color(log_table_, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_color(log_table_, THEME_BG_SCREEN, 0);
+    lv_obj_set_style_border_color(log_table_, THEME_BTN_SECONDARY, 0);
+    lv_obj_set_style_text_color(log_table_, THEME_TEXT_NORMAL, 0);
     lv_textarea_set_text(log_table_, "");
     
     // Create Back button
     btn_back_to_main_ = lv_btn_create(log_screen_);
-    lv_obj_set_size(btn_back_to_main_, 80, 30);
+    lv_obj_set_size(btn_back_to_main_, 80, 40);
     lv_obj_align(btn_back_to_main_, LV_ALIGN_BOTTOM_LEFT, 10, -5);
+    lv_obj_set_style_bg_color(btn_back_to_main_, THEME_BTN_SECONDARY, LV_STATE_DEFAULT);
     lv_obj_add_event_cb(btn_back_to_main_, onBackToMainClicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t* back_label = lv_label_create(btn_back_to_main_);
     lv_label_set_text(back_label, "Back");
@@ -474,8 +534,9 @@ void LvglRenderer::createLogScreen() {
     
     // Create Clear button
     btn_clear_logs_ = lv_btn_create(log_screen_);
-    lv_obj_set_size(btn_clear_logs_, 80, 30);
+    lv_obj_set_size(btn_clear_logs_, 80, 40);
     lv_obj_align(btn_clear_logs_, LV_ALIGN_BOTTOM_RIGHT, -10, -5);
+    lv_obj_set_style_bg_color(btn_clear_logs_, THEME_BTN_SECONDARY, LV_STATE_DEFAULT);
     lv_obj_add_event_cb(btn_clear_logs_, onClearLogsClicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t* clear_label = lv_label_create(btn_clear_logs_);
     lv_label_set_text(clear_label, "Clear");
@@ -592,11 +653,11 @@ const char* LvglRenderer::severityToString(int level) {
 
 lv_color_t LvglRenderer::severityToColor(int level) {
     switch (level) {
-        case DIAG_INFO: return lv_color_hex(0xFFFFFF);    // White
-        case DIAG_WARNING: return lv_color_hex(0xFFFF00); // Yellow
-        case DIAG_ERROR: return lv_color_hex(0xFF8000);   // Orange
-        case DIAG_CRITICAL: return lv_color_hex(0xFF0000); // Red
-        default: return lv_color_hex(0x808080);            // Gray
+        case DIAG_INFO: return THEME_DIAG_INFO;
+        case DIAG_WARNING: return THEME_DIAG_WARNING;
+        case DIAG_ERROR: return THEME_DIAG_ERROR;
+        case DIAG_CRITICAL: return THEME_DIAG_CRITICAL;
+        default: return THEME_DIAG_UNKNOWN;
     }
 }
 
@@ -614,12 +675,12 @@ void LvglRenderer::showSettingsScreen() {
 void LvglRenderer::createSettingsScreen() {
     // Create settings screen
     settings_screen_ = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(settings_screen_, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_color(settings_screen_, THEME_BG_SCREEN, 0);
     
     // Title
     lv_obj_t* title = lv_label_create(settings_screen_);
     lv_label_set_text(title, "Settings");
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(title, THEME_TEXT_NORMAL, 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
     
@@ -627,6 +688,7 @@ void LvglRenderer::createSettingsScreen() {
     btn_maintenance_mode_ = lv_btn_create(settings_screen_);
     lv_obj_set_size(btn_maintenance_mode_, 220, 50);
     lv_obj_align(btn_maintenance_mode_, LV_ALIGN_CENTER, 0, -20);
+    lv_obj_set_style_bg_color(btn_maintenance_mode_, THEME_BTN_SECONDARY, LV_STATE_DEFAULT);
     lv_obj_add_event_cb(btn_maintenance_mode_, onMaintenanceModeClicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t* mm_label = lv_label_create(btn_maintenance_mode_);
     lv_label_set_text(mm_label, "Layout Maintenance\nMode");
@@ -637,6 +699,7 @@ void LvglRenderer::createSettingsScreen() {
     lv_obj_t* btn_back = lv_btn_create(settings_screen_);
     lv_obj_set_size(btn_back, 80, 30);
     lv_obj_align(btn_back, LV_ALIGN_BOTTOM_LEFT, 10, -10);
+    lv_obj_set_style_bg_color(btn_back, THEME_BTN_SECONDARY, LV_STATE_DEFAULT);
     lv_obj_add_event_cb(btn_back, onBackToMainClicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t* back_label = lv_label_create(btn_back);
     lv_label_set_text(back_label, "Back");
@@ -666,12 +729,12 @@ void LvglRenderer::showMaintenanceModeScreen() {
 void LvglRenderer::createMaintenanceModeScreen() {
     // Create maintenance mode screen
     maintenance_screen_ = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(maintenance_screen_, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_color(maintenance_screen_, THEME_BG_SCREEN, 0);
     
     // Title
     lv_obj_t* title = lv_label_create(maintenance_screen_);
     lv_label_set_text(title, "Layout Maintenance");
-    lv_obj_set_style_text_color(title, lv_color_hex(0xFFFF00), 0);  // Yellow warning
+    lv_obj_set_style_text_color(title, THEME_TEXT_WARNING, 0);  // Yellow warning
     lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 10);
     
@@ -683,14 +746,14 @@ void LvglRenderer::createMaintenanceModeScreen() {
         "Use <D ACK> commands to adjust\n"
         "Save to flash with <E> or button"
     );
-    lv_obj_set_style_text_color(status_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(status_label, THEME_TEXT_NORMAL, 0);
     lv_obj_set_style_text_font(status_label, &lv_font_montserrat_12, 0);
     lv_obj_align(status_label, LV_ALIGN_TOP_LEFT, 10, 50);
     
     // Unsaved changes indicator
     unsaved_indicator_label_ = lv_label_create(maintenance_screen_);
     lv_label_set_text(unsaved_indicator_label_, "");
-    lv_obj_set_style_text_color(unsaved_indicator_label_, lv_color_hex(0xFFFF00), 0);
+    lv_obj_set_style_text_color(unsaved_indicator_label_, THEME_TEXT_WARNING, 0);
     lv_obj_set_style_text_font(unsaved_indicator_label_, &lv_font_montserrat_14, 0);
     lv_obj_align(unsaved_indicator_label_, LV_ALIGN_CENTER, 0, 10);
     
@@ -698,6 +761,7 @@ void LvglRenderer::createMaintenanceModeScreen() {
     btn_save_config_ = lv_btn_create(maintenance_screen_);
     lv_obj_set_size(btn_save_config_, 150, 40);
     lv_obj_align(btn_save_config_, LV_ALIGN_CENTER, 0, 60);
+    lv_obj_set_style_bg_color(btn_save_config_, THEME_BTN_SECONDARY, LV_STATE_DEFAULT);
     lv_obj_add_event_cb(btn_save_config_, onSaveConfigClicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t* save_label = lv_label_create(btn_save_config_);
     lv_label_set_text(save_label, "Save to Flash");
@@ -708,6 +772,7 @@ void LvglRenderer::createMaintenanceModeScreen() {
     btn_exit_maintenance_ = lv_btn_create(maintenance_screen_);
     lv_obj_set_size(btn_exit_maintenance_, 150, 40);
     lv_obj_align(btn_exit_maintenance_, LV_ALIGN_BOTTOM_MID, 0, -10);
+    lv_obj_set_style_bg_color(btn_exit_maintenance_, THEME_BTN_SECONDARY, LV_STATE_DEFAULT);
     lv_obj_add_event_cb(btn_exit_maintenance_, onExitMaintenanceClicked, LV_EVENT_CLICKED, NULL);
     lv_obj_t* exit_label = lv_label_create(btn_exit_maintenance_);
     lv_label_set_text(exit_label, "Exit Maintenance");
@@ -720,10 +785,10 @@ void LvglRenderer::updateMaintenanceModeScreen(bool has_unsaved_changes) {
     
     if (has_unsaved_changes) {
         lv_label_set_text(unsaved_indicator_label_, "* UNSAVED CHANGES *");
-        lv_obj_set_style_text_color(unsaved_indicator_label_, lv_color_hex(0xFF8000), 0);  // Orange
+        lv_obj_set_style_text_color(unsaved_indicator_label_, THEME_STATUS_WARNING, 0);
     } else {
         lv_label_set_text(unsaved_indicator_label_, "No unsaved changes");
-        lv_obj_set_style_text_color(unsaved_indicator_label_, lv_color_hex(0x00FF00), 0);  // Green
+        lv_obj_set_style_text_color(unsaved_indicator_label_, THEME_STATUS_SUCCESS, 0);
     }
 }
 
@@ -744,8 +809,8 @@ bool LvglRenderer::showModal(const char* title, const char* message) {
     modal_box_ = lv_obj_create(lv_scr_act());
     lv_obj_set_size(modal_box_, 300, 260);  // Increased height and width
     lv_obj_center(modal_box_);
-    lv_obj_set_style_bg_color(modal_box_, lv_color_hex(0x202020), 0);
-    lv_obj_set_style_border_color(modal_box_, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_bg_color(modal_box_, THEME_MODAL_BG, 0);
+    lv_obj_set_style_border_color(modal_box_, THEME_TEXT_NORMAL, 0);
     lv_obj_set_style_border_width(modal_box_, 2, 0);
     lv_obj_set_style_pad_all(modal_box_, 15, 0);  // Add padding
     
@@ -757,14 +822,14 @@ bool LvglRenderer::showModal(const char* title, const char* message) {
     // Title
     lv_obj_t* title_label = lv_label_create(modal_box_);
     lv_label_set_text(title_label, title);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(0xFFFF00), 0);  // Yellow for visibility
+    lv_obj_set_style_text_color(title_label, THEME_TEXT_WARNING, 0);
     lv_obj_set_style_text_font(title_label, &lv_font_montserrat_14, 0);
     lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 5);
     
     // Message - positioned lower to avoid title overlap
     lv_obj_t* msg_label = lv_label_create(modal_box_);
     lv_label_set_text(msg_label, message);
-    lv_obj_set_style_text_color(msg_label, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_set_style_text_color(msg_label, THEME_TEXT_NORMAL, 0);
     lv_obj_set_style_text_font(msg_label, &lv_font_montserrat_12, 0);
     lv_obj_set_width(msg_label, 270);
     lv_label_set_long_mode(msg_label, LV_LABEL_LONG_WRAP);
@@ -776,7 +841,7 @@ bool LvglRenderer::showModal(const char* title, const char* message) {
     lv_obj_align(modal_btn_yes_, LV_ALIGN_BOTTOM_LEFT, 15, -15);
     lv_obj_clear_flag(modal_btn_yes_, LV_OBJ_FLAG_SCROLLABLE);  // Ensure clickable
     lv_obj_add_flag(modal_btn_yes_, LV_OBJ_FLAG_CLICKABLE);  // Explicitly clickable
-    lv_obj_set_style_bg_color(modal_btn_yes_, lv_color_make(0, 170, 0), LV_STATE_DEFAULT);  // Green
+    lv_obj_set_style_bg_color(modal_btn_yes_, THEME_MODAL_BTN_YES, LV_STATE_DEFAULT);
     lv_obj_add_event_cb(modal_btn_yes_, onModalYesClicked, LV_EVENT_CLICKED, NULL);
     // Also try PRESSED event as fallback
     lv_obj_add_event_cb(modal_btn_yes_, onModalYesClicked, LV_EVENT_PRESSED, NULL);
@@ -791,7 +856,7 @@ bool LvglRenderer::showModal(const char* title, const char* message) {
     lv_obj_align(modal_btn_no_, LV_ALIGN_BOTTOM_RIGHT, -15, -15);
     lv_obj_clear_flag(modal_btn_no_, LV_OBJ_FLAG_SCROLLABLE);  // Ensure clickable
     lv_obj_add_flag(modal_btn_no_, LV_OBJ_FLAG_CLICKABLE);  // Explicitly clickable
-    lv_obj_set_style_bg_color(modal_btn_no_, lv_color_make(170, 0, 0), LV_STATE_DEFAULT);  // Red
+    lv_obj_set_style_bg_color(modal_btn_no_, THEME_MODAL_BTN_NO, LV_STATE_DEFAULT);
     lv_obj_add_event_cb(modal_btn_no_, onModalNoClicked, LV_EVENT_CLICKED, NULL);
     // Also try PRESSED event as fallback
     lv_obj_add_event_cb(modal_btn_no_, onModalNoClicked, LV_EVENT_PRESSED, NULL);

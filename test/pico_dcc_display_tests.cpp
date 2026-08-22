@@ -61,9 +61,11 @@ static void test_boot_sequence(void** state) {
     
     // Run boot sequence with 100ms delay (for faster tests)
     display.runBootSequence(100);
-    
-    // Should have shown test pattern and diagnostic screen
-    assert_true(renderer.wasTestPatternShown());
+
+    // Boot goes straight to the diagnostic screen. The colour test pattern was
+    // dropped deliberately, so assert it stays gone rather than merely not
+    // checking for it -- putting it back should fail here first.
+    assert_false(renderer.wasTestPatternShown());
     assert_true(renderer.wasDiagnosticScreenShown());
 }
 
