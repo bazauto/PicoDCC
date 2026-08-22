@@ -22,6 +22,12 @@
 
 #define CMD_QUEUE_LENGTH 5
 
+// How long Core 1 is allowed to take to produce its first heartbeat, and to send
+// its first command, before either counts as a real failure rather than startup.
+// Long enough to cover launch and PIO bring-up; short enough that a Core 1 which
+// never starts is still caught well before anyone could put a train on the track.
+#define CORE1_STARTUP_GRACE_MS 500
+
 // Operation modes for the controller
 enum class OperationMode {
     NORMAL,              // Standard DCC operation
@@ -50,6 +56,17 @@ private:
     volatile uint32_t core1_heartbeat;
     uint32_t last_core1_check;
     uint32_t last_core1_heartbeat_value;
+
+    // Startup state for the monitors above. The constructor runs long before the
+    // first loop pass -- LCD init and the boot sequence sit in between, and Core 1
+    // is not launched until after them -- so baselines taken at construction are
+    // already stale by the time they are first compared.
+    bool monitors_armed;          // Baseline taken on the first Core 0 pass
+    uint32_t monitors_armed_ms;   // When that happened, for the startup deadline
+    bool core1_seen_alive;        // Core 1 has ticked at least once
+    bool core1_loop_started;      // Core 1's loop has run; separate flag because
+                                  // t=0 is a legal timestamp and cannot be a sentinel
+    uint32_t core1_start_ms;      // When Core 1's loop first ran
 
     // Operation mode and configuration
     OperationMode operation_mode;

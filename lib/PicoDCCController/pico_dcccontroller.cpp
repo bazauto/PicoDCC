@@ -36,10 +36,16 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     // Setup DCCEX Packate processing
     pico_dccex = new PicoDccEx(MAX_LOCO);
     
-    // Initialize core health monitoring
+    // Initialize core health monitoring. The baselines are deliberately left
+    // unarmed here and taken on the first loop pass instead -- see dccexLoop().
     core1_heartbeat = 0;
     last_core1_check = 0;
     last_core1_heartbeat_value = 0;
+    monitors_armed = false;
+    monitors_armed_ms = 0;
+    core1_seen_alive = false;
+    core1_loop_started = false;
+    core1_start_ms = 0;
     
     // Initialize operation mode and configuration
     operation_mode = OperationMode::NORMAL;
@@ -53,9 +59,30 @@ void PicoDccController::dccexLoop()
 {
     // Core 1 health monitoring - check every 50ms
     uint32_t current_time = time_us_32() / 1000;  // Multicore-safe timer
+
+    // Arm the monitor on the first pass. Construction happens before LCD init,
+    // the boot sequence and multicore_launch_core1(), so a baseline of 0 is
+    // already tens of milliseconds stale by now and the first comparison below
+    // would fire before Core 1 has had any chance to tick.
+    if (!monitors_armed) {
+        last_core1_check = current_time;
+        monitors_armed_ms = current_time;
+        monitors_armed = true;
+    }
+
     if (current_time - last_core1_check >= 50) {
-        if (core1_heartbeat == last_core1_heartbeat_value) {
-            // Core 1 appears dead - emergency cutoff
+        if (!core1_seen_alive) {
+            // Core 1 has never ticked. Briefly that is just startup, but a Core 1
+            // that never starts is a genuine failure -- so this is a deadline,
+            // not an exemption from monitoring.
+            if (core1_heartbeat != 0) {
+                core1_seen_alive = true;
+            } else if (current_time - monitors_armed_ms >= CORE1_STARTUP_GRACE_MS) {
+                emergencyPowerCutoff();
+                LOG_CRITICAL(COMPONENT_CORE, "Core 1 failed to start");
+            }
+        } else if (core1_heartbeat == last_core1_heartbeat_value) {
+            // Core 1 was alive and has stopped ticking - emergency cutoff
             emergencyPowerCutoff();
             LOG_CRITICAL(COMPONENT_CORE, "Core 1 heartbeat failure detected");
         }
@@ -219,11 +246,25 @@ void PicoDccController::dccLoop()
     
     // Update Core 1 heartbeat for health monitoring
     core1_heartbeat = ++heartbeat_counter;
+
+    // Remember when Core 1 actually began running, so the command-gap check below
+    // has something real to measure against before the first command is sent.
+    if (!core1_loop_started) {
+        core1_start_ms = current_time;
+        core1_loop_started = true;
+    }
     
     // Check command timing if it's been more than 10ms
     if (current_time - last_command_check >= 10)
     {
-        uint32_t main_gap = current_time - main_track->getLastCommandTime();
+        // Before the first command has ever been sent, getLastCommandTime() is 0,
+        // which would make the gap "everything since boot" and always look fatal.
+        // Measure from when Core 1 started instead -- so a Core 1 that starts and
+        // then sends nothing still trips the same 100ms limit, but the boot
+        // transient does not.
+        uint32_t last_cmd = main_track->getLastCommandTime();
+        uint32_t main_gap = (last_cmd == 0) ? (current_time - core1_start_ms)
+                                            : (current_time - last_cmd);
         
         // Check PIO health on both tracks
         bool main_pio_healthy = main_track->isPIOHealthy();

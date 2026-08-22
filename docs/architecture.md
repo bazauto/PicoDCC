@@ -66,7 +66,12 @@ so it can never stall Core 1's DCC timing.
 - **Locomotive Management**: `PicoDccLocos` maintains collection of active locomotives
 - **Command Scheduling**: Main command queue handles repeat logic for explicit commands
 - **Emergency Stop**: Implements DCC broadcast emergency stop (address 0x00, instruction 0x41)
-- **Timing Safety**: Monitors Core 1 health via heartbeat mechanism
+- **Timing Safety**: Monitors Core 1 health via heartbeat mechanism. Both this and the
+  command-gap check are armed on the **first loop pass**, not at construction — LCD init,
+  the boot sequence and `multicore_launch_core1()` all run in between, so baselines taken
+  at construction are already stale and used to fire a full emergency cutoff on every boot.
+  The grace period is bounded: a Core 1 that never produces a heartbeat within
+  `CORE1_STARTUP_GRACE_MS` still cuts power, so startup is not a monitoring blind spot.
 
 ### Core 1 - Hardware Control & Safety
 - **Track Management**: Separate `PicoDccTrack` instances for main and programming tracks
@@ -268,7 +273,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **142 total tests** across all components: Controller (16), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (25), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22)
+- **144 total tests** across all components: Controller (18), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (25), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation
