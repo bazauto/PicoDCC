@@ -21,6 +21,24 @@ extern bool track_power_states[2];
 extern std::vector<std::string> uart_output_log;
 extern uint32_t mock_time_ms;
 
+// Read a packed packet word the way dcc.pio consumes it: byte 7 is the preamble
+// length, byte 6 the number of bytes to send, and the payload runs downwards
+// from byte 5. Tests assert on what comes out of here rather than rebuilding
+// the packing locally -- a test that recomputes the implementation agrees with
+// it by construction, which is how #31 stayed invisible.
+//
+// pico_dcc_pio_tests.cpp does this properly, by running the real assembled PIO
+// program. This is the cheap equivalent for tests that only need the bytes.
+static std::vector<uint8_t> unpack_sent_packet(uint64_t packet)
+{
+    const unsigned count = (unsigned)((packet >> 48) & 0xFF);
+    std::vector<uint8_t> bytes;
+    for (unsigned i = 0; i < count && i <= DCC_PACKET_FIRST_BYTE; i++) {
+        bytes.push_back((uint8_t)((packet >> ((DCC_PACKET_FIRST_BYTE - i) * 8)) & 0xFF));
+    }
+    return bytes;
+}
+
 // Test fixtures
 static int setup(void **state)
 {
@@ -300,30 +318,15 @@ static void test_emergency_stop(void **state)
     // Check that a single emergency stop broadcast packet was sent
     extern std::vector<uint64_t> sent_track_packets;
     
-    // Build expected emergency stop cmd_data using same logic as sendCommand
-    raw_dcc_cmd_t expected_stop_cmd = {};
-    expected_stop_cmd.is_prog = false;
-    expected_stop_cmd.length = 2;
-    expected_stop_cmd.data[0] = 0x00;  // Broadcast address
-    expected_stop_cmd.data[1] = 0x41;  // Emergency stop instruction
-    expected_stop_cmd.cmd_data = 0;
-    
-    // Build cmd_data as in sendCommand
-    expected_stop_cmd.cmd_data |= ((uint64_t)14) << 56; // DCC_MAIN_PREAMBLE
-    expected_stop_cmd.cmd_data |= ((uint64_t)(expected_stop_cmd.length + 1)) << 48;
-    uint8_t cmd_xor = 0x0;
-    for (uint8_t i = 0; i < expected_stop_cmd.length; i++) {
-        uint8_t shift = (5 - 1) - i; // DCC_MAX_DATA_BYTES = 5
-        expected_stop_cmd.cmd_data |= ((uint64_t)expected_stop_cmd.data[i] << (shift * 8));
-        cmd_xor ^= expected_stop_cmd.data[i];
-    }
-    // Add the checksum
-    expected_stop_cmd.cmd_data |= ((uint64_t)cmd_xor << ((5 - 1 - expected_stop_cmd.length) * 8));
-    
-    // Search for the emergency stop packet in sent_track_packets
+    // Assert on the bytes the PIO would transmit, not on a locally rebuilt
+    // cmd_data. Recomputing the packing here is what let #31 hide: the test
+    // agreed with the implementation by construction, so both could be wrong
+    // together. unpack_sent_packet() reads the word the way dcc.pio does.
     bool found_emergency_stop = false;
     for (size_t i = 0; i < sent_track_packets.size(); ++i) {
-        if (sent_track_packets[i] == expected_stop_cmd.cmd_data) {
+        std::vector<uint8_t> bytes = unpack_sent_packet(sent_track_packets[i]);
+        // Broadcast address, emergency stop instruction, checksum.
+        if (bytes == std::vector<uint8_t>{0x00, 0x41, 0x41}) {
             found_emergency_stop = true;
             break;
         }
@@ -420,10 +423,9 @@ static void test_idle_packet_generation(void **state)
     fflush(stdout);
     for (size_t i = 0; i < sent_track_packets.size(); ++i)
     {
-        uint64_t pkt = sent_track_packets[i];
-        // The first data byte is bits 32-39 (big-endian, see sendCommand packing)
-        uint8_t first_byte = (pkt >> 32) & 0xFF;
-        if (first_byte == 0xFF)
+        // The idle packet is 0xFF 0x00 with its checksum, as transmitted.
+        std::vector<uint8_t> bytes = unpack_sent_packet(sent_track_packets[i]);
+        if (!bytes.empty() && bytes[0] == 0xFF)
         {
             found_idle = true;
         }

@@ -23,7 +23,9 @@ preamble_bits:
     nop                     side 1  [7]     ; set output high and wait for high half cycle
     jmp y-- preamble_bits   side 0  [7]     ; set output low and wait for low half cycle
     
-    nop                     side 1  [2]     ; this is because on first entry we don't get 1 cycle from byte_end jmp
+    nop                     side 1  [2]     ; on entry from the preamble nothing precedes us, whereas re-entry
+                                            ; from byte_end arrives with 3 cycles already high
+                                            ; (jmp y--, mov x, isr, jmp x--). 3 cycles matches them.
 
 send_byte:
 
@@ -60,7 +62,9 @@ byte_end:
 
 final_bit:
     ; Send '1' bit
-    nop                     side 1  [3]     ; set output high and wait for high half cycle (one cycle is in byte_end jmp)
+    nop                     side 1  [4]     ; set output high and wait for high half cycle
+                                            ; (three cycles already arrived: the byte_end jmp,
+                                            ;  mov x, isr and jmp x-- all hold the line high)
     nop                     side 0  [7]     ; set output low and wait for low half cycle
 
     ; extra half cycle to put gap between packets, with line high to continue powering

@@ -21,7 +21,7 @@ project deliberately got rid of (issue #25).
 # host — host compiler + Ninja + CMocka. This is what you run for almost everything.
 cmake --preset host
 cmake --build --preset host
-ctest --preset host                       # 10 suites, 145 tests, ~0.5s
+ctest --preset host                       # 11 suites, 158 tests, ~0.5s
 
 # pico — ARM GCC cross-build, produces build/pico/src/PicoDCC.uf2
 # Needs PICO_SDK_PATH and PICO_TOOLCHAIN_PATH (VS Code sets both; see .vscode/settings.json).
@@ -176,6 +176,21 @@ Full detail in `docs/architecture.md`.
   and the change needs re-testing on hardware, in isolation. Some assertions deliberately
   record current *defective* behaviour and name the issue; that is so a fix shows up as a
   reviewable diff rather than a silent change.
+- `test/pico_dcc_pio_tests.cpp` goes one step further and asserts on the **waveform**. It
+  drives the real `sendCommand()`, then runs the words it pushed through an emulator
+  (`test/pio_emulator.cpp`) that executes the *assembled* `dcc.pio`, and decodes the result
+  back into bits and bytes. That is what catches a defect in the packing or in the PIO
+  timing, neither of which is visible from `data[]` or `cmd_data` — see #31 and #33. Unlike
+  the wire-format suite, these assert what is **correct**, not what is current.
+  **If you edit `lib/PicoDCCTrack/dcc.pio`, regenerate its assembly:**
+  ```bash
+  pioasm -o hex lib/PicoDCCTrack/dcc.pio test/dcc_pio_program.hex
+  ```
+  The `.hex` is committed so CI works without the Pico SDK. Where `pioasm` is found, the
+  host build re-assembles `dcc.pio` and **fails configure** if the two disagree, so the
+  committed copy cannot fall behind. Set `PICODCC_PIOASM` to point at a specific binary.
+  The emulator models only the instructions `dcc.pio` uses and fails loudly on anything
+  else — it will never silently approximate a program it does not understand.
 - The mocks model behaviour the firmware depends on, not just signatures: per-queue storage
   with real capacity, per-ADC-channel readings, counting semaphores that record an acquire
   that would have blocked, and an `assert()` that records failures. Prefer extending

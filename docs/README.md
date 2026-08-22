@@ -26,7 +26,7 @@ Project rules — build commands, safety constraints, conventions, workflow — 
 | CV programming | ❌ Declarations only | Method bodies are absent on `main` |
 | Sensors (`<S>`) | ❌ Not supported | Parsed, then rejected as invalid |
 
-**Tests**: 145 across 10 CMocka suites, all passing. CI runs them on every push and PR.
+**Tests**: 158 across 11 CMocka suites, all passing. CI runs them on every push and PR.
 
 ### Known gaps
 
@@ -121,7 +121,7 @@ Full commands are in [`CLAUDE.md`](../CLAUDE.md). In short:
 
 - Two presets in `CMakePresets.json`, **each with its own build tree** — `host` builds into
   `build/host`, `pico` into `build/pico`. Nothing to clear, nothing to switch.
-- `host`: host GCC + Ninja + CMocka. 10 suites, ~0.5s. `cmake --build --preset host` then
+- `host`: host GCC + Ninja + CMocka. 11 suites, ~0.5s. `cmake --build --preset host` then
   `ctest --preset host`. On Windows this needs the MSYS2 toolchain ahead of Git's on `PATH`
   (see `CLAUDE.md`), or the compiler fails to load its DLLs and ninja reports a `FAILED:`
   edge carrying no diagnostic.

@@ -164,15 +164,19 @@ void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
         // build the data and checksum to send to the PIO
         cmd->cmd_data |= ((uint64_t)(is_prog ? DCC_PROG_PREAMBLE : DCC_MAIN_PREAMBLE)) << 56;
         cmd->cmd_data |= ((uint64_t)cmd->length + 1) << 48;
+        // The two header bytes occupy bits 63-48, so the payload starts at byte 5
+        // (bits 47-40) and runs downwards. The shift names that byte directly --
+        // it must not be derived from the size of data[], because those are two
+        // different quantities that happened to coincide (see #31).
         uint8_t cmd_xor = 0x0;
         for (uint8_t i = 0; i < cmd->length; i++)
         {
-            uint8_t shift = (DCC_MAX_DATA_BYTES - 1) - i;
+            uint8_t shift = DCC_PACKET_FIRST_BYTE - i;
             cmd->cmd_data |= ((uint64_t)cmd->data[i] << (shift * 8));
             cmd_xor ^= cmd->data[i];
         }
-        // Add the checksum
-        cmd->cmd_data |= ((uint64_t)cmd_xor << (((DCC_MAX_DATA_BYTES - 1) - cmd->length) * 8));
+        // Add the checksum, immediately after the last payload byte
+        cmd->cmd_data |= ((uint64_t)cmd_xor << ((DCC_PACKET_FIRST_BYTE - cmd->length) * 8));
     }
 
     // Send command to PIO and track successful transmission
