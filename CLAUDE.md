@@ -248,12 +248,48 @@ Pi extension starting it invisibly. OpenOCD is launched on demand.
 ## Workflow
 
 - **Everything reaches `main` through a PR.** Branch from `origin/main`, never fast-forward
-  onto `main` locally. Rebase onto main; never merge main into a branch.
+  onto `main` locally. Rebase onto main; never merge main into a branch. The one exception is
+  a stack layer, which branches from the layer below — see below.
 - **Docs move with the code, in the same PR.** If a change falsifies `docs/architecture.md`,
   `docs/README.md` or this file, fix it in the same branch — never as a follow-up.
 - Pass long PR bodies to `gh` via `--body-file`, never a here-string.
 - Run the test suite before reporting anything complete. Run the hardware build too if the
   change could affect it.
+
+### Stacked PRs — use `gh stack`, not hand-rolled base branches
+
+Two branches in flight that touch the same lines is the normal case here, not the exception:
+almost every change edits the test counts in `CLAUDE.md`, `docs/README.md`,
+`docs/architecture.md` and `docs/vscode-test-integration.md`. Two independent branches off
+`main` will therefore conflict on merge even when the code does not overlap.
+
+**Stack them instead.** `gh-stack` (`gh extension install github/gh-stack`) is installed:
+
+```bash
+gh stack init <bottom-branch> --base main   # adopt an existing branch as layer 1
+gh stack add <next-branch>                  # create layer 2 on top of layer 1, and switch to it
+gh stack view                               # see the whole stack
+gh stack switch                             # move between layers
+gh stack submit --auto --open               # push every layer, create/update the PRs, link the stack
+```
+
+`gh stack submit` opens an interactive editor in a real terminal. Non-interactive shells —
+including the agent's — must pass `--auto`, which generates titles and creates **drafts**
+unless `--open` is also given. Auto-generated titles are not good enough for this repo, so
+follow up with `gh pr edit <n> --title ... --body-file ...`.
+
+Rules that still apply inside a stack:
+
+- **Merge bottom-up.** Layer 1 first. GitHub rebases and retargets the layers above.
+- Each layer must be green on its own: `ctest --preset host` passes at every layer, and test
+  counts in the docs are **cumulative** — layer 2's docs state the total including layer 1.
+- Docs still move with the code, in the layer that changes the behaviour.
+- Never fix a conflict by merging `main` into a layer. Rebase the bottom layer, then let
+  `gh stack submit` restack the rest.
+
+Do **not** hand-roll this by setting a PR's base to another branch. That works right up until
+the bottom PR merges, at which point the upper branch still carries the bottom's pre-rebase
+commit, GitHub reports `CONFLICTING`, and it has to be rebased and force-pushed by hand.
 
 ---
 
