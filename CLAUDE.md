@@ -35,6 +35,13 @@ a change end to end. It resolves the SDK and ARM toolchain from `PICO_SDK_PATH` 
 non-zero if anything fails. It needs Ninja for both modes, and it leaves `build/` configured
 for hardware mode, so clear the cache before the next test build.
 
+Both modes generate `build/generated/version.h` from `cmake/generate_version.cmake` — build
+date plus `git rev-parse --short HEAD`, with a trailing `+` when the tree is dirty. That
+string *is* the DCC-EX identity (`PICODCC_IDENTITY` in `lib/dccex_communication.h`), so the
+`<s>` reply names the commit the running image was built from. Generation happens at configure
+time and again on every build; it deliberately carries no time-of-day field, so an unchanged
+commit leaves the header untouched and nothing recompiles.
+
 The hardware build **requires the LVGL submodule**. If `lib/external/lvgl` is empty, CMake
 fails at `add_subdirectory` with no useful hint:
 

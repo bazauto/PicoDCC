@@ -54,7 +54,7 @@ JMRI (Java Model Railroad Interface) queries several DCC-EX commands during star
 
 **`<s>` Response Format** (DCC-EX standard):
 ```
-<iDCC-EX V-5.0.0 / PICODCC / BUILD Oct 20 2025>
+<iDCC-EX V-5.0.0 / PICODCC / BUILD <date> G-<githash>>
 <p1 MAIN> or <p0 MAIN>
 <p1 PROG> or <p0 PROG>
 <iM> if in Layout Maintenance Mode (new)
@@ -303,5 +303,8 @@ version banner and both track power states only, so Phase 2 is roughly half done
 (empty list responses) is not started, so the JMRI startup delay this document exists to fix
 is still present.
 
-**Note**: the version banner in `handleStatusCommand()` hardcodes `BUILD Oct 20 2025` as a
-string literal rather than using `__DATE__`, so it will not track future builds.
+**Note**: the version banner is generated at build time by `cmake/generate_version.cmake`
+and carries the build date and short git hash (with a trailing `+` for a dirty tree), so it
+identifies the image actually running. It used to be a hardcoded `BUILD Oct 20 2025`.
+`PICODCC_IDENTITY` in `lib/dccex_communication.h` is the single definition, used both by the
+startup banner and the `<s>` reply.
