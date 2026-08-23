@@ -155,6 +155,24 @@ so it can never stall Core 1's DCC timing.
   `<p0 MAIN>` / `<p0 PROG>` from both cutoff paths; one of those runs on Core 1, where a
   blocking UART write sits in the DCC hot path, so it needs its own design.
 
+- **The `<l cab reg speedByte functMap>` cab update** follows the published DCC-EX format.
+  `speedByte` is the DCC 128-step byte: bit 7 is direction, and the low 7 bits are
+  `0` = stop, `1` = emergency stop, `2`–`127` = speed steps 1–126. A wire speed of N therefore
+  maps to **N + 1**:
+
+  | `<t>` speed | Forward | Reverse |
+  |---|---|---|
+  | `0` (stop) | 128 | 0 |
+  | `-1` (emergency stop) | 129 | 1 |
+  | `1` (slowest step) | 130 | 2 |
+  | `126` (full) | 255 | 127 |
+
+  This subtracted one rather than adding one until 2026-08-22 — an undocumented JMRI
+  workaround predating any check against the published format. It reported every moving speed
+  **two steps low**, and made wire speed 1 report as `129`, which in the forward direction *is*
+  emergency stop. Direction is applied as a bit test rather than `direction * 128`, so a
+  direction field carrying anything other than 0 or 1 cannot overflow the byte.
+
 ### PicoDccLoco
 - **Role**: Individual locomotive state management
 - **Responsibilities**:
@@ -310,7 +328,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **206 total tests** across all components: Controller (26), DCCEX (9), Locos (18), Loco (20), Packet (35), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (25), PIO Wire Format (13)
+- **208 total tests** across all components: Controller (26), DCCEX (9), Locos (18), Loco (20), Packet (35), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (27), PIO Wire Format (13)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

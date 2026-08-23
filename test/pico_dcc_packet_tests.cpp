@@ -260,7 +260,7 @@ void test_throttle_packet(void **state)
   assert_int_equal(packet.getDirection(), 0);
   
   const char *cmd = packet.getDccExCabUpdate();
-  assert_string_equal(cmd, "<l 101 0 24 0>");
+  assert_string_equal(cmd, "<l 101 0 26 0>");
 }
 void test_function_packet(void **state)
 {
@@ -282,7 +282,7 @@ void test_function_packet(void **state)
   assert_int_equal(packet.getDirection(), 0);
   
   const char *cmd = packet.getDccExCabUpdate();
-  assert_string_equal(cmd, "<l 101 0 24 0>");
+  assert_string_equal(cmd, "<l 101 0 26 0>");
 }
 void test_estop_packet(void **state)
 {
@@ -425,7 +425,7 @@ void test_cab_update_long_address_not_truncated(void **state)
   char buffer[16] = "t 10239 126 1";
   PicoDccExPacket packet(buffer);
 
-  assert_string_equal(packet.getDccExCabUpdate(), "<l 10239 0 253 0>");
+  assert_string_equal(packet.getDccExCabUpdate(), "<l 10239 0 255 0>");
 }
 
 void test_config_ack_limit_valid(void **state)

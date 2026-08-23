@@ -713,12 +713,11 @@ static void test_queue_timeout_safety(void **state)
     // This verifies that we're no longer using blocking queue operations
     // which would have caused the system to freeze if the queue was full
     //
-    // "<t 1 3 1 1>" is the legacy 4-field <t reg cab speed dir> form, which
-    // this parser misreads as cab=1 (the "reg" field), speed=3 (the real cab
-    // address). It still parses to a valid cab/speed pair here by coincidence,
-    // so it is left as-is; the misinterpretation itself is a sibling of #2 and
-    // is not fixed by this change.
-    uart_test_write("<t 1 3 1 1>");  // Throttle command
+    // Uses the 3-field form. These commands previously read "<t 1 3 1 1>" -- the
+    // deprecated 4-field form -- and relied on the parser misreading it as
+    // cab=1, speed=3. That form is now rejected outright (#7), so the test would
+    // have been exercising the queue with commands that never created a loco.
+    uart_test_write("<t 3 1 1>");  // Throttle command
     controller.dccexLoop();
     
     // System should still be operational (power still on)
@@ -729,7 +728,7 @@ static void test_queue_timeout_safety(void **state)
     // The fact that we can process multiple commands without blocking
     // demonstrates that the queue timeout safety mechanism is in place
     for (int i = 0; i < 5; i++) {
-        uart_test_write("<t 1 3 1 1>");  // More commands
+        uart_test_write("<t 3 1 1>");  // More commands
         controller.dccexLoop();
     }
     
@@ -757,9 +756,9 @@ static void test_emergency_power_cutoff(void **state)
     // Turn on power and add some locomotives
     uart_test_write("<1>");
     controller.dccexLoop();
-    uart_test_write("<t 1 3 1 1>");  // Add loco
+    uart_test_write("<t 3 1 1>");  // Add loco
     controller.dccexLoop();
-    uart_test_write("<t 2 5 1 1>");  // Add another loco
+    uart_test_write("<t 5 1 1>");  // Add another loco
     controller.dccexLoop();
     
     // Verify initial state
@@ -1025,7 +1024,7 @@ static void test_maintenance_mode_exit(void **state)
 
     // Should now accept throttle commands again
     int initial_loco_count = controller.getLocoCount();
-    uart_test_write("<t 1 3 50 1>");
+    uart_test_write("<t 3 50 1>");
     controller.dccexLoop();
     assert_int_equal(controller.getLocoCount(), initial_loco_count + 1); // Loco added
 }
