@@ -945,6 +945,159 @@ static void test_construction_fires_no_asserts(void **state)
     assert_int_equal(mock_assert_failures, 0);
 }
 
+// ---------------------------------------------------------------------------
+// #35: Core 1 must not be paced by both PIO FIFOs
+//
+// Both tracks are serviced in one Core 1 pass and both used to end in a
+// blocking FIFO write, so the pass ran at the rate of the *slower* track. The
+// programming track is the slower one -- DCC_PROG_PREAMBLE 20 against
+// DCC_MAIN_PREAMBLE 14 -- so the main track was refilled at the programming
+// track's rate while draining at its own. Its FIFO trended empty, and an empty
+// FIFO parks the signal pin high (#34), so the coupling put 2.2-2.5ms of DC on
+// the main track between packets. Measured on a scope at the GPIO on
+// 2026-08-23: main inter-packet high 2.51ms and 2.22ms, against the programming
+// track's designed 197-209us.
+//
+// Only the main track may block now. These pin the non-blocking path.
+// ---------------------------------------------------------------------------
+
+static PicoDccTrack make_prog_track(void)
+{
+    track_settings_t settings;
+    settings.signal_pin = 19;
+    settings.ctrl_pin = 23;
+    settings.adc_num = 1;
+    settings.short_pin = 17;
+    return PicoDccTrack(true, settings);
+}
+
+static void test_non_blocking_pass_skips_a_full_fifo(void **state)
+{
+    (void)state;
+    PicoDccTrack track = make_prog_track();
+
+    mock_pio_tx_fifo_level = DCC_PIO_TX_FIFO_DEPTH;
+    sent_track_words.clear();
+
+    track.loop(PicoDccTrack::Pacing::NonBlocking);
+
+    // Nothing transmitted -- not even an idle packet. The pass simply does
+    // nothing rather than parking Core 1 and starving the main track.
+    assert_int_equal(sent_track_words.size(), 0);
+}
+
+static void test_non_blocking_pass_does_not_consume_a_queued_command(void **state)
+{
+    (void)state;
+    PicoDccTrack track = make_prog_track();
+
+    raw_dcc_cmd_t cmd;
+    cmd.is_prog = true;
+    cmd.length = 2;
+    cmd.data[0] = 0x03;
+    cmd.data[1] = 0x72;
+    cmd.cmd_data = 0;
+    cmd.repeats = 0;
+    track.queueCommand(&cmd);
+
+    // No room: the command must stay queued. queue_try_remove() consumes what it
+    // returns, so checking for room after the dequeue would drop the command
+    // outright instead of deferring it.
+    mock_pio_tx_fifo_level = DCC_PIO_TX_FIFO_DEPTH;
+    sent_track_words.clear();
+    track.loop(PicoDccTrack::Pacing::NonBlocking);
+    assert_int_equal(sent_track_words.size(), 0);
+
+    // Room again: the same command goes out on the next pass.
+    mock_pio_tx_fifo_level = 0;
+    track.loop(PicoDccTrack::Pacing::NonBlocking);
+    assert_true(sent_track_words.size() > 0);
+    assert_int_equal((sent_track_words[0] >> 8) & 0xFF, 0x03);
+}
+
+static void test_room_is_measured_for_a_whole_packet(void **state)
+{
+    (void)state;
+
+    // A packet is two words and they must be written together, so the last level
+    // that still has room is DEPTH - 2. One more and the pass must skip: writing
+    // the first word and blocking on the second is the coupling being removed.
+    {
+        PicoDccTrack track = make_prog_track();
+        mock_pio_tx_fifo_level = DCC_PIO_TX_FIFO_DEPTH - DCC_PIO_WORDS_PER_PACKET;
+        sent_track_words.clear();
+        track.loop(PicoDccTrack::Pacing::NonBlocking);
+        assert_true(sent_track_words.size() > 0);
+    }
+    {
+        PicoDccTrack track = make_prog_track();
+        mock_pio_tx_fifo_level = DCC_PIO_TX_FIFO_DEPTH - DCC_PIO_WORDS_PER_PACKET + 1;
+        sent_track_words.clear();
+        track.loop(PicoDccTrack::Pacing::NonBlocking);
+        assert_int_equal(sent_track_words.size(), 0);
+    }
+}
+
+static void test_blocking_pass_still_transmits_when_full(void **state)
+{
+    (void)state;
+    PicoDccTrack track = make_prog_track();
+
+    // The main track is the pacer: it does not consult the level, it blocks in
+    // pio_sm_put_blocking until the hardware takes the word. That block is the
+    // thing that stops Core 1 outrunning the PIO, so it must survive this fix.
+    mock_pio_tx_fifo_level = DCC_PIO_TX_FIFO_DEPTH;
+    sent_track_words.clear();
+
+    track.loop(PicoDccTrack::Pacing::Blocking);
+
+    assert_true(sent_track_words.size() > 0);
+}
+
+static void test_current_monitoring_runs_even_when_the_pass_skips(void **state)
+{
+    (void)state;
+    track_settings_t settings;
+    settings.signal_pin = 19;
+    settings.ctrl_pin = 23;
+    settings.adc_num = 1;
+    settings.short_pin = 17;
+    PicoDccTrack track(true, settings);
+
+    track.powerOn();
+    mock_adc_set_channel(1, 400);
+    mock_pio_tx_fifo_level = DCC_PIO_TX_FIFO_DEPTH;
+
+    // The early return is below the health check and the ADC read, so a full
+    // FIFO must not blind the overcurrent protection or freeze the LCD's
+    // current reading.
+    for (int i = 0; i < TRACK_POWER_CURRENT_SAMPLES; i++) {
+        track.loop(PicoDccTrack::Pacing::NonBlocking);
+    }
+
+    assert_float_equal(track.getAverageCurrent(), 400.0, 0.01);
+}
+
+static void test_packet_words_go_to_the_claimed_state_machine(void **state)
+{
+    (void)state;
+    PicoDccTrack track = make_prog_track();
+
+    mock_pio_tx_fifo_level = 0;
+    sent_track_words.clear();
+    sent_track_sm.clear();
+
+    track.loop(PicoDccTrack::Pacing::NonBlocking);
+
+    // sendCommand passed a literal 0 rather than the state machine it claimed in
+    // init(). Right today only because nothing else claims one on pio0 or pio1
+    // (#35, secondary).
+    assert_true(sent_track_sm.size() > 0);
+    for (size_t i = 0; i < sent_track_sm.size(); i++) {
+        assert_int_equal(sent_track_sm[i], MOCK_PIO_CLAIMED_SM);
+    }
+}
+
 int main(void)
 {
     const struct CMUnitTest tests[] = {
@@ -979,6 +1132,12 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_two_tracks_each_read_their_own_channel, setup, teardown),
         cmocka_unit_test_setup_teardown(test_adc_block_is_initialised_once_but_each_pin_is_configured, setup, teardown),
         cmocka_unit_test_setup_teardown(test_construction_fires_no_asserts, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_non_blocking_pass_skips_a_full_fifo, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_non_blocking_pass_does_not_consume_a_queued_command, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_room_is_measured_for_a_whole_packet, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_blocking_pass_still_transmits_when_full, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_current_monitoring_runs_even_when_the_pass_skips, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_packet_words_go_to_the_claimed_state_machine, setup, teardown),
     };
 
     printf("Running Track Tests\n");

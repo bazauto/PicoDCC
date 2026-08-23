@@ -110,7 +110,7 @@ void PicoDccTrack::setPower(bool on)
     }
 }
 
-void PicoDccTrack::loop()
+void PicoDccTrack::loop(Pacing pacing)
 {
     // Check PIO health before processing commands
     checkPIOHealth();
@@ -159,6 +159,18 @@ void PicoDccTrack::loop()
         }
     }
 
+    // Below this point the pass either transmits a packet or does nothing.
+    //
+    // A non-blocking track checks for room *before* touching any command source,
+    // not inside sendCommand(): queue_try_remove() and getNextReminder() both
+    // consume what they return, so a command taken off the queue that then could
+    // not be written would be lost outright rather than deferred. Returning here
+    // leaves it queued for the next pass, which is ordinary back-pressure.
+    if (pacing == Pacing::NonBlocking && !hasRoomForPacket())
+    {
+        return;
+    }
+
     // Process any incoming messages to be sent to the track
     // Priority: explicit commands from Core 0 > loco reminders > idle packets
     // Repeat logic is handled on Core 0 for explicit commands
@@ -184,6 +196,12 @@ void PicoDccTrack::loop()
         pio_health.idle_packets_sent++;
         pio_health.last_activity_time = dcc_millis();
     }
+}
+
+bool PicoDccTrack::hasRoomForPacket() const
+{
+    const uint level = pio_sm_get_tx_fifo_level((PIO)pio, pio_sm);
+    return level <= (DCC_PIO_TX_FIFO_DEPTH - DCC_PIO_WORDS_PER_PACKET);
 }
 
 void PicoDccTrack::queueCommand(raw_dcc_cmd_t *cmd)
@@ -215,11 +233,17 @@ void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
         cmd->cmd_data |= ((uint64_t)cmd_xor << ((DCC_PACKET_FIRST_BYTE - cmd->length) * 8));
     }
 
-    // Send command to PIO and track successful transmission
-    pio_sm_put_blocking((PIO)pio, 0, (cmd->cmd_data >> 32) & 0xFFFFFFFF);
+    // Send command to PIO and track successful transmission.
+    //
+    // The state machine was claimed dynamically in init() and stored in pio_sm;
+    // these two calls passed a literal 0. That happened to be right only because
+    // nothing else claims a state machine on pio0 or pio1 -- a PIO-driven
+    // display, WS2812 or second program would have sent packets into the wrong
+    // FIFO with no diagnostic at all (#35).
+    pio_sm_put_blocking((PIO)pio, pio_sm, (cmd->cmd_data >> 32) & 0xFFFFFFFF);
     if (cmd->length > 1)
     {
-        pio_sm_put_blocking((PIO)pio, 0, cmd->cmd_data & 0xFFFFFFFF);
+        pio_sm_put_blocking((PIO)pio, pio_sm, cmd->cmd_data & 0xFFFFFFFF);
     }
     
     // Option 4: Track PIO transmission activity (simulated interrupt)

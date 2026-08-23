@@ -409,7 +409,18 @@ uint32_t pio_high_word = 0;
 bool pio_awaiting_low_word = false;
 } // namespace
 
-uint pio_claim_unused_sm(PIO pio, bool require_unused) { (void)pio; (void)require_unused; return 0; }
+uint mock_pio_tx_fifo_level = 0;
+
+uint pio_sm_get_tx_fifo_level(PIO pio, uint sm)
+{
+    (void)pio; (void)sm;
+    return mock_pio_tx_fifo_level;
+}
+
+// Deliberately not 0. The claim is dynamic on hardware and there is no reason it
+// lands on state machine 0; returning a different index is what makes a caller
+// that passes a hardcoded 0 -- as sendCommand did until #35 -- observable at all.
+uint pio_claim_unused_sm(PIO pio, bool require_unused) { (void)pio; (void)require_unused; return MOCK_PIO_CLAIMED_SM; }
 int pio_add_program(PIO pio, void *program) { (void)pio; (void)program; return 0; }
 void pio_sm_set_enabled(PIO pio, uint sm, bool enabled) { (void)pio; (void)sm; (void)enabled; }
 
@@ -445,6 +456,7 @@ void mock_reset_pio(void)
 {
     pio_high_word = 0;
     pio_awaiting_low_word = false;
+    mock_pio_tx_fifo_level = 0;
     sent_track_words.clear();
     sent_track_sm.clear();
 }
