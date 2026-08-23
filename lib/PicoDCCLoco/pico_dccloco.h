@@ -13,7 +13,8 @@
 #include "../PicoDCCEX/pico_dccexpacket.h"
 #include "../PicoDCCTrack/pico_dcctrack.h"
 
-#define INVALID_LOCO_ADDR 65535
+// INVALID_LOCO_ADDR lives in dcc_types.h now (pulled in transitively via
+// pico_dcctrack.h), alongside the other address and speed limits.
 
 class PicoDccLoco
 {

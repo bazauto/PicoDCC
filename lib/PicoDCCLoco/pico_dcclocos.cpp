@@ -1,8 +1,8 @@
 #include <string.h>
-#include <stdexcept>
 
 #include "pico_dcclocos.h"
 #include "../dccex_communication.h"
+#include "../pico_diagnostic.h"
 
 PicoDccLocos::PicoDccLocos()
 {
@@ -61,8 +61,13 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
         }
     }
 
-    // Check if the loco is valid before returning it
-    if (!locos[nextIndex].isValid()) {
+    // Check if the loco is valid before returning it. PicoDccTrack::sendCommand()
+    // has no guard against cmd.length == 0 -- it would transmit a 1-byte
+    // garbage packet -- so a zero-length command must never be returned as a
+    // reminder either. Every valid address currently produces at least two
+    // bytes, so this cannot fire today; it is defence in depth against that
+    // invariant being broken later.
+    if (!locos[nextIndex].isValid() || locos[nextIndex].getThrottleCommand().length == 0) {
         // Remove invalid loco from the collection
         locos.erase(locos.begin() + nextIndex);
         sem_release(&locos_lock);
@@ -82,16 +87,35 @@ bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
     return true;
 }
 
-void PicoDccLocos::addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
+bool PicoDccLocos::addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
 {
+    // Construction and validation touch no shared state, so they happen
+    // outside the lock.
     PicoDccLoco newLoco(packet);
-    
+    if (!newLoco.isValid())
+    {
+        memset(&cmd, 0, sizeof(cmd));
+        LOG_WARNING(COMPONENT_DCCEX, "Loco rejected: invalid throttle command");
+        return false;
+    }
+
     sem_acquire_blocking(&locos_lock);
+
+    // size() is read inside the lock -- per CLAUDE.md rule 5, checking
+    // container state outside the lock is the race, not just mutating it.
+    if (locos.size() >= MAX_LOCO)
+    {
+        sem_release(&locos_lock);
+        memset(&cmd, 0, sizeof(cmd));
+        LOG_WARNING(COMPONENT_DCCEX, "Loco rejected: collection full");
+        return false;
+    }
 
     locos.push_back(newLoco);
     cmd = newLoco.getThrottleCommand();
 
     sem_release(&locos_lock);
+    return true;
 }
 
 bool PicoDccLocos::updateLocoThrottle(uint16_t address, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)

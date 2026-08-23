@@ -123,8 +123,8 @@ so it can never stall Core 1's DCC timing.
   | Opcode | Form | Notes |
   |---|---|---|
   | `<0>` / `<1>` | optional `MAIN` / `PROG` | Track power off/on |
-  | `<t>` | `<t cab speed dir>` | **3-field form only**; the legacy 4-field form is rejected |
-  | `<F>` | `<F cab func state>` | Function control |
+  | `<t>` | `<t cab speed dir>` | **3-field form only**; the legacy 4-field form is rejected. Cab validated **1–10239**, speed **0–126 or -1**; `-1` is a real per-loco emergency stop (`0x41 \| direction`, the same instruction byte as `<!>`) |
+  | `<F>` | `<F cab func state>` | Accepted and cab-validated, but **inert** — functions are not implemented (`updateFunct()` is a stub). It no longer writes the function number into the loco's speed (#1) |
   | `<a>` | `<a addr subaddr activate>` | Accessory; address validated 1–2044 |
   | `<!>` | no parameters | Emergency stop broadcast |
   | `<s>` | no parameters | Status |
@@ -290,7 +290,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **167 total tests** across all components: Controller (22), DCCEX (3), Locos (11), Loco (11), Packet (25), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (22), PIO Wire Format (13)
+- **198 total tests** across all components: Controller (24), DCCEX (3), Locos (18), Loco (20), Packet (35), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (25), PIO Wire Format (13)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

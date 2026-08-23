@@ -304,6 +304,130 @@ void test_estop_packet(void **state)
   assert_int_equal(packet.getDirection(), 0);
 }
 
+// ---------------------------------------------------------------------------
+// Throttle/function validation (#11, #12, #16)
+// ---------------------------------------------------------------------------
+
+void test_throttle_cab_zero_is_rejected(void **state)
+{
+  char buffer[16] = "t 0 126 1";
+  PicoDccExPacket packet(buffer);
+
+  assert_false(packet.isValid());
+}
+
+void test_throttle_cab_above_range_is_rejected(void **state)
+{
+  {
+    char buffer[16] = "t 10240 20 1";
+    PicoDccExPacket packet(buffer);
+    assert_false(packet.isValid());
+  }
+  {
+    char buffer[16] = "t 65535 126 1";
+    PicoDccExPacket packet(buffer);
+    assert_false(packet.isValid());
+  }
+}
+
+void test_throttle_cab_range_boundaries_accepted(void **state)
+{
+  {
+    char buffer[16] = "t 1 0 1";
+    PicoDccExPacket packet(buffer);
+    assert_true(packet.isValid());
+  }
+  {
+    char buffer[16] = "t 10239 126 1";
+    PicoDccExPacket packet(buffer);
+    assert_true(packet.isValid());
+  }
+}
+
+void test_throttle_speed_above_max_is_rejected(void **state)
+{
+  const char *bad[] = {"t 3 127 1", "t 3 128 1", "t 3 256 1"};
+  for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+  {
+    char buffer[16];
+    size_t j = 0;
+    for (; bad[i][j] != '\0' && j < sizeof(buffer) - 1; j++) buffer[j] = bad[i][j];
+    buffer[j] = '\0';
+    PicoDccExPacket packet(buffer);
+    assert_false(packet.isValid());
+  }
+}
+
+void test_throttle_speed_minus_one_is_accepted(void **state)
+{
+  char buffer[16] = "t 3 -1 1";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_int_equal(packet.getSpeed(), -1);
+}
+
+void test_throttle_speed_below_minus_one_is_rejected(void **state)
+{
+  char buffer[16] = "t 3 -2 1";
+  PicoDccExPacket packet(buffer);
+
+  assert_false(packet.isValid());
+}
+
+// Pins the sscanf-failed sentinel path: a short command that cannot supply
+// all three throttle fields must not be accepted.
+void test_malformed_throttle_is_rejected(void **state)
+{
+  char buffer[16] = "t 3";
+  PicoDccExPacket packet(buffer);
+
+  assert_false(packet.isValid());
+}
+
+void test_function_cab_range_is_validated(void **state)
+{
+  {
+    char buffer[16] = "F 0 1 1";
+    PicoDccExPacket packet(buffer);
+    assert_false(packet.isValid());
+  }
+  {
+    char buffer[16] = "F 10240 1 1";
+    PicoDccExPacket packet(buffer);
+    assert_false(packet.isValid());
+  }
+  {
+    char buffer[16] = "F 3 1 1";
+    PicoDccExPacket packet(buffer);
+    assert_true(packet.isValid());
+  }
+}
+
+void test_cab_update_reports_estop(void **state)
+{
+  {
+    char buffer[16] = "t 3 -1 1";
+    PicoDccExPacket packet(buffer);
+    assert_string_equal(packet.getDccExCabUpdate(), "<l 3 0 129 0>");
+  }
+  {
+    char buffer[16] = "t 3 -1 0";
+    PicoDccExPacket packet(buffer);
+    assert_string_equal(packet.getDccExCabUpdate(), "<l 3 0 1 0>");
+  }
+}
+
+// The 16-byte dccex_cab_update buffer used to truncate this to
+// "<l 10239 0 253 " with no closing '>' for any 4- or 5-digit address.
+void test_cab_update_long_address_not_truncated(void **state)
+{
+  char buffer[16] = "t 10239 126 1";
+  PicoDccExPacket packet(buffer);
+
+  assert_string_equal(packet.getDccExCabUpdate(), "<l 10239 0 253 0>");
+}
+
 void test_config_ack_limit_valid(void **state)
 {
   char buffer[32] = "D ACK LIMIT 60";
@@ -432,6 +556,16 @@ int main(int argc, char *argv[])
       cmocka_unit_test(test_throttle_packet),
       cmocka_unit_test(test_function_packet),
       cmocka_unit_test(test_estop_packet),
+      cmocka_unit_test(test_throttle_cab_zero_is_rejected),
+      cmocka_unit_test(test_throttle_cab_above_range_is_rejected),
+      cmocka_unit_test(test_throttle_cab_range_boundaries_accepted),
+      cmocka_unit_test(test_throttle_speed_above_max_is_rejected),
+      cmocka_unit_test(test_throttle_speed_minus_one_is_accepted),
+      cmocka_unit_test(test_throttle_speed_below_minus_one_is_rejected),
+      cmocka_unit_test(test_malformed_throttle_is_rejected),
+      cmocka_unit_test(test_function_cab_range_is_validated),
+      cmocka_unit_test(test_cab_update_reports_estop),
+      cmocka_unit_test(test_cab_update_long_address_not_truncated),
       cmocka_unit_test(test_config_ack_limit_valid),
       cmocka_unit_test(test_config_ack_limit_too_low),
       cmocka_unit_test(test_config_ack_limit_too_high),
