@@ -121,17 +121,15 @@ static void test_speed_zero_encodes_as_a_stop(void **state)
     assert_int_equal(cmd.length, 2);
     assert_int_equal(cmd.data[0], 0x03);
 
-    // 0x71 == 0b0111_0001: forward, SSSS=0001, C=1, so the 5-bit speed value is
-    // 3. That is a stop encoding rather than a moving step -- the locomotive
-    // does stop. It is the emergency-stop form (value 3, "ignore direction")
-    // rather than the controlled-stop form (value 0, 0x60/0x40) that the
-    // DCC-EX host actually asked for -- a genuine defect, deliberately left in
-    // place by the #11/#12/#16 fix: it changes the single most frequently sent
-    // command in the system and needs its own bench test. The new single-loco
-    // estop this fix adds (see test_speed_minus_one_is_an_emergency_stop,
-    // below) uses value 2 (0x61/0x41), so speed 0 and speed -1 are now both
-    // emergency stops, but with different bytes, until that follow-up lands.
-    assert_int_equal(cmd.data[1], 0x71);
+    // 0x60 == 0b0110_0000: forward, SSSS=0000, C=0, so the 5-bit speed value is
+    // 0 -- the controlled stop. The locomotive decelerates under its own
+    // momentum CV instead of slamming to a halt.
+    //
+    // This used to emit 0x71 (value 3, emergency stop), because the 28-step
+    // expression was written for moving steps and produced garbage for step 0
+    // (#48). Speed 0 and speed -1 are now distinct on the rails: 0x60 here,
+    // 0x61 for the single-loco estop below.
+    assert_int_equal(cmd.data[1], 0x60);
 }
 
 static void test_speed_zero_reverse(void **state)
@@ -141,7 +139,7 @@ static void test_speed_zero_reverse(void **state)
 
     assert_int_equal(cmd.length, 2);
     assert_int_equal(cmd.data[0], 0x03);
-    assert_int_equal(cmd.data[1], 0x51);  // same as forward, direction bit clear
+    assert_int_equal(cmd.data[1], 0x40);  // same as forward, direction bit clear
 }
 
 static void test_speed_mid_range(void **state)
@@ -201,6 +199,27 @@ static void test_speed_minus_one_is_an_emergency_stop(void **state)
     assert_int_not_equal(cmd.data[1], throttle_for("t 3 126 1").data[1]);
 }
 
+// #48: the whole point of the fix is that these two are *different* packets.
+// A controlled stop is speed value 0, an emergency stop is value 2 -- one
+// decelerates under the decoder's momentum CV, the other slams to a halt.
+// They were both value 3 until the 28-step step-0 case was handled, which
+// silently turned every ordinary stop on the layout into an estop and threw
+// away the last command of the orchestrator's braking ramp.
+static void test_controlled_stop_differs_from_emergency_stop(void **state)
+{
+    (void)state;
+    const uint8_t stop  = throttle_for("t 3 0 1").data[1];
+    const uint8_t estop = throttle_update_for("t 3 10 1", "t 3 -1 1").data[1];
+
+    assert_int_equal(stop, 0x60);
+    assert_int_equal(estop, 0x61);
+    assert_int_not_equal(stop, estop);
+
+    // Both keep the direction bit, so the decoder still knows which way to go
+    // when the throttle resumes.
+    assert_int_equal(throttle_for("t 3 0 0").data[1], 0x40);
+}
+
 // ---------------------------------------------------------------------------
 // Address encoding
 // ---------------------------------------------------------------------------
@@ -213,7 +232,7 @@ static void test_short_address_is_one_byte(void **state)
 
     assert_int_equal(cmd.length, 2);
     assert_int_equal(cmd.data[0], 0x7F);
-    assert_int_equal(cmd.data[1], 0x71);
+    assert_int_equal(cmd.data[1], 0x60);
 }
 
 static void test_long_address_is_two_bytes(void **state)
@@ -225,7 +244,7 @@ static void test_long_address_is_two_bytes(void **state)
     assert_int_equal(cmd.length, 3);
     assert_int_equal(cmd.data[0], 0xC0);
     assert_int_equal(cmd.data[1], 0x80);
-    assert_int_equal(cmd.data[2], 0x71);
+    assert_int_equal(cmd.data[2], 0x60);
 }
 
 static void test_highest_legal_long_address(void **state)
@@ -238,7 +257,7 @@ static void test_highest_legal_long_address(void **state)
     assert_int_equal(cmd.length, 3);
     assert_int_equal(cmd.data[0], 0xE7);
     assert_int_equal(cmd.data[1], 0xFF);
-    assert_int_equal(cmd.data[2], 0x71);
+    assert_int_equal(cmd.data[2], 0x60);
 }
 
 // #12: cab 0 is the DCC broadcast address. It used to be accepted and encoded
@@ -281,7 +300,7 @@ static void test_function_command_does_not_move_a_loco(void **state)
     (void)state;
     raw_dcc_cmd_t cmd = throttle_update_for("t 3 0 1", "F 3 8 1");
 
-    assert_int_equal(cmd.data[1], 0x71);  // unchanged
+    assert_int_equal(cmd.data[1], 0x60);  // unchanged
 }
 
 // ---------------------------------------------------------------------------
@@ -573,6 +592,7 @@ int main(int argc, char *argv[])
         cmocka_unit_test_setup(test_low_speeds_quantise_together, setup),
         cmocka_unit_test_setup(test_direction_bit_is_0x20, setup),
         cmocka_unit_test_setup(test_speed_minus_one_is_an_emergency_stop, setup),
+        cmocka_unit_test_setup(test_controlled_stop_differs_from_emergency_stop, setup),
         cmocka_unit_test_setup(test_short_address_is_one_byte, setup),
         cmocka_unit_test_setup(test_long_address_is_two_bytes, setup),
         cmocka_unit_test_setup(test_highest_legal_long_address, setup),

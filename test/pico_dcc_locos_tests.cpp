@@ -33,7 +33,7 @@ void test_add_loco(void **state) {
     raw_dcc_cmd_t cmd1 = loco->getThrottleCommand();
     assert_int_equal(cmd1.length, 2);
     assert_int_equal(cmd1.data[0], 3);
-    assert_int_equal(cmd1.data[1], 81);
+    assert_int_equal(cmd1.data[1], 0x40);  // controlled stop, reverse (#48)
 }
 
 void test_update_loco(void **state) {

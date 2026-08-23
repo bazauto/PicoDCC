@@ -1242,7 +1242,7 @@ static void test_function_command_does_not_queue_a_speed_change(void **state)
             continue;
         }
         found_cab3 = true;
-        assert_true(bytes == (std::vector<uint8_t>{0x03, 0x71, 0x72}));
+        assert_true(bytes == (std::vector<uint8_t>{0x03, 0x60, 0x63}));
     }
     assert_true(found_cab3);
 }
