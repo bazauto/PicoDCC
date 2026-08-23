@@ -174,10 +174,20 @@ void PicoDccLoco::generateThrottleCommand()
         return;
     }
 
+    // S-9.2 speed and direction is 01DCSSSS, where the 5-bit speed value is
+    // (SSSS << 1) | C. Value 0 is the controlled stop, 1 and 3 are emergency
+    // stop, 2 is the alternate stop, and a moving step N is value N + 3.
+    //
+    // The old expression was written for N in 1..28 and produced garbage for 0:
+    // ((0 + 3) / 2) | 16 == 17, which is value 3 -- an emergency stop. Every
+    // ordinary stop on the layout was therefore slamming the locomotive to a
+    // halt instead of letting it decelerate under its own momentum CV, and an
+    // orchestrator braking ramp had its final command discarded (#48).
     uint8_t speed128 = (speed & 0x7f);
     uint8_t speed28 = (speed128 * 10 + 36) / 46;
-    uint8_t code28 = ((speed28 + 3) / 2) | ((speed28 & 1) ? 0 : 16);
-    cmd.data[cmd.length++] = 64 | code28 | ((forward ? 1 : 0) * 32);
+    uint8_t value = (speed28 == 0) ? 0 : (uint8_t)(speed28 + 3);
+    uint8_t code28 = (uint8_t)((value >> 1) | ((value & 1) << 4));
+    cmd.data[cmd.length++] = 0x40 | code28 | (forward ? 0x20 : 0x00);
 }
 
 void PicoDccLoco::updateFunct(uint8_t function, bool value)

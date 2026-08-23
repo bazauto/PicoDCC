@@ -21,7 +21,7 @@ void test_create_from_packet(void **state)
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
   assert_int_equal(cmd.length, 2);
   assert_int_equal(cmd.data[0], 3);
-  assert_int_equal(cmd.data[1], 81);
+  assert_int_equal(cmd.data[1], 0x40);  // controlled stop, reverse (#48)
 }
 void test_create_from_address(void **state)
 {
@@ -32,7 +32,7 @@ void test_create_from_address(void **state)
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
   assert_int_equal(cmd.length, 2);
   assert_int_equal(cmd.data[0], 3);
-  assert_int_equal(cmd.data[1], 113);
+  assert_int_equal(cmd.data[1], 0x60);  // controlled stop, forward (#48)
 }
 
 // Was PicoDccLoco(3, 128, false) asserting data[1] == 81 -- a nonsense speed
@@ -60,7 +60,7 @@ void test_create_from_address_rejects_speed_above_max(void **state)
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
   assert_int_equal(cmd.length, 2);
   assert_int_equal(cmd.data[0], 0x03);
-  assert_int_equal(cmd.data[1], 0x71);
+  assert_int_equal(cmd.data[1], 0x60);
 }
 
 // A non-throttle, non-function packet used to reach std::terminate here and
@@ -120,7 +120,7 @@ void test_highest_legal_cab_is_encoded(void **state)
   assert_int_equal(cmd.length, 3);
   assert_int_equal(cmd.data[0], 0xE7);
   assert_int_equal(cmd.data[1], 0xFF);
-  assert_int_equal(cmd.data[2], 0x71);
+  assert_int_equal(cmd.data[2], 0x60);
 }
 
 // An out-of-range speed on an otherwise-valid address fails safe to a stop
@@ -136,7 +136,7 @@ void test_out_of_range_speed_falls_back_to_stop(void **state)
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
   assert_int_equal(cmd.length, 2);
   assert_int_equal(cmd.data[0], 0x03);
-  assert_int_equal(cmd.data[1], 0x71);
+  assert_int_equal(cmd.data[1], 0x60);
 }
 
 // #11: speed -1 is DCC-EX's single-locomotive emergency stop, not a stray
@@ -207,7 +207,7 @@ void test_function_packet_creates_loco_at_stop(void **state)
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
   assert_int_equal(cmd.length, 2);
   assert_int_equal(cmd.data[0], 0x03);
-  assert_int_equal(cmd.data[1], 0x71);  // not speed 8, not reverse
+  assert_int_equal(cmd.data[1], 0x60);  // not speed 8, not reverse
 }
 
 void test_function_packet_does_not_change_speed(void **state)

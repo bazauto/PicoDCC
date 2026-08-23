@@ -183,15 +183,17 @@ round-robin reminders keep re-sending it (with `repeats = 0`, as all reminders d
 throttle sends a new speed. That is deliberate and matches DCC-EX. It also means the estop is
 *not* self-clearing: only a subsequent `<t cab speed dir>` moves the loco again.
 
-**Interaction with speed 0.** Note that speed 0 today encodes to `0x71`/`0x51` — value 3, which
-is *also* an emergency stop (the "ignore direction" form) rather than the controlled stop
-(value 0, `0x60`/`0x40`) that the DCC-EX host asked for. That is a genuine defect, and it is
-**deliberately not fixed here**: it changes the most frequently sent command in the system, it
-is JMRI-facing, and #11 is explicit that a change to this encoding must be bench-tested in
-isolation. File it as a follow-up (see below). The consequence for this plan is that after the
-fix, `<t N 0 1>` and `<t N -1 1>` both stop the locomotive but with different bytes (`0x71` vs
-`0x61`); both are emergency stops until the follow-up lands. Say so in the wire-format test
-comment rather than leaving a reader to discover it.
+**Interaction with speed 0.** Speed 0 used to encode to `0x71`/`0x51` — value 3, which is
+*also* an emergency stop (the "ignore direction" form) rather than the controlled stop
+(value 0, `0x60`/`0x40`) that the DCC-EX host asked for. That was **deliberately not fixed
+here**: it changes the most frequently sent command in the system, it is JMRI-facing, and #11
+is explicit that a change to this encoding must be bench-tested in isolation.
+
+That follow-up has since landed as #48, so `<t N 0 1>` now emits `0x60` (controlled stop) and
+`<t N -1 1>` emits `0x61` (emergency stop) — they are distinct packets with distinct
+behaviour, and `test_controlled_stop_differs_from_emergency_stop` pins the distinction.
+**The bench test #11 asked for is still outstanding**: no hardware has confirmed that a real
+decoder decelerates on `0x60` rather than stopping dead.
 
 ### D2. Valid ranges, and where the check belongs
 

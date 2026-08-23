@@ -173,6 +173,24 @@ so it can never stall Core 1's DCC timing.
   emergency stop. Direction is applied as a bit test rather than `direction * 128`, so a
   direction field carrying anything other than 0 or 1 cannot overflow the byte.
 
+- **The rail-side speed byte is 28-step**, built in `PicoDccLoco::generateThrottleCommand()`.
+  The wire's 0-126 speed is scaled to a 0-28 step, then encoded per S-9.2 as `01DCSSSS`,
+  where the 5-bit speed value is `(SSSS << 1) | C`:
+
+  | Speed value | Meaning | Byte (forward / reverse) |
+  |---|---|---|
+  | 0 | controlled stop | `0x60` / `0x40` |
+  | 1, 3 | emergency stop | - |
+  | 2 | emergency stop (used for `<t cab -1 dir>`) | `0x61` / `0x41` |
+  | N + 3 | moving step N of 28 | - |
+
+  Step 0 produced value 3 -- an emergency stop -- until 2026-08-23, because the encoding
+  expression was written for moving steps only. **Every ordinary stop on the layout was an
+  emergency stop**, so a locomotive commanded to stop slammed to a halt instead of
+  decelerating under its own momentum CV, and the final command of an orchestrator braking
+  ramp was discarded (#48). Note the 126-to-28 scaling is coarse at the bottom: wire speeds
+  1-5 all collapse to step 1. 128-step packets are #8.
+
 ### PicoDccLoco
 - **Role**: Individual locomotive state management
 - **Responsibilities**:
@@ -328,7 +346,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **208 total tests** across all components: Controller (26), DCCEX (9), Locos (18), Loco (20), Packet (35), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (27), PIO Wire Format (13)
+- **209 total tests** across all components: Controller (26), DCCEX (9), Locos (18), Loco (20), Packet (35), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (28), PIO Wire Format (13)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation
