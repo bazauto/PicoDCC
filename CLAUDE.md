@@ -21,7 +21,7 @@ project deliberately got rid of (issue #25).
 # host — host compiler + Ninja + CMocka. This is what you run for almost everything.
 cmake --preset host
 cmake --build --preset host
-ctest --preset host                       # 11 suites, 208 tests, ~0.5s
+ctest --preset host                       # 11 suites, ~0.5s
 
 # pico — ARM GCC cross-build, produces build/pico/src/PicoDCC.uf2
 # Needs PICO_SDK_PATH and PICO_TOOLCHAIN_PATH (VS Code sets both; see .vscode/settings.json).
@@ -258,10 +258,14 @@ Pi extension starting it invisibly. OpenOCD is launched on demand.
 
 ### Stacked PRs — use `gh stack`, not hand-rolled base branches
 
-Two branches in flight that touch the same lines is the normal case here, not the exception:
-almost every change edits the test counts in `CLAUDE.md`, `docs/README.md`,
-`docs/architecture.md` and `docs/vscode-test-integration.md`. Two independent branches off
-`main` will therefore conflict on merge even when the code does not overlap.
+Two branches in flight that touch the same lines happens often here. Any two changes that both
+add tests will both edit the per-suite counts in `docs/architecture.md`, and any two that touch
+the same component will both edit its section — so independent branches off `main` conflict on
+merge even when the code does not overlap.
+
+(That used to be much worse: the exact test total was repeated in four files, so *every* change
+touched all four. It now lives in `docs/architecture.md` alone. Keep it that way — a number
+duplicated across files is a number that will disagree with itself.)
 
 **Stack them instead.** `gh-stack` (`gh extension install github/gh-stack`) is installed:
 
