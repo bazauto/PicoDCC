@@ -133,7 +133,27 @@ so it can never stall Core 1's DCC timing.
   | `<E>` | no parameters | Save config to flash; maintenance mode only |
 
 - **Parsed but rejected**: `<S>` (sensors) is consumed by the parser but never marked valid,
-  so sensor commands are not supported.
+  so sensor commands are not supported. It answers `<X>` like any other unsupported opcode.
+
+- **Every rejected command answers `<X>`** — the DCC-EX generic rejection (#4). There are four
+  rejection sites and they all reply; silence is never a valid response to a command, because a
+  headless host cannot tell it apart from a dropped command or a hung station:
+
+  | Site | Rejects |
+  |---|---|
+  | `PicoDccEx::processCommand` — validation | anything `validatePacket()` refuses: out-of-range throttle/function/accessory parameters, an invalid `<D>` subcommand, **and every unsupported opcode** |
+  | `PicoDccEx::processCommand` — framing | a `<` with no `>` within `COMMAND_BUFFER_SIZE` (100). That `<` swallows everything after it, so this is exactly when the host needs telling |
+  | `PicoDccController::dccexLoop` — mode | throttle, function and accessory commands while in `LAYOUT_MAINTENANCE`, alongside the main-track power-on lockout that already answered `<X>` |
+  | `PicoDccController::dccexLoop` — capacity | a throttle command refused because the loco collection is full. It previously still sent `<l …>`, built from the *packet* rather than loco state, reporting the speed of a command that never reached the rails |
+
+  A JMRI connect handshake now draws a short burst of `<X>` where it previously got silence, as
+  its roster and route queries are unsupported. That is correct and JMRI only logs it.
+  `DCCEX_RESPONSE` is a blocking `uart_puts` on Core 0, so replies are not free — acceptable
+  because rejections are rare, but worth remembering before adding more of them.
+
+  **Not covered**: emergency power cutoffs are still silent on the wire. #4 also asks for
+  `<p0 MAIN>` / `<p0 PROG>` from both cutoff paths; one of those runs on Core 1, where a
+  blocking UART write sits in the DCC hot path, so it needs its own design.
 
 ### PicoDccLoco
 - **Role**: Individual locomotive state management
@@ -290,7 +310,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **198 total tests** across all components: Controller (24), DCCEX (3), Locos (18), Loco (20), Packet (35), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (25), PIO Wire Format (13)
+- **206 total tests** across all components: Controller (26), DCCEX (9), Locos (18), Loco (20), Packet (35), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (25), PIO Wire Format (13)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

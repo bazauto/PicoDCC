@@ -163,19 +163,23 @@ void PicoDccController::dccexLoop()
 
             if (packet.isThrottleCommand() || packet.isFunctionCommand())
             {
-                // Silently reject throttle/function commands in maintenance mode
                 if (operation_mode == OperationMode::LAYOUT_MAINTENANCE) {
-                    // Do nothing - command ignored
+                    // Reject, and say so. A headless host has no way to see the
+                    // LCD, and a discarded throttle command that draws no reply
+                    // is indistinguishable from one that worked (#4).
+                    DCCEX_RESPONSE("<X>");
+                    LOG_WARNING(COMPONENT_CONTROLLER, "Throttle/function rejected: LAYOUT_MAINTENANCE mode active");
                 } else {
                     // Try to update existing loco, or add new one if not found
+                    bool accepted = true;
                     if (!pico_locos->updateLocoThrottle(packet.getCab(), &packet, cmd))
                     {
-                        // Loco not found in collection, add it. Rejection (bad
-                        // opcode, bad address, bad speed, or the collection is
-                        // full) leaves cmd zeroed -- nothing goes on the rails,
-                        // nothing is queued, nothing is written to the UART.
+                        // Loco not found in collection, add it. Rejection here
+                        // means the collection is full -- the address and speed
+                        // already passed validatePacket().
                         if (!pico_locos->addLoco(&packet, cmd))
                         {
+                            accepted = false;
                             LOG_WARNING(COMPONENT_CONTROLLER, "Throttle command rejected");
                         }
                     }
@@ -185,11 +189,21 @@ void PicoDccController::dccexLoop()
                         main_cmd_queue.push(cmd);
                     }
 
+                    if (!accepted)
+                    {
+                        // The command was thrown away, so it must not draw an
+                        // affirmative reply. getDccExCabUpdate() is built from
+                        // the *packet*, not from loco state, so sending it here
+                        // reported the requested speed for a command that never
+                        // reached the rails -- worse than silence, because the
+                        // host is actively told it worked (#4).
+                        DCCEX_RESPONSE("<X>");
+                    }
                     // Send locomotive status acknowledgment for throttle commands
                     // only (D5): <F> has no way to report a function map or the
                     // loco's real speed, and reporting the function number as a
                     // speed (the previous behaviour) is worse than no reply.
-                    if (packet.isThrottleCommand())
+                    else if (packet.isThrottleCommand())
                     {
                         DCCEX_RESPONSE(packet.getDccExCabUpdate());
                     }
@@ -198,9 +212,11 @@ void PicoDccController::dccexLoop()
 
             if (packet.isAccesoryCommand())
             {
-                // Silently reject accessory commands in maintenance mode
                 if (operation_mode == OperationMode::LAYOUT_MAINTENANCE) {
-                    // Do nothing - command ignored
+                    // Same rule as throttle/function above: rejected commands
+                    // answer <X>, never silence (#4).
+                    DCCEX_RESPONSE("<X>");
+                    LOG_WARNING(COMPONENT_CONTROLLER, "Accessory rejected: LAYOUT_MAINTENANCE mode active");
                 } else {
                     cmd = *packet.getRawDccAccessoryCmd();
                     main_cmd_queue.push(cmd);
