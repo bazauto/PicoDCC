@@ -234,6 +234,30 @@ so it can never stall Core 1's DCC timing.
   signal pin high (#34), so the coupling showed on a scope as 2.2-2.5ms of DC on the main
   track between packets against the programming track's designed 197-209us (#35).
 
+- **The inter-packet gap is a bit, not a held level.** `dcc.pio` emits one legal `1` bit
+  between packets -- 58us high, then 58us low split across the `.wrap` so that the four
+  cycles of `pull block` / `out y` / `out x` / `jmp x--` land *inside* the low half rather
+  than extending it. Those four instructions carry the previous pin level, because side-set
+  is `opt`.
+
+  It used to be two `side 1` delays: 116us of high with no low half, running into the four
+  carried cycles and then the next packet's first preamble instruction. The line was
+  continuously high for **203us** and then dropped for 58us -- mismatched halves, so not a
+  bit at all. A decoder resynchronised and consumed the first preamble bit, leaving exactly
+  the S-9.1 minimum of 14 with nothing spare, and an H-bridge driven from the pin put 203us
+  of DC on the rails at every packet boundary (#34). Measured on a scope at the GPIO on
+  2026-08-23 as 197-209us, and reproduced exactly by the emulator.
+
+  **Still outstanding on #34**: `.wrap` targets `pull block`, and a stalled instruction holds
+  the pin at its last value. An empty TX FIFO is therefore not "signal stops", it is one
+  polarity held for as long as the FIFO stays empty -- now `side 0` rather than `side 1`,
+  which changes which rail is hot but not the fact of it. #35 removes the cause in normal
+  operation by keeping the FIFO full, and `dccLoop()`'s 100ms timing-violation cutoff catches
+  a Core 1 that has stopped refilling. Making the PIO emit `1` bits while starved instead of
+  stalling needs `pull noblock` with a sentinel, which needs X freed from its byte-counter
+  duty, and it takes the program from 27 to 31 of the 32 available instructions. That is its
+  own change and its own bench session.
+
 ### PicoDCCDisplay
 - **Role**: All LCD and touch behaviour, as a self-contained component
 - **Responsibilities**:
@@ -359,7 +383,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **215 total tests** across all components: Controller (26), DCCEX (9), Locos (18), Loco (20), Packet (35), Track (37), Config Storage (11), Display (9), Diagnostic (9), Wire Format (28), PIO Wire Format (13)
+- **217 total tests** across all components: Controller (26), DCCEX (9), Locos (18), Loco (20), Packet (35), Track (37), Config Storage (11), Display (9), Diagnostic (9), Wire Format (28), PIO Wire Format (15)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

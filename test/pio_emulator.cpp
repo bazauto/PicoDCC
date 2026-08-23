@@ -251,6 +251,7 @@ bool half_cycles_in_spec(DccBitKind kind, uint32_t high_ns, uint32_t low_ns)
 DccPacket dcc_decode(const PioRunResult &result)
 {
     DccPacket packet;
+    packet.packet_bits = 0;
     packet.preamble_bits = 0;
     packet.well_formed = false;
     packet.error = nullptr;
@@ -279,6 +280,7 @@ DccPacket dcc_decode(const PioRunResult &result)
     while (b < packet.bits.size()) {
         if (packet.bits[b].kind == DCC_BIT_ONE) {
             packet.well_formed = true;   // packet end bit
+            packet.packet_bits = b + 1;  // ..and it is the last bit of this packet
             return packet;
         }
         if (packet.bits[b].kind != DCC_BIT_ZERO) {

@@ -88,7 +88,15 @@ struct DccBit {
 };
 
 struct DccPacket {
+    // Every bit the waveform contains, including any that follow the packet's
+    // end bit. The inter-packet gap is a '1' bit in its own right, and when the
+    // FIFO runs dry mid-gap the PIO parks partway through it -- so the tail of
+    // `bits` can hold a truncated bit that is not part of this packet and must
+    // not be judged as if it were. Use packet_bits to bound anything that asks
+    // "is this packet in spec".
     std::vector<DccBit>  bits;
+    size_t               packet_bits;   // bits 0..packet_bits-1 are this packet,
+                                        // ending with its end bit. 0 unless well_formed.
     unsigned             preamble_bits;
     std::vector<uint8_t> bytes;        // payload as transmitted, including checksum
     bool                 well_formed;  // framing decoded cleanly to a packet end bit
