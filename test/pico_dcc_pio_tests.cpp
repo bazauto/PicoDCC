@@ -103,9 +103,16 @@ static void assert_bytes(const DccPacket &p, std::vector<uint8_t> expected)
 
 // Every half cycle must sit inside the S-9.1 command station window for the bit
 // it claims to be. This is what catches a timing regression in dcc.pio.
+// Judges the packet's own bits. A well-formed packet ends at its end bit; the
+// inter-packet gap that follows is a separate '1' bit and the PIO can park
+// partway through it when the FIFO runs dry, which is a FIFO-underrun question
+// (#34 case 2, #35) rather than a statement about this packet's timing. The gap
+// itself is covered by test_packet_boundary_carries_no_dc, which looks at the
+// raw waveform across a boundary between two real packets.
 static void assert_all_bits_in_spec(const DccPacket &p)
 {
-    for (size_t i = 0; i < p.bits.size(); i++) {
+    const size_t limit = p.well_formed ? p.packet_bits : p.bits.size();
+    for (size_t i = 0; i < limit; i++) {
         if (p.bits[i].kind == DCC_BIT_INVALID) {
             fail_msg("bit %zu of %zu is not a bit at all: %u ns high / %u ns low, "
                      "halves disagree on shape",
@@ -281,9 +288,9 @@ static void test_packet_end_bit_halves_match(void **state)
     PicoDccTrack track(false, main_settings());
     const DccPacket p = transmit(track, make_cmd(false, {0x03, 0x40}));
     assert_true(p.well_formed);
-    assert_true(p.bits.size() > 0);
+    assert_true(p.packet_bits > 0);
 
-    const DccBit &end = p.bits.back();
+    const DccBit &end = p.bits[p.packet_bits - 1];
     if (end.kind != DCC_BIT_ONE) {
         fail_msg("packet end bit is not shaped like a '1': %u ns high / %u ns low",
                  end.high_ns, end.low_ns);
@@ -310,7 +317,8 @@ static void test_data_bit_half_cycles_are_exact(void **state)
     assert_true(p.well_formed);
 
     // Nominal DCC: 58us halves for a '1', and dcc.pio uses 116us for a '0'.
-    for (size_t i = 0; i < p.bits.size(); i++) {
+    // Bounded to the packet's own bits -- see assert_all_bits_in_spec.
+    for (size_t i = 0; i < p.packet_bits; i++) {
         const uint32_t want = (p.bits[i].kind == DCC_BIT_ONE) ? 58000u : 116000u;
         if (p.bits[i].kind == DCC_BIT_INVALID) continue;   // reported elsewhere
         if (p.bits[i].high_ns != want || p.bits[i].low_ns != want) {
@@ -369,6 +377,79 @@ static void test_byte_count_matches_payload_plus_checksum(void **state)
     }
 }
 
+// ---------------------------------------------------------------------------
+// #34: the gap between packets must be a bit, not a held level
+// ---------------------------------------------------------------------------
+
+// The packet boundary used to be two `side 1` delays -- 116us of high with no
+// low half -- running straight into the four cycles of pull/out/out/jmp (which
+// carry the previous level, side_set being `opt`) and then the first preamble
+// instruction's own 58us high. 203us continuously high, then 58us low.
+//
+// Two things followed. A decoder sees mismatched halves, resynchronises, and
+// consumes the first preamble bit -- leaving exactly the S-9.1 minimum of 14
+// with no margin. And an H-bridge driven from the pin puts 203us of DC on the
+// rails at every single packet boundary. Measured on a scope at the GPIO on
+// 2026-08-23: 197-209us, against the 203us this predicts.
+//
+// This is the assertion that catches it: the whole waveform, across a real
+// boundary between two packets, must consist only of legal half-bits.
+static void test_packet_boundary_carries_no_dc(void **state)
+{
+    (void)state;
+    PicoDccTrack track(false, main_settings());
+
+    sent_track_words.clear();
+    raw_dcc_cmd_t first = make_cmd(false, {0x03, 0x40});
+    track.sendCommand(&first);
+    raw_dcc_cmd_t second = make_cmd(false, {0x07, 0x60});
+    track.sendCommand(&second);
+
+    const PioRunResult run = pio_emulate(dcc_program_instructions, dcc_program_length,
+                                         dcc_wrap_target, dcc_wrap, sent_track_words);
+    assert_null(run.unsupported);
+    assert_true(run.stalled_on_empty_fifo);
+
+    // runs[0] is the pre-preamble startup before the first packet, and the last
+    // run is where the program parked once the FIFO ran dry. Everything between
+    // is transmission, and every level run in it must be one half-bit: 8 cycles
+    // for a '1' half, 16 for a '0' half.
+    assert_true(run.runs.size() > 2);
+    for (size_t i = 1; i + 1 < run.runs.size(); i++) {
+        if (run.runs[i].cycles != 8 && run.runs[i].cycles != 16) {
+            fail_msg("run %zu of %zu is %u cycles (%u ns) held at level %u -- not a "
+                     "legal half-bit. The waveform is holding a level between "
+                     "packets, which is DC on the rails (#34).",
+                     i, run.runs.size(), run.runs[i].cycles,
+                     run.runs[i].cycles * DCC_PIO_CYCLE_NS, run.runs[i].level);
+        }
+    }
+}
+
+// Both packets must still decode after the boundary change -- a gap built out
+// of legal bits is only an improvement if the framing either side still reads.
+static void test_both_packets_decode_across_the_boundary(void **state)
+{
+    (void)state;
+    PicoDccTrack track(false, main_settings());
+
+    sent_track_words.clear();
+    raw_dcc_cmd_t first = make_cmd(false, {0x03, 0x40});
+    track.sendCommand(&first);
+
+    const PioRunResult run = pio_emulate(dcc_program_instructions, dcc_program_length,
+                                         dcc_wrap_target, dcc_wrap, sent_track_words);
+    const DccPacket p = dcc_decode(run);
+
+    assert_bytes(p, {0x03, 0x40, 0x43});
+    assert_true(dcc_checksum_valid(p.bytes));
+    assert_all_bits_in_spec(p);
+
+    // The gap no longer eats a preamble bit, so the full 15 the PIO emits
+    // survive to the decoder rather than 14 after a resynchronisation.
+    assert_true(p.preamble_bits >= 14);
+}
+
 int main(void)
 {
     const struct CMUnitTest tests[] = {
@@ -388,6 +469,9 @@ int main(void)
         cmocka_unit_test_setup(test_main_track_preamble_meets_minimum, setup),
         cmocka_unit_test_setup(test_prog_track_preamble_meets_service_mode_minimum, setup),
         cmocka_unit_test_setup(test_byte_count_matches_payload_plus_checksum, setup),
+
+        cmocka_unit_test_setup(test_packet_boundary_carries_no_dc, setup),
+        cmocka_unit_test_setup(test_both_packets_decode_across_the_boundary, setup),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

@@ -67,9 +67,27 @@ final_bit:
                                             ;  mov x, isr and jmp x-- all hold the line high)
     nop                     side 0  [7]     ; set output low and wait for low half cycle
 
-    ; extra half cycle to put gap between packets, with line high to continue powering
-    nop                     side 1  [7]
-    nop                     side 1  [7]
+    ; Inter-packet gap, as one legal '1' bit rather than a held level.
+    ;
+    ; This was two `side 1` delays -- 116us of high with no low half, running
+    ; straight into the next packet's first preamble instruction (another 58us
+    ; high) and the four cycles of pull/out/out/jmp below, which carry the
+    ; previous level because side_set is `opt`. The line was continuously high
+    ; for 203us and then dropped for 58us: mismatched halves, so not a bit at
+    ; all. A decoder resynchronised and consumed the first preamble bit, leaving
+    ; exactly the S-9.1 minimum of 14 with nothing spare, and an H-bridge driven
+    ; from the pin put 203us of DC on the rails at every packet boundary (#34).
+    ;
+    ; The comment that justified it -- "to continue powering" -- had it
+    ; backwards: DCC track power comes from the alternating waveform, and
+    ; holding one polarity adds nothing while giving the booster's DC-detect
+    ; something to object to.
+    ;
+    ; The low half is deliberately split across the wrap. Four cycles here plus
+    ; the four of pull/out/out/jmp make 58us, so the overhead lands *inside* the
+    ; half instead of extending it, and the gap costs no extra instructions.
+    nop                     side 1  [7]     ; 8 cycles = 58us high
+    nop                     side 0  [3]     ; 4 cycles; + 4 below = 58us low
 
 .wrap
 
