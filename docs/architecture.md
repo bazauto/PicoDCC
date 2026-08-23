@@ -220,6 +220,19 @@ so it can never stall Core 1's DCC timing.
 - **Configuration**: Separate instances for main and programming tracks
 - **Safety Features**: Automatic power cutoff on overcurrent, short circuit LED indication
 - **Core 1 Operation**: Runs on Core 1, self-regulating reminder generation
+- **Pacing**: `PicoDccTrack::loop()` takes a `Pacing` argument. The main track is passed
+  `Pacing::Blocking` and parks Core 1 in `pio_sm_put_blocking` when its TX FIFO is full --
+  that block is what keeps the loop from outrunning the PIO. The programming track is passed
+  `Pacing::NonBlocking`: it checks `pio_sm_get_tx_fifo_level()` for room for a whole packet
+  (two words, in an 8-word joined FIFO) *before* touching any command source, and returns
+  early if there is none. The check has to precede the dequeue, because `queue_try_remove()`
+  and `getNextReminder()` both consume what they return.
+
+  Both tracks blocked until 2026-08-23, which paced the loop at the programming track's
+  slower rate -- `DCC_PROG_PREAMBLE 20` against `DCC_MAIN_PREAMBLE 14` -- so the main track
+  refilled more slowly than it drained. Its FIFO trended empty, and an empty FIFO parks the
+  signal pin high (#34), so the coupling showed on a scope as 2.2-2.5ms of DC on the main
+  track between packets against the programming track's designed 197-209us (#35).
 
 ### PicoDCCDisplay
 - **Role**: All LCD and touch behaviour, as a self-contained component
@@ -346,7 +359,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **209 total tests** across all components: Controller (26), DCCEX (9), Locos (18), Loco (20), Packet (35), Track (31), Config Storage (11), Display (9), Diagnostic (9), Wire Format (28), PIO Wire Format (13)
+- **215 total tests** across all components: Controller (26), DCCEX (9), Locos (18), Loco (20), Packet (35), Track (37), Config Storage (11), Display (9), Diagnostic (9), Wire Format (28), PIO Wire Format (13)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

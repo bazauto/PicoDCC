@@ -344,8 +344,20 @@ void PicoDccController::dccLoop()
     }
 
     // Command dequeue/send is now handled in main_track->loop().
-    main_track->loop();
-    prog_track->loop();
+    //
+    // Core 1 is paced by the main track: its loop() blocks for room in the PIO
+    // TX FIFO, and that block is what stops this loop outrunning the hardware.
+    // The programming track must not also block, or the main track is refilled
+    // at the programming track's slower rate -- six more preamble bits per
+    // packet -- while draining at its own faster one. Its FIFO then trends
+    // empty, and an empty FIFO parks the signal pin high (#34) rather than going
+    // quiet, so the coupling put DC on the main track between packets (#35).
+    //
+    // The programming track cannot starve under this arrangement: the loop now
+    // runs at the main track's faster rate, so prog is offered a packet more
+    // often than it can transmit one.
+    main_track->loop(PicoDccTrack::Pacing::Blocking);
+    prog_track->loop(PicoDccTrack::Pacing::NonBlocking);
 }
 
 void PicoDccController::emergencyPowerCutoff()

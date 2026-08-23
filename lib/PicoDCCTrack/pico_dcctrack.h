@@ -28,11 +28,22 @@ class PicoDccLocos;
 #define DCC_MAIN_PREAMBLE 14
 #define DCC_PROG_PREAMBLE 20
 
-// loop() is paced by pio_sm_put_blocking, so it runs roughly once per transmitted
-// packet -- on the order of 7ms. 128 samples is therefore a window of about 0.9s:
-// fast enough that the LCD follows a change in draw, slow enough to smooth
-// packet-to-packet ripple. It was 2000 (~14 seconds), which made the displayed
-// current useless for diagnosis -- see #36.
+// dcc_program_init() calls sm_config_set_fifo_join(PIO_FIFO_JOIN_TX), so the TX
+// FIFO is 8 words deep rather than the unjoined 4. A packet is one or two words
+// -- sendCommand() pushes a second only when length > 1 -- and both words must
+// be written together, so the room check is for a whole packet.
+#define DCC_PIO_TX_FIFO_DEPTH 8
+#define DCC_PIO_WORDS_PER_PACKET 2
+
+// loop() is paced by the main track's pio_sm_put_blocking, so it runs roughly
+// once per transmitted main-track packet -- on the order of 7ms. 128 samples is
+// therefore a window of about 0.9s: fast enough that the LCD follows a change in
+// draw, slow enough to smooth packet-to-packet ripple. It was 2000 (~14 seconds),
+// which made the displayed current useless for diagnosis -- see #36.
+//
+// The programming track runs at the same rate because both tracks are serviced
+// from the same Core 1 pass; it just no longer contributes to setting that rate
+// (#35).
 #define TRACK_POWER_CURRENT_SAMPLES 128
 #define TRACK_POWER_ADC_VREF 3.3
 #define TRACK_POWER_ADC_RANGE (1 << 12)
@@ -114,9 +125,23 @@ private:
     } pio_health;
 
 public:
+    // Whether this call may park Core 1 waiting for room in the PIO TX FIFO.
+    //
+    // Exactly one track may block, and it must be the main track: that block is
+    // what stops Core 1 outrunning the hardware, and pacing on the track that
+    // carries locomotives is the point of the design. A blocking programming
+    // track refills the main track at the *programming* track's slower rate --
+    // its packets carry six more preamble bits -- so the main FIFO drains faster
+    // than it fills, and an empty FIFO parks the signal pin high (#34), putting
+    // DC on the rails between packets. That is #35.
+    enum class Pacing {
+        Blocking,     // main track: block for FIFO room, and pace Core 1
+        NonBlocking,  // programming track: skip this pass instead of waiting
+    };
+
     PicoDccTrack(bool is_prog, track_settings_t settings, PicoDccLocos *locos = nullptr);
 
-    void loop();
+    void loop(Pacing pacing = Pacing::Blocking);
 
     void queueCommand(raw_dcc_cmd_t *cmd);
     void sendCommand(raw_dcc_cmd_t *cmd);
@@ -151,6 +176,9 @@ public:
     uint32_t getCommandsSent() { return pio_health.commands_sent; }
     uint32_t getIdlePacketsSent() { return pio_health.idle_packets_sent; }
     bool getPIOHealthStatus() { return pio_health.is_healthy; }
+
+    // Whether the TX FIFO can take a complete packet right now.
+    bool hasRoomForPacket() const;
 
 private:
     uint32_t last_command_time = 0;   // Time of last command sent

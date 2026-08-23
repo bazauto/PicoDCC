@@ -144,7 +144,17 @@ the main command queue (explicit commands, repeat logic) and the operation-mode 
 **Core 1** — `PicoDCCTrack::loop()` drives the PIO state machine, monitors current via ADC,
 and **generates locomotive reminders** when the single-buffered hardware queue is empty. This
 is self-regulating by design: reminders are hardware-paced, so the queue cannot overflow.
+
 Priority is explicit commands > reminders > idle packets.
+
+**The main track is the pacer, and only the main track may block.** Core 1 services both
+tracks in one pass; the main track's `pio_sm_put_blocking` is what stops that pass outrunning
+the hardware. The programming track is passed `Pacing::NonBlocking` and skips a pass rather
+than waiting. When both blocked, the pass ran at the *slower* track's rate -- programming
+packets carry six more preamble bits -- so the main FIFO drained faster than it refilled, and
+an empty FIFO parks the signal pin high rather than going quiet, putting 2.2-2.5ms of DC on
+the main track between packets (#34, #35). Do not make the programming track block again, and
+do not add a third blocking point.
 
 | Component | Lives in | Owns |
 |---|---|---|

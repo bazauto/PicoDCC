@@ -170,6 +170,16 @@ extern void* pio0;
 extern void* pio1;
 extern void* dcc_program;
 
+// TX FIFO occupancy, in words. The real level rises as sendCommand() writes and
+// falls as the state machine consumes, at a rate no host test has a clock for --
+// so it is a value the test sets rather than something the mock simulates. What
+// the firmware depends on is the decision it drives: transmit when a whole packet
+// fits, otherwise leave the command queued for the next pass. Reset to 0 (empty,
+// always room) by mock_reset_pio.
+#define MOCK_PIO_CLAIMED_SM 2u
+extern uint mock_pio_tx_fifo_level;
+uint pio_sm_get_tx_fifo_level(PIO pio, uint sm);
+
 uint pio_claim_unused_sm(PIO pio, bool require_unused);
 int pio_add_program(PIO pio, void *program);
 void pio_sm_set_enabled(PIO pio, uint sm, bool enabled);
