@@ -35,6 +35,11 @@ running any of them**, and name the hazard. They are deliberately absent from th
 allowlist, so they prompt — that is working as intended, not an obstacle to route
 around.
 
+`flash` and `dccex` stop `layout-orchestrator.service` first and restart it
+afterwards, including on failure. A service that was already inactive is left
+alone and not started. Do not stop or start it by hand around these — the scripts
+own it, and starting it yourself after they ran would double up.
+
 ```bash
 bash scripts/bench.sh flash --expect <sha256>   # program over SWD
 bash scripts/bench.sh fault                     # halt, registers + backtrace, resume
@@ -57,7 +62,9 @@ halted for further inspection, which leaves DCC output stopped.
 2. Ask for approval, confirming track power is off. Quote the commit being flashed.
 3. Run the printed flash line verbatim — the `--expect` hash makes it refuse
    anything other than the image just validated.
-4. `bash scripts/bench.sh dccex '<s>'` to confirm the firmware answers.
+4. `bash scripts/bench.sh dccex '<s>'` to confirm the firmware answers. The
+   reply carries `PICODCC_IDENTITY` — build date plus git short hash — so check
+   it names the commit you just flashed. A trailing `+` means the tree was dirty.
 
 Stop after step 1 and report if the user has not confirmed track power.
 
@@ -66,6 +73,8 @@ Stop after step 1 and report if the user has not confirmed track power.
 Every script prints `ok` / `FAIL` / `--` lines and a final verdict. Relay failures
 verbatim — they name their own fix. Three that mean something specific:
 
+- **`orchestrator: FAILED to restart`** — the layout has no controller. The line
+  carries the command to fix it; relay it and do not move on.
 - **`config preserved: SECTOR CHANGED`** — the image overwrote calibration,
   contradicting `memmap_picodcc.ld`. Stop; do not flash again until understood.
 - **`WARNING: unframed output on the command UART`** — a diagnostic is leaking

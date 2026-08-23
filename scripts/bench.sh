@@ -16,6 +16,11 @@
 #
 # The login shell on the bench is fish, so scripts are piped to bash explicitly;
 # bash syntax passed as an ssh command string fails with a parse error there.
+#
+# scripts/bench-orchestrator.sh is prepended to every script sent over, so the
+# stop/restart of layout-orchestrator.service lives in one file rather than being
+# copied into each caller. It only defines functions, so prepending it to a
+# script that does not use them costs nothing.
 set -uo pipefail
 
 BENCH="${BENCH:-pbarrett@172.18.10.240}"
@@ -23,9 +28,12 @@ SSH_OPTS=(-o BatchMode=yes -o ConnectTimeout=10)
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 
+PRELUDE="bench-orchestrator.sh"
+
 run() {
     local script="$1"; shift
     [ -f "$ROOT/scripts/$script" ] || { echo "missing: scripts/$script" >&2; exit 1; }
+    [ -f "$ROOT/scripts/$PRELUDE" ] || { echo "missing: scripts/$PRELUDE" >&2; exit 1; }
     if [ $# -gt 0 ]; then
         # ssh joins its command arguments into one string that the *remote login
         # shell* parses -- fish here. A DCC-EX command like <s> is a redirection
@@ -42,9 +50,11 @@ run() {
             esac
             quoted="$quoted '$arg'"
         done
-        ssh "${SSH_OPTS[@]}" "$BENCH" "$quoted" < "$ROOT/scripts/$script"
+        cat "$ROOT/scripts/$PRELUDE" "$ROOT/scripts/$script" \
+            | ssh "${SSH_OPTS[@]}" "$BENCH" "$quoted"
     else
-        ssh "${SSH_OPTS[@]}" "$BENCH" bash -s < "$ROOT/scripts/$script"
+        cat "$ROOT/scripts/$PRELUDE" "$ROOT/scripts/$script" \
+            | ssh "${SSH_OPTS[@]}" "$BENCH" bash -s
     fi
 }
 
@@ -68,6 +78,7 @@ usage: bash scripts/bench.sh <command>
     provision              re-run host-side bench provisioning
 
   touches the board -- track power must be off
+    (flash and dccex stop layout-orchestrator.service first and restart it after)
     flash --expect <sha>   program over SWD, verify config sector survives
     fault [--no-resume]    halt, registers + backtrace both cores, resume
     config [--no-resume]   read and decode the stored configuration

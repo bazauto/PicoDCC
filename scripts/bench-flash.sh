@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 # Flash staged PicoDCC firmware over SWD, and prove the config sector survived.
 #
-#   ssh pbarrett@172.18.10.240 bash -s -- --expect <sha256> < scripts/bench-flash.sh
-#   ssh pbarrett@172.18.10.240 bash -s -- --dry-run        < scripts/bench-flash.sh
+#   bash scripts/bench.sh flash --expect <sha256>
+#   bash scripts/bench.sh dry-run
+#
+# Invoke it through bench.sh rather than by hand: bench.sh prepends
+# scripts/bench-orchestrator.sh, which is where orchestrator_stop and
+# orchestrator_restore come from. Piping this file on its own will fail at the
+# first of those calls.
 #
 # THIS TOUCHES THE BOARD. Flashing stalls it, and a decoder that loses the DCC
 # signal falls back to DC -- which is full speed if the track is live. Track
@@ -12,6 +17,7 @@
 #
 # What it adds over a bare `openocd -c program`:
 #   - refuses an image that is not the one Deploy-Firmware.ps1 validated
+#   - stops layout-orchestrator.service first, and restarts it afterwards
 #   - reads the 4KB config sector before and after, and compares
 #
 # That last part matters. docs/firmware-update-config-preservation.md asserts
@@ -139,7 +145,24 @@ fi
 PRE=$(mktemp)
 POST=$(mktemp)
 LOG=$(mktemp)
-trap 'rm -f "$PRE" "$POST" "$LOG"' EXIT
+
+# One EXIT trap, doing both jobs. orchestrator_guard would install its own and
+# silently replace this one -- traps do not stack -- so the restart is composed
+# in here instead. It runs first: putting the layout's controller back matters
+# more than removing three temp files.
+trap 'orchestrator_restore; rm -f "$PRE" "$POST" "$LOG"' EXIT
+
+# The orchestrator holds /dev/picodcc-dccex open and drives the board. Flashing
+# resets it underneath that connection, so stop the service before writing and
+# let the trap restart it. Refuse rather than flash under a live orchestrator:
+# track power being off makes that safe, not correct.
+echo
+echo "-- layout orchestrator"
+orchestrator_stop || {
+    echo
+    echo "Refusing to flash while the orchestrator still has the board."
+    exit 1
+}
 
 echo
 echo "-- config sector before flash"

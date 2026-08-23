@@ -62,6 +62,14 @@ echo "-- channel contention"
 # One DCC-EX channel, several things that want it. layout-orchestrator holding
 # the port is the expected case, not an error -- but it has to be named before a
 # protocol probe is attempted, or the failure looks like a firmware fault.
+if systemctl list-unit-files "$ORCH_UNIT" >/dev/null 2>&1; then
+    if systemctl is-active --quiet "$ORCH_UNIT"; then
+        note "$ORCH_UNIT" "active -- flash and dccex will stop it and restart it after"
+    else
+        ok "$ORCH_UNIT" "inactive -- left alone, and not restarted by flash or dccex"
+    fi
+fi
+
 if [ -e /dev/picodcc-dccex ]; then
     holders=$(fuser /dev/picodcc-dccex 2>/dev/null | tr -s ' ')
     if [ -n "$holders" ]; then
