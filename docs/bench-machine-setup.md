@@ -212,10 +212,33 @@ which a raw terminal will not do for you.
 
 ## Contention
 
-There is one DCC-EX channel and several things that will want it. `layout-orchestrator` is
-intended to run on this same machine and hold `/dev/picodcc-dccex` for normal operation. While
-it holds the port, protocol-level debugging cannot use it, and vice versa. Stop the
-orchestrator before a debug session that needs the channel.
+There is one DCC-EX channel and several things that will want it. `layout-orchestrator` runs on
+this same machine as an enabled systemd unit and holds `/dev/picodcc-dccex` for the life of the
+service. While it holds the port, protocol-level debugging cannot use it, and vice versa.
+
+**`flash` and `dccex` handle this themselves.** Both stop `layout-orchestrator.service` before
+touching the board and restart it on the way out, via `scripts/bench-orchestrator.sh` — one
+copy of the logic, prepended by `bench.sh` to whichever script it pipes over. Two rules govern
+it:
+
+- **Only what we stopped gets restarted.** A service that was already inactive is left alone
+  and not started afterwards. That is the escape hatch: stop it yourself and the scripts will
+  not start it behind you.
+- **The restart happens on any exit**, installed as an `EXIT` trap, so a failed preflight, an
+  OpenOCD error or a Ctrl-C all still put the layout's controller back. A restart that fails is
+  reported loudly with the manual command, because the layout has no controller until someone
+  acts on it.
+
+`bench-flash.sh` composes the restart into its existing temp-file trap rather than calling
+`orchestrator_guard` — traps do not stack, and installing a second `EXIT` trap would silently
+replace the first. `dry-run` stops nothing, because it writes nothing.
+
+`fault` and `config` do **not** stop the service. They halt the board rather than contend for
+the serial port, so there is no port conflict to resolve; the orchestrator will see the DCC-EX
+channel go quiet for the duration. Stop it by hand if that matters for what you are debugging.
+
+`bench.sh inventory` reports the unit's state alongside the port holders, so a held channel
+identifies itself before you run anything.
 
 The machine itself is not short of headroom — 4 cores, 7.6 GB RAM, load average around 0.15
 idle — so running OpenOCD, the orchestrator and an MQTT client together is not a resource

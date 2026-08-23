@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Send a DCC-EX command to the command station and capture the reply.
 #
-#   ssh <bench> bash -s -- '<s>'          < scripts/bench-dccex.sh   # status
-#   ssh <bench> bash -s -- '<#>'          < scripts/bench-dccex.sh   # cab slots
-#   ssh <bench> bash -s -- --force '<1>'  < scripts/bench-dccex.sh   # POWERS THE TRACK
+#   bash scripts/bench.sh dccex '<s>'            # status
+#   bash scripts/bench.sh dccex '<#>'            # cab slots
+#   bash scripts/bench.sh dccex --force '<1>'    # POWERS THE TRACK
+#
+# Invoke it through bench.sh rather than by hand: bench.sh prepends
+# scripts/bench-orchestrator.sh, which is where orchestrator_guard comes from.
 #
 # THIS TOUCHES THE BOARD. Not on the Claude Code allowlist -- it prompts every
 # time, by design.
@@ -81,8 +84,13 @@ esac
 
 [ -e "$PORT" ] || { bad "port" "$PORT missing -- re-run scripts/provision-bench.sh"; exit 1; }
 
-# One DCC-EX channel, several things that want it. If layout-orchestrator holds
-# it, the probe would otherwise fail in a way that looks like a firmware fault.
+# One DCC-EX channel, several things that want it, and the orchestrator holds it
+# open for the life of the service. Stop it first and restart it on the way out
+# -- a probe that fails with "port busy" reads like a firmware fault and is not.
+orchestrator_guard || true
+
+# Anything still holding the port is not the orchestrator, so it is not ours to
+# stop. Report it rather than guess.
 holders=$(fuser "$PORT" 2>/dev/null | tr -s ' ')
 if [ -n "$holders" ]; then
     bad "port busy" "held by:"
