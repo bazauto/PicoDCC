@@ -2,8 +2,9 @@
 
 **Last reviewed against the code**: 2026-08-20, at `main`.
 
-Project rules — build commands, safety constraints, conventions, workflow — live in
-[`CLAUDE.md`](../CLAUDE.md) at the repository root. This file is the map of everything else.
+[`README.md`](../README.md) at the repository root is the short introduction — what the
+firmware is, the hardware, how to build it. Project rules — safety constraints, conventions,
+workflow — live in [`CLAUDE.md`](../CLAUDE.md). This file is the map of everything else.
 
 ---
 
