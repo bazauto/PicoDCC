@@ -1,0 +1,26 @@
+version: 2
+
+updates:
+  # GitHub Actions used by .github/workflows/ci.yml. Pinned major tags go stale
+  # quietly — a deprecated runner image or action version fails CI on an unrelated
+  # PR, which is the worst time to find out.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+# Deliberately not covered:
+#
+# gitsubmodule — LVGL is pinned deliberately. An automatic bump is a firmware
+# change that needs the hardware build and a look at the display on real
+# hardware, not a green host suite. Bump it by hand when there is a reason to.
+#
+# The Pico SDK and ARM toolchain are installed outside the repository
+# (~/.pico-sdk), so Dependabot cannot see them. docs/bench-machine-setup.md owns
+# the update policy for those.
