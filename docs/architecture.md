@@ -151,9 +151,39 @@ so it can never stall Core 1's DCC timing.
   `DCCEX_RESPONSE` is a blocking `uart_puts` on Core 0, so replies are not free — acceptable
   because rejections are rare, but worth remembering before adding more of them.
 
-  **Not covered**: emergency power cutoffs are still silent on the wire. #4 also asks for
-  `<p0 MAIN>` / `<p0 PROG>` from both cutoff paths; one of those runs on Core 1, where a
-  blocking UART write sits in the DCC hot path, so it needs its own design.
+- **A power cutoff is reported on the wire** (#4, second half). Every path that cuts power
+  because something is *wrong* — the 100 ms timing violation, either track's PIO failure, the
+  Core 1 heartbeat cutoff, and an overcurrent trip — now draws `<p0 MAIN>` and `<p0 PROG>`,
+  the standard DCC-EX power notification. Before this the layout went dark and the wire stayed
+  quiet, and the orchestrator went on issuing throttle commands into dead rails while
+  reporting healthy.
+
+  **The Core 1 problem this used to be blocked on is solved by splitting the latch from the
+  report.** `dccLoop()` is the DCC hot path, and `DCCEX_RESPONSE` is a blocking `uart_puts` —
+  a UART write there is precisely the stall the timing monitor exists to catch. So Core 1 sets
+  two `volatile bool`s (`power_fault_latched`, `power_fault_unannounced`) plus the error LED,
+  all single-word writes, and **Core 0 drains the announcement in `dccexLoop()`**. Nothing
+  blocking is ever added to Core 1.
+
+  It reports **once per cutoff**, not once per pass: the condition is re-evaluated every 10 ms
+  and holds for as long as power is off, so an unlatched report would be 100 frames a second
+  on a link JMRI also speaks. The same latch stops the `LOG_CRITICAL` calls refilling the
+  30-entry diagnostic buffer in 300 ms and erasing the history that explains the fault.
+
+  **The error LED follows the latch, not the instantaneous condition** (#42). Cutting power
+  stops commands being sent, so on the very next pass the measured gap is small again and the
+  PIO reads healthy — and the old `else` branch turned the LED back off, leaving both tracks
+  unpowered, the LED dark, and a system that looked fine. The only surviving evidence was a
+  `LOG_CRITICAL` on the LCD, which is not where anyone looks first, and it is a large part of
+  why #32 was so hard to diagnose.
+
+  **The latch clears only when power is deliberately restored**, observed as
+  `main_track->getPower()` becoming true again rather than by hooking each command path — so
+  the LCD's direct `setPower()` call is covered without `lvgl_renderer` knowing the latch
+  exists. If the underlying fault is still there, the next pass re-trips and the host is told
+  again, which is the right answer to "restore power into a station that is still faulty".
+  There is deliberately **no** automatic power restore: a decoder that loses the DCC signal
+  falls back to DC, and DC on a powered main track is full speed.
 
 - **The `<l cab reg speedByte functMap>` cab update** follows the published DCC-EX format.
   `speedByte` is the DCC 128-step byte: bit 7 is direction, and the low 7 bits are

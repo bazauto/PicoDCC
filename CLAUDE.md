@@ -140,6 +140,9 @@ that wrap. Compare differences, never absolute stored timestamps.
 
 **Core 0** — `PicoDCCEX` parses commands off UART, `PicoDCCController` orchestrates and owns
 the main command queue (explicit commands, repeat logic) and the operation-mode state machine.
+It is also the **only** core that writes to the DCC-EX UART: a fault on Core 1 sets a latch and
+Core 0 turns it into `<p0 MAIN>` / `<p0 PROG>` (#4, #42), because a blocking `uart_puts` in the
+DCC hot path is the very stall the timing monitor exists to catch.
 
 **Core 1** — `PicoDCCTrack::loop()` drives the PIO state machine, monitors current via ADC,
 and **generates locomotive reminders** when the single-buffered hardware queue is empty. This
