@@ -26,6 +26,10 @@ private:
     uint16_t last_loco_reminder;
     semaphore_t locos_lock;
 
+    // Speed step mode for locos that have not been named individually (#8).
+    // RAM only, never persisted -- see PicoDccLoco::speed_steps.
+    uint8_t station_speed_steps;
+
 
 public:
     PicoDccLocos();
@@ -47,6 +51,23 @@ public:
     bool updateLocoThrottle(uint16_t address, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);
     
     bool getNextReminder(raw_dcc_cmd_t &cmd);
+
+    // <D SPEED28|SPEED128> with no cab: the default every loco follows until
+    // one is named individually. Returns false if steps is neither 28 nor 128.
+    bool setStationSpeedSteps(uint8_t steps);
+    uint8_t getStationSpeedSteps();
+
+    // <D SPEED28|SPEED128 cab>: names one loco. An unknown cab is *created*,
+    // stopped and facing forward, so that the mode is already right when the
+    // first throttle command for it arrives -- the orchestrator re-asserts the
+    // roster's modes on seeing the boot banner, which is before it drives
+    // anything. Returns false only for an address outside 1..10239, a step
+    // count that is neither 28 nor 128, or a collection already at MAX_LOCO.
+    bool setLocoSpeedSteps(uint16_t address, uint8_t steps);
+
+    // The mode a given loco is currently using, or the station default when
+    // the loco is not in the collection.
+    uint8_t getLocoSpeedSteps(uint16_t address);
     
     void sendEmergencyStopResponses();
 };

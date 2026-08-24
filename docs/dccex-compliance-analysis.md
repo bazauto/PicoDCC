@@ -102,6 +102,7 @@ This document validates the PicoDCC project implementation against the [DCC-EX N
 | `<D ACK LIMIT mA>` | Set ACK detection current threshold | ✅ Implemented | Runtime config (default 60mA) |
 | `<D ACK MIN us>` | Set minimum ACK pulse duration | ✅ Implemented | Runtime config (default 5000µs) |
 | `<D ACK MAX us>` | Set maximum ACK pulse duration | ✅ Implemented | Runtime config (default 7000µs) |
+| `<D SPEED28>` / `<D SPEED128>` | Select speed step mode | ✅ Implemented | 128 is the default. Extended with an optional trailing cab for a per-loco override, which DCC-EX does not have; the no-argument form JMRI sends is unchanged (#8) |
 
 **Implementation Details**:
 - **Runtime Adjustable**: Changes take effect immediately in RAM
@@ -114,7 +115,8 @@ This document validates the PicoDCC project implementation against the [DCC-EX N
 
 **Not reachable**: `<D CONFIG ...>` and `<D CAL ...>` are implemented in
 `lib/PicoDCCEX/pico_dccex_config.cpp` but never wired into the command path — the packet
-validator accepts only `<D ACK ...>`. See `docs/README.md` § Known gaps.
+validator accepts only `<D ACK ...>` and `<D SPEED28|SPEED128 [cab]>`. See
+`docs/README.md` § Known gaps.
 
 ### EEPROM/Flash Storage Commands
 **Status**: ✅ **IMPLEMENTED** (with safety restrictions)

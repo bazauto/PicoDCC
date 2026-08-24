@@ -27,6 +27,7 @@ extern "C" {
 }
 
 #include "../lib/PicoDCCTrack/pico_dcctrack.h"
+#include "../lib/PicoDCCLoco/pico_dccloco.h"
 #include "pio_emulator.h"
 #include "dcc_pio_program.h"
 
@@ -188,6 +189,72 @@ static void test_long_address_packet_bytes_reach_the_rails(void **state)
     const DccPacket p = transmit(track, make_cmd(false, {0xC4, 0xD2, 0x7F}));
 
     assert_bytes(p, {0xC4, 0xD2, 0x7F, 0x69});
+    assert_true(dcc_checksum_valid(p.bytes));
+    assert_all_bits_in_spec(p);
+}
+
+// The 128-step packets from #8, driven through the real encoder rather than a
+// hand-written byte list. PicoDccLoco builds the command, PicoDccTrack packs it,
+// the assembled dcc.pio transmits it, and the waveform is decoded back -- so
+// these assert what a decoder on the layout would actually receive for a given
+// <t> command, encoder included.
+//
+// The packing path is the reason to test it here and not only at data[]: the
+// 128-step instruction makes the payload one byte longer, and #31 was exactly a
+// payload whose length the packing got wrong, invisibly, on the far side of the
+// FIFO.
+static void test_128_step_speed_packet_reaches_the_rails(void **state)
+{
+    (void)state;
+    PicoDccTrack track(false, main_settings());
+
+    // Loco 3 at wire speed 60, forward: 0x03, 0x3F, 0x80 | 61.
+    PicoDccLoco loco(3, 60, true);
+    raw_dcc_cmd_t cmd = loco.getThrottleCommand();
+    assert_int_equal(loco.getSpeedSteps(), DCC_SPEED_STEPS_128);
+
+    const DccPacket p = transmit(track, cmd);
+
+    assert_bytes(p, {0x03, 0x3F, 0xBD, 0x81});
+    assert_true(dcc_checksum_valid(p.bytes));
+    assert_all_bits_in_spec(p);
+}
+
+// A long address plus the two-byte 128-step instruction is the longest payload
+// this station emits: four bytes plus the checksum, filling the 64-bit word
+// exactly to DCC_PACKET_FIRST_BYTE. One byte more and the checksum would fall
+// off the bottom of the transmitted range, which is the shape #31 took.
+static void test_128_step_long_address_is_the_longest_payload(void **state)
+{
+    (void)state;
+    PicoDccTrack track(false, main_settings());
+
+    // Loco 1234 at wire speed 126, reverse: 0xC4, 0xD2, 0x3F, 127.
+    PicoDccLoco loco(1234, 126, false);
+    raw_dcc_cmd_t cmd = loco.getThrottleCommand();
+    assert_int_equal(cmd.length, 4);
+    assert_int_equal(cmd.length, DCC_MAX_DATA_BYTES - 1);  // checksum still fits
+
+    const DccPacket p = transmit(track, cmd);
+
+    assert_bytes(p, {0xC4, 0xD2, 0x3F, 0x7F, 0x56});
+    assert_true(dcc_checksum_valid(p.bytes));
+    assert_all_bits_in_spec(p);
+}
+
+// The 28-step fallback still reaches the rails intact, on the same path.
+static void test_28_step_fallback_packet_reaches_the_rails(void **state)
+{
+    (void)state;
+    PicoDccTrack track(false, main_settings());
+
+    PicoDccLoco loco(3, 60, true);
+    assert_true(loco.setSpeedSteps(DCC_SPEED_STEPS_28));
+    raw_dcc_cmd_t cmd = loco.getThrottleCommand();
+
+    const DccPacket p = transmit(track, cmd);
+
+    assert_bytes(p, {0x03, 0x68, 0x6B});
     assert_true(dcc_checksum_valid(p.bytes));
     assert_all_bits_in_spec(p);
 }
@@ -457,6 +524,9 @@ int main(void)
 
         cmocka_unit_test_setup(test_speed_packet_bytes_reach_the_rails, setup),
         cmocka_unit_test_setup(test_long_address_packet_bytes_reach_the_rails, setup),
+        cmocka_unit_test_setup(test_128_step_speed_packet_reaches_the_rails, setup),
+        cmocka_unit_test_setup(test_128_step_long_address_is_the_longest_payload, setup),
+        cmocka_unit_test_setup(test_28_step_fallback_packet_reaches_the_rails, setup),
         cmocka_unit_test_setup(test_emergency_stop_broadcast_reaches_the_rails, setup),
         cmocka_unit_test_setup(test_idle_packet_reaches_the_rails, setup),
         cmocka_unit_test_setup(test_checksum_is_transmitted_and_correct, setup),

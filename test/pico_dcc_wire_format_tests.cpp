@@ -53,23 +53,33 @@ static void copy_command(char *dest, size_t dest_size, const char *src)
     dest[i] = '\0';
 }
 
-// The DCC packet a freshly-seen locomotive produces (the addLoco path).
-static raw_dcc_cmd_t throttle_for(const char *command)
+// The DCC packet a freshly-seen locomotive produces (the addLoco path), in a
+// named speed step mode. New locos inherit the station default, so setting that
+// first is what selects the encoding under test.
+static raw_dcc_cmd_t throttle_for_mode(const char *command, uint8_t steps)
 {
     char buffer[64];
     copy_command(buffer, sizeof(buffer), command);
 
     PicoDccLocos locos;
+    locos.setStationSpeedSteps(steps);
     PicoDccExPacket packet(buffer);
     raw_dcc_cmd_t cmd = {};
     locos.addLoco(&packet, cmd);
     return cmd;
 }
 
+// The same, in whatever mode the station starts in -- 128 steps (#8).
+static raw_dcc_cmd_t throttle_for(const char *command)
+{
+    return throttle_for_mode(command, DCC_SPEED_STEPS_128);
+}
+
 // The DCC packet produced when an *already known* locomotive is updated. This is
 // a different code path from throttle_for(): it goes through
 // PicoDccLoco::update(), which validates nothing.
-static raw_dcc_cmd_t throttle_update_for(const char *first, const char *second)
+static raw_dcc_cmd_t throttle_update_for_mode(const char *first, const char *second,
+                                             uint8_t steps)
 {
     char buf1[64];
     char buf2[64];
@@ -77,6 +87,7 @@ static raw_dcc_cmd_t throttle_update_for(const char *first, const char *second)
     copy_command(buf2, sizeof(buf2), second);
 
     PicoDccLocos locos;
+    locos.setStationSpeedSteps(steps);
     PicoDccExPacket p1(buf1);
     raw_dcc_cmd_t cmd = {};
     locos.addLoco(&p1, cmd);
@@ -85,6 +96,11 @@ static raw_dcc_cmd_t throttle_update_for(const char *first, const char *second)
     raw_dcc_cmd_t updated = {};
     locos.updateLocoThrottle(p2.getCab(), &p2, updated);
     return updated;
+}
+
+static raw_dcc_cmd_t throttle_update_for(const char *first, const char *second)
+{
+    return throttle_update_for_mode(first, second, DCC_SPEED_STEPS_128);
 }
 
 static raw_dcc_cmd_t accessory_for(const char *command)
@@ -105,12 +121,15 @@ static int setup(void **state)
 }
 
 // ---------------------------------------------------------------------------
-// Speed and direction encoding
+// Speed and direction encoding -- 128 steps (the default, #8)
 //
-// generateThrottleCommand() converts the 128-step speed off the wire into a
-// 28-step packet; issue #8 covers the missing 128-step support. The byte is
-// 01DCSSSS: bits 7-6 select the speed/direction instruction, bit 5 is
-// direction, and the 5-bit speed value is (SSSS << 1) | C.
+// S-9.2.1 advanced operations: instruction byte 0x3F, then one byte of
+// (direction << 7) | value. Value 0 is the controlled stop, 1 the emergency
+// stop, and 2..127 are speed steps 1..126 -- so a <t> wire speed of N encodes
+// as N + 1, while a wire speed of 0 encodes as 0.
+//
+// This is a three-byte payload for a short address where the 28-step form was
+// two, so the speed byte is data[2] here and data[1] in the fallback section.
 // ---------------------------------------------------------------------------
 
 static void test_speed_zero_encodes_as_a_stop(void **state)
@@ -118,18 +137,13 @@ static void test_speed_zero_encodes_as_a_stop(void **state)
     (void)state;
     raw_dcc_cmd_t cmd = throttle_for("t 3 0 1");
 
-    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.length, 3);
     assert_int_equal(cmd.data[0], 0x03);
+    assert_int_equal(cmd.data[1], 0x3F);
 
-    // 0x60 == 0b0110_0000: forward, SSSS=0000, C=0, so the 5-bit speed value is
-    // 0 -- the controlled stop. The locomotive decelerates under its own
-    // momentum CV instead of slamming to a halt.
-    //
-    // This used to emit 0x71 (value 3, emergency stop), because the 28-step
-    // expression was written for moving steps and produced garbage for step 0
-    // (#48). Speed 0 and speed -1 are now distinct on the rails: 0x60 here,
-    // 0x61 for the single-loco estop below.
-    assert_int_equal(cmd.data[1], 0x60);
+    // 0x80: forward, value 0 -- the controlled stop. The locomotive decelerates
+    // under its own momentum CV rather than slamming to a halt.
+    assert_int_equal(cmd.data[2], 0x80);
 }
 
 static void test_speed_zero_reverse(void **state)
@@ -137,9 +151,10 @@ static void test_speed_zero_reverse(void **state)
     (void)state;
     raw_dcc_cmd_t cmd = throttle_for("t 3 0 0");
 
-    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.length, 3);
     assert_int_equal(cmd.data[0], 0x03);
-    assert_int_equal(cmd.data[1], 0x40);  // same as forward, direction bit clear
+    assert_int_equal(cmd.data[1], 0x3F);
+    assert_int_equal(cmd.data[2], 0x00);  // same as forward, direction bit clear
 }
 
 static void test_speed_mid_range(void **state)
@@ -147,77 +162,208 @@ static void test_speed_mid_range(void **state)
     (void)state;
     raw_dcc_cmd_t cmd = throttle_for("t 3 10 1");
 
-    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.length, 3);
     assert_int_equal(cmd.data[0], 0x03);
-    assert_int_equal(cmd.data[1], 0x72);
+    assert_int_equal(cmd.data[2], 0x80 | 11);  // wire speed 10 -> value 11
 }
 
 static void test_speed_max_128_step_input(void **state)
 {
     (void)state;
-    // 126 is the highest speed a DCC-EX host sends.
+    // 126 is the highest speed a DCC-EX host sends, and 127 is the highest
+    // value the instruction can carry. The two now line up exactly.
     raw_dcc_cmd_t cmd = throttle_for("t 3 126 1");
 
-    assert_int_equal(cmd.length, 2);
-    assert_int_equal(cmd.data[0], 0x03);
-    assert_int_equal(cmd.data[1], 0x7F);  // 28-step code 31, full speed forward
+    assert_int_equal(cmd.length, 3);
+    assert_int_equal(cmd.data[2], 0x80 | 127);
 }
 
-static void test_low_speeds_quantise_together(void **state)
+// The point of #8. Every wire speed produces a distinct packet, so a one-step
+// change the host asks for is a one-step change the decoder sees.
+static void test_adjacent_speeds_are_distinct(void **state)
 {
     (void)state;
-    // 128 steps folded into 28 means adjacent inputs collide. Speeds 1 and 2
-    // both land on 28-step code 2. This is the resolution loss issue #8 is
-    // about, pinned here so a 128-step implementation shows up as a change.
-    assert_int_equal(throttle_for("t 3 1 1").data[1], 0x62);
-    assert_int_equal(throttle_for("t 3 2 1").data[1], 0x62);
+    assert_int_equal(throttle_for("t 3 1 1").data[2], 0x80 | 2);
+    assert_int_equal(throttle_for("t 3 2 1").data[2], 0x80 | 3);
+    assert_int_not_equal(throttle_for("t 3 1 1").data[2],
+                         throttle_for("t 3 2 1").data[2]);
 }
 
-static void test_direction_bit_is_0x20(void **state)
+// Every one of the 127 values a host can send maps to its own byte, and none
+// of them collides with the emergency stop. That is the property the
+// orchestrator's braking model and its crawl_speed_step depend on, so it is
+// asserted exhaustively rather than at a few sample points.
+static void test_every_wire_speed_maps_to_a_distinct_byte(void **state)
+{
+    (void)state;
+    bool seen[256] = {false};
+
+    for (int wire = 0; wire <= DCC_MAX_THROTTLE_SPEED; wire++) {
+        char command[32];
+        snprintf(command, sizeof(command), "t 3 %d 1", wire);
+        raw_dcc_cmd_t cmd = throttle_for(command);
+
+        assert_int_equal(cmd.length, 3);
+        assert_int_equal(cmd.data[1], 0x3F);
+
+        uint8_t value = (uint8_t)(cmd.data[2] & 0x7F);
+        assert_int_equal(cmd.data[2] & 0x80, 0x80);   // direction preserved
+        assert_false(seen[value]);                    // no two speeds collide
+        assert_int_not_equal(value, 1);               // never the estop value
+        seen[value] = true;
+    }
+}
+
+static void test_direction_bit_is_0x80(void **state)
 {
     (void)state;
     raw_dcc_cmd_t fwd = throttle_for("t 3 60 1");
     raw_dcc_cmd_t rev = throttle_for("t 3 60 0");
+
+    assert_int_equal(fwd.data[2], 0x80 | 61);
+    assert_int_equal(rev.data[2], 61);
+    assert_int_equal(fwd.data[2] ^ rev.data[2], 0x80);
+}
+
+// #11: DCC-EX sends speed -1 to emergency-stop a single locomotive. In the
+// 128-step instruction that is value 1, which is why no ordinary speed is ever
+// allowed to encode as 1 (asserted exhaustively above).
+static void test_speed_minus_one_is_an_emergency_stop(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t cmd = throttle_update_for("t 3 10 1", "t 3 -1 1");
+
+    assert_int_equal(cmd.length, 3);
+    assert_int_equal(cmd.data[0], 0x03);
+    assert_int_equal(cmd.data[1], 0x3F);
+    assert_int_equal(cmd.data[2], 0x80 | 1);
+    assert_int_not_equal(cmd.data[2], throttle_for("t 3 126 1").data[2]);
+}
+
+// #48: these two must stay different packets. A controlled stop is value 0, an
+// emergency stop is value 1 -- one decelerates under the decoder's momentum CV,
+// the other slams to a halt.
+static void test_controlled_stop_differs_from_emergency_stop(void **state)
+{
+    (void)state;
+    const uint8_t stop  = throttle_for("t 3 0 1").data[2];
+    const uint8_t estop = throttle_update_for("t 3 10 1", "t 3 -1 1").data[2];
+
+    assert_int_equal(stop, 0x80);
+    assert_int_equal(estop, 0x81);
+    assert_int_not_equal(stop, estop);
+
+    // Both keep the direction bit, so the decoder still knows which way to go
+    // when the throttle resumes.
+    assert_int_equal(throttle_for("t 3 0 0").data[2], 0x00);
+}
+
+// ---------------------------------------------------------------------------
+// Speed and direction encoding -- 28 steps (the per-loco fallback, #8)
+//
+// Retained for any decoder that cannot do 128 steps. S-9.2 speed and direction
+// is 01DCSSSS, where the 5-bit speed value is (SSSS << 1) | C: value 0 is the
+// controlled stop, 1 and 3 are emergency stop, 2 is the alternate stop, and a
+// moving step N is value N + 3.
+//
+// These are the bytes this station emitted for every locomotive before #8, so
+// they are unchanged from the values measured against JMRI -- they have simply
+// stopped being the default.
+// ---------------------------------------------------------------------------
+
+static raw_dcc_cmd_t throttle28_for(const char *command)
+{
+    return throttle_for_mode(command, DCC_SPEED_STEPS_28);
+}
+
+static void test_28_step_speed_zero_encodes_as_a_stop(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t cmd = throttle28_for("t 3 0 1");
+
+    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.data[0], 0x03);
+
+    // 0x60 == 0b0110_0000: forward, SSSS=0000, C=0, so the 5-bit speed value is
+    // 0 -- the controlled stop. This used to emit 0x71 (value 3, emergency
+    // stop), because the expression was written for moving steps and produced
+    // garbage for step 0 (#48).
+    assert_int_equal(cmd.data[1], 0x60);
+}
+
+static void test_28_step_speed_zero_reverse(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t cmd = throttle28_for("t 3 0 0");
+
+    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.data[1], 0x40);  // same as forward, direction bit clear
+}
+
+static void test_28_step_speed_mid_range(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t cmd = throttle28_for("t 3 10 1");
+
+    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.data[1], 0x72);
+}
+
+static void test_28_step_speed_max(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t cmd = throttle28_for("t 3 126 1");
+
+    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.data[1], 0x7F);  // 28-step code 31, full speed forward
+}
+
+// The resolution loss that motivated #8, kept as a live assertion rather than a
+// comment: in the fallback mode adjacent wire speeds still collide, and in the
+// default mode (asserted above) they no longer do.
+static void test_28_step_low_speeds_quantise_together(void **state)
+{
+    (void)state;
+    assert_int_equal(throttle28_for("t 3 1 1").data[1], 0x62);
+    assert_int_equal(throttle28_for("t 3 2 1").data[1], 0x62);
+}
+
+static void test_28_step_direction_bit_is_0x20(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t fwd = throttle28_for("t 3 60 1");
+    raw_dcc_cmd_t rev = throttle28_for("t 3 60 0");
 
     assert_int_equal(fwd.data[1], 0x68);
     assert_int_equal(rev.data[1], 0x48);
     assert_int_equal(fwd.data[1] ^ rev.data[1], 0x20);
 }
 
-// #11: DCC-EX sends speed -1 to emergency-stop a single locomotive. It used to
-// be masked into a plain uint8_t and encoded as speed 127 -- full speed, byte
-// for byte what "t 3 126 1" produces. It is now the same instruction byte as
-// the <!> broadcast estop, addressed to one loco.
-static void test_speed_minus_one_is_an_emergency_stop(void **state)
+static void test_28_step_speed_minus_one_is_an_emergency_stop(void **state)
 {
     (void)state;
-    raw_dcc_cmd_t cmd = throttle_update_for("t 3 10 1", "t 3 -1 1");
+    raw_dcc_cmd_t cmd = throttle_update_for_mode("t 3 10 1", "t 3 -1 1",
+                                                DCC_SPEED_STEPS_28);
 
     assert_int_equal(cmd.length, 2);
-    assert_int_equal(cmd.data[0], 0x03);
     assert_int_equal(cmd.data[1], 0x61);
-    assert_int_not_equal(cmd.data[1], throttle_for("t 3 126 1").data[1]);
+    assert_int_not_equal(cmd.data[1], throttle28_for("t 3 126 1").data[1]);
 }
 
-// #48: the whole point of the fix is that these two are *different* packets.
-// A controlled stop is speed value 0, an emergency stop is value 2 -- one
-// decelerates under the decoder's momentum CV, the other slams to a halt.
-// They were both value 3 until the 28-step step-0 case was handled, which
-// silently turned every ordinary stop on the layout into an estop and threw
-// away the last command of the orchestrator's braking ramp.
-static void test_controlled_stop_differs_from_emergency_stop(void **state)
+// The two encodings are easy to conflate, so pin them side by side for one
+// requested speed: same loco, same command, different mode, different bytes.
+static void test_the_two_encodings_differ_for_the_same_speed(void **state)
 {
     (void)state;
-    const uint8_t stop  = throttle_for("t 3 0 1").data[1];
-    const uint8_t estop = throttle_update_for("t 3 10 1", "t 3 -1 1").data[1];
+    raw_dcc_cmd_t s128 = throttle_for_mode("t 3 60 1", DCC_SPEED_STEPS_128);
+    raw_dcc_cmd_t s28  = throttle_for_mode("t 3 60 1", DCC_SPEED_STEPS_28);
 
-    assert_int_equal(stop, 0x60);
-    assert_int_equal(estop, 0x61);
-    assert_int_not_equal(stop, estop);
+    assert_int_equal(s128.length, 3);
+    assert_int_equal(s128.data[1], 0x3F);
+    assert_int_equal(s128.data[2], 0x80 | 61);
 
-    // Both keep the direction bit, so the decoder still knows which way to go
-    // when the throttle resumes.
-    assert_int_equal(throttle_for("t 3 0 0").data[1], 0x40);
+    assert_int_equal(s28.length, 2);
+    assert_int_equal(s28.data[1], 0x68);
 }
 
 // ---------------------------------------------------------------------------
@@ -230,21 +376,30 @@ static void test_short_address_is_one_byte(void **state)
     // 127 is HIGHEST_SHORT_ADDR: still a single address byte.
     raw_dcc_cmd_t cmd = throttle_for("t 127 0 1");
 
-    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.length, 3);
     assert_int_equal(cmd.data[0], 0x7F);
-    assert_int_equal(cmd.data[1], 0x60);
+    assert_int_equal(cmd.data[1], 0x3F);
+    assert_int_equal(cmd.data[2], 0x80);
 }
 
 static void test_long_address_is_two_bytes(void **state)
 {
     (void)state;
     // 128 crosses into long-address territory: 0xC0 | high byte, then low byte.
+    // Two address bytes plus the two-byte 128-step instruction is the longest
+    // throttle payload this station emits: four bytes plus the checksum, which
+    // is exactly what DCC_MAX_DATA_BYTES and DCC_PACKET_FIRST_BYTE allow (#8).
     raw_dcc_cmd_t cmd = throttle_for("t 128 0 1");
 
-    assert_int_equal(cmd.length, 3);
+    assert_int_equal(cmd.length, 4);
     assert_int_equal(cmd.data[0], 0xC0);
     assert_int_equal(cmd.data[1], 0x80);
-    assert_int_equal(cmd.data[2], 0x60);
+    assert_int_equal(cmd.data[2], 0x3F);
+    assert_int_equal(cmd.data[3], 0x80);
+
+    // The payload plus its checksum must still fit under the two header bytes.
+    assert_true(cmd.length + 1 <= DCC_PACKET_FIRST_BYTE + 1);
+    assert_true(cmd.length <= DCC_MAX_DATA_BYTES);
 }
 
 static void test_highest_legal_long_address(void **state)
@@ -254,10 +409,11 @@ static void test_highest_legal_long_address(void **state)
     // 0xE7 is the top of the valid long-address prefix range.
     raw_dcc_cmd_t cmd = throttle_for("t 10239 0 1");
 
-    assert_int_equal(cmd.length, 3);
+    assert_int_equal(cmd.length, 4);
     assert_int_equal(cmd.data[0], 0xE7);
     assert_int_equal(cmd.data[1], 0xFF);
-    assert_int_equal(cmd.data[2], 0x60);
+    assert_int_equal(cmd.data[2], 0x3F);
+    assert_int_equal(cmd.data[3], 0x80);
 }
 
 // #12: cab 0 is the DCC broadcast address. It used to be accepted and encoded
@@ -300,7 +456,7 @@ static void test_function_command_does_not_move_a_loco(void **state)
     (void)state;
     raw_dcc_cmd_t cmd = throttle_update_for("t 3 0 1", "F 3 8 1");
 
-    assert_int_equal(cmd.data[1], 0x60);  // unchanged
+    assert_int_equal(cmd.data[2], 0x80);  // unchanged
 }
 
 // ---------------------------------------------------------------------------
@@ -589,10 +745,19 @@ int main(int argc, char *argv[])
         cmocka_unit_test_setup(test_speed_zero_reverse, setup),
         cmocka_unit_test_setup(test_speed_mid_range, setup),
         cmocka_unit_test_setup(test_speed_max_128_step_input, setup),
-        cmocka_unit_test_setup(test_low_speeds_quantise_together, setup),
-        cmocka_unit_test_setup(test_direction_bit_is_0x20, setup),
+        cmocka_unit_test_setup(test_adjacent_speeds_are_distinct, setup),
+        cmocka_unit_test_setup(test_every_wire_speed_maps_to_a_distinct_byte, setup),
+        cmocka_unit_test_setup(test_direction_bit_is_0x80, setup),
         cmocka_unit_test_setup(test_speed_minus_one_is_an_emergency_stop, setup),
         cmocka_unit_test_setup(test_controlled_stop_differs_from_emergency_stop, setup),
+        cmocka_unit_test_setup(test_28_step_speed_zero_encodes_as_a_stop, setup),
+        cmocka_unit_test_setup(test_28_step_speed_zero_reverse, setup),
+        cmocka_unit_test_setup(test_28_step_speed_mid_range, setup),
+        cmocka_unit_test_setup(test_28_step_speed_max, setup),
+        cmocka_unit_test_setup(test_28_step_low_speeds_quantise_together, setup),
+        cmocka_unit_test_setup(test_28_step_direction_bit_is_0x20, setup),
+        cmocka_unit_test_setup(test_28_step_speed_minus_one_is_an_emergency_stop, setup),
+        cmocka_unit_test_setup(test_the_two_encodings_differ_for_the_same_speed, setup),
         cmocka_unit_test_setup(test_short_address_is_one_byte, setup),
         cmocka_unit_test_setup(test_long_address_is_two_bytes, setup),
         cmocka_unit_test_setup(test_highest_legal_long_address, setup),

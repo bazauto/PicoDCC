@@ -536,6 +536,152 @@ void test_config_malformed_ack(void **state)
   assert_int_equal((int)packet.getOpcode(), (int)'D');
 }
 
+// --------------------------------------------------------------------------
+// <D SPEED28|SPEED128 [cab]> -- speed step mode (#8)
+//
+// The no-argument form is DCC-EX's own, station-wide command; the trailing cab
+// is this station's extension. JMRI only ever sends the no-argument form, so
+// the DCC-EX form has to keep parsing exactly as it did.
+// --------------------------------------------------------------------------
+
+void test_config_speed128_no_cab(void **state)
+{
+  char buffer[32] = "D SPEED128";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_int_equal(packet.getConfigSubcommand(), DCCEX_CONFIG_SPEED);
+  assert_int_equal(packet.getSpeedStepMode(), DCC_SPEED_STEPS_128);
+  assert_int_equal(packet.getSpeedStepCab(), 0);  // 0 == station-wide
+}
+
+void test_config_speed28_no_cab(void **state)
+{
+  char buffer[32] = "D SPEED28";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_int_equal(packet.getConfigSubcommand(), DCCEX_CONFIG_SPEED);
+  assert_int_equal(packet.getSpeedStepMode(), DCC_SPEED_STEPS_28);
+  assert_int_equal(packet.getSpeedStepCab(), 0);
+}
+
+void test_config_speed28_with_cab(void **state)
+{
+  char buffer[32] = "D SPEED28 3";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_int_equal(packet.getConfigSubcommand(), DCCEX_CONFIG_SPEED);
+  assert_int_equal(packet.getSpeedStepMode(), DCC_SPEED_STEPS_28);
+  assert_int_equal(packet.getSpeedStepCab(), 3);
+}
+
+void test_config_speed128_with_long_cab(void **state)
+{
+  char buffer[32] = "D SPEED128 10239";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_int_equal(packet.getSpeedStepMode(), DCC_SPEED_STEPS_128);
+  assert_int_equal(packet.getSpeedStepCab(), 10239);
+}
+
+// SPEED28 and SPEED128 share a prefix, so a sloppy match would read one as the
+// other and silently halve every locomotive's resolution.
+void test_config_speed_prefix_is_not_confused(void **state)
+{
+  {
+    char buffer[32] = "D SPEED1280";
+    PicoDccExPacket packet(buffer);
+    assert_false(packet.isValid());
+  }
+  {
+    char buffer[32] = "D SPEED";
+    PicoDccExPacket packet(buffer);
+    assert_false(packet.isValid());
+  }
+  {
+    char buffer[32] = "D SPEED12";
+    PicoDccExPacket packet(buffer);
+    assert_false(packet.isValid());
+  }
+}
+
+// An out-of-range cab has to reach the controller so it can answer <X>. A
+// packet dropped here would leave the host with silence, unable to tell a
+// rejected command from an applied one (#4).
+void test_config_speed_out_of_range_cab_still_parses(void **state)
+{
+  char buffer[32] = "D SPEED28 99999";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_int_equal(packet.getSpeedStepCab(), 99999);
+}
+
+// A trailing field that is not a bare cab number is refused outright rather
+// than half-read -- the same rule as the four-field <t> form (#7). Getting this
+// wrong changes the encoding for a locomotive nobody named.
+void test_config_speed_rejects_trailing_junk(void **state)
+{
+  {
+    char buffer[32] = "D SPEED28 3 1";
+    PicoDccExPacket packet(buffer);
+    assert_false(packet.isValid());
+  }
+  {
+    char buffer[32] = "D SPEED28 three";
+    PicoDccExPacket packet(buffer);
+    assert_false(packet.isValid());
+  }
+  {
+    char buffer[32] = "D SPEED128 3x";
+    PicoDccExPacket packet(buffer);
+    assert_false(packet.isValid());
+  }
+}
+
+// Trailing whitespace and the line endings a serial host may leave on are not
+// a fourth field.
+void test_config_speed_tolerates_trailing_whitespace(void **state)
+{
+  {
+    char buffer[32] = "D SPEED128  ";
+    PicoDccExPacket packet(buffer);
+    assert_true(packet.isValid());
+    assert_int_equal(packet.getSpeedStepCab(), 0);
+  }
+  {
+    char buffer[32] = "D SPEED28 3\r\n";
+    PicoDccExPacket packet(buffer);
+    assert_true(packet.isValid());
+    assert_int_equal(packet.getSpeedStepCab(), 3);
+  }
+}
+
+// The <D ACK ...> commands must be untouched by the new branch: they are the
+// only <D> subcommand this station accepted before, and they share the parse.
+void test_config_ack_still_parses_alongside_speed(void **state)
+{
+  char buffer[32] = "D ACK LIMIT 60";
+  PicoDccExPacket packet(buffer);
+
+  assert_true(packet.isValid());
+  assert_int_equal(packet.getConfigSubcommand(), DCCEX_CONFIG_ACK);
+  assert_int_equal(packet.getConfigParamType(), 1);
+  assert_int_equal(packet.getConfigValue(), 60);
+}
+
+// An unknown <D> subcommand is still refused, not swept into the speed branch.
+void test_config_unknown_subcommand_is_rejected(void **state)
+{
+  char buffer[32] = "D WIBBLE 3";
+  PicoDccExPacket packet(buffer);
+
+  assert_false(packet.isValid());
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -576,7 +722,17 @@ int main(int argc, char *argv[])
       cmocka_unit_test(test_config_ack_max_too_low),
       cmocka_unit_test(test_config_ack_max_too_high),
       cmocka_unit_test(test_config_save_command),
-      cmocka_unit_test(test_config_malformed_ack)
+      cmocka_unit_test(test_config_malformed_ack),
+      cmocka_unit_test(test_config_speed128_no_cab),
+      cmocka_unit_test(test_config_speed28_no_cab),
+      cmocka_unit_test(test_config_speed28_with_cab),
+      cmocka_unit_test(test_config_speed128_with_long_cab),
+      cmocka_unit_test(test_config_speed_prefix_is_not_confused),
+      cmocka_unit_test(test_config_speed_out_of_range_cab_still_parses),
+      cmocka_unit_test(test_config_speed_rejects_trailing_junk),
+      cmocka_unit_test(test_config_speed_tolerates_trailing_whitespace),
+      cmocka_unit_test(test_config_ack_still_parses_alongside_speed),
+      cmocka_unit_test(test_config_unknown_subcommand_is_rejected)
   };
 
   return cmocka_run_group_tests(tests, NULL, NULL);

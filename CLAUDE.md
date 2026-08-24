@@ -331,7 +331,8 @@ Do not mistake these for working features, and do not plan against them:
 
 - **`PicoDccExConfig` is dead code.** `<D CONFIG ...>` and `<D CAL ...>` are implemented in
   `lib/PicoDCCEX/pico_dccex_config.cpp` but the class is never constructed. The packet
-  validator accepts only `<D ACK ...>`, so every other `D` subcommand is rejected.
+  validator accepts only `<D ACK ...>` and `<D SPEED28|SPEED128 [cab]>`, so every other
+  `D` subcommand is rejected.
 - **CV programming methods are declarations only** — no bodies in `pico_dccloco.cpp`.
 - **ACK detection does not exist** in `PicoDccTrack`. Its parameters are tunable and
   persistable, which makes it look implemented; it is not.

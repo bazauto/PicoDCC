@@ -526,9 +526,15 @@ bool PicoDccController::handleConfigCommand(PicoDccExPacket* packet)
         int subcommand = packet->getConfigSubcommand();
         int param_type = packet->getConfigParamType();
         int value = packet->getConfigValue();
-        
+
+        // <D SPEED28|SPEED128 [cab]> (#8)
+        if (subcommand == DCCEX_CONFIG_SPEED) {
+            handleSpeedStepCommand(packet->getSpeedStepMode(), packet->getSpeedStepCab());
+            return true;
+        }
+
         // Check for ACK subcommand (subcommand == 1)
-        if (subcommand != 1) {
+        if (subcommand != DCCEX_CONFIG_ACK) {
             return false;  // Unknown subcommand
         }
         
@@ -567,6 +573,40 @@ bool PicoDccController::handleConfigCommand(PicoDccExPacket* packet)
     }
     
     return false;  // Not a config command
+}
+
+void PicoDccController::handleSpeedStepCommand(int steps, int cab)
+{
+    // No cab: the station-wide default, which every loco that has not been
+    // named individually follows.
+    if (cab == 0) {
+        if (!pico_locos->setStationSpeedSteps((uint8_t)steps)) {
+            DCCEX_RESPONSE("<X>");
+            return;
+        }
+
+        char response[24];
+        snprintf(response, sizeof(response), "<D SPEED%d>", steps);
+        DCCEX_RESPONSE(response);
+        LOG_INFO(COMPONENT_DCCEX, "Station speed step mode updated");
+        return;
+    }
+
+    // A cab out of 1..10239, or a collection with no room for a new entry.
+    // Answering <X> rather than dropping it is the point of #4: a host that
+    // gets silence cannot tell a rejected command from an applied one, and
+    // would go on believing the loco is encoded the way it asked.
+    if (!dcc_is_valid_loco_address(cab)
+        || !pico_locos->setLocoSpeedSteps((uint16_t)cab, (uint8_t)steps)) {
+        DCCEX_RESPONSE("<X>");
+        LOG_WARNING(COMPONENT_DCCEX, "Speed step command rejected");
+        return;
+    }
+
+    char response[24];
+    snprintf(response, sizeof(response), "<D SPEED%d %d>", steps, cab);
+    DCCEX_RESPONSE(response);
+    LOG_INFO(COMPONENT_DCCEX, "Loco speed step mode updated");
 }
 
 void PicoDccController::handleACKLimitCommand(float value)

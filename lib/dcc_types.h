@@ -37,6 +37,23 @@ static_assert(DCC_MAX_DATA_BYTES <= DCC_PACKET_FIRST_BYTE,
 static_assert(DCC_SPEED_ESTOP > DCC_MAX_THROTTLE_SPEED,
               "estop sentinel collides with a legal speed");
 
+// Speed step modes (#8). The value *is* the step count, so the wire form of
+// <D SPEED28> / <D SPEED128> and the internal representation are the same
+// number and cannot drift apart.
+//
+// 128 is the default: every decoder on Westgate Hollow supports it, and the
+// 28-step conversion loses roughly one distinct speed per 4.6 units of the
+// 0..126 value a host sends, which is coarser than the orchestrator's braking
+// model assumes. 28 is retained per loco for any older decoder.
+#define DCC_SPEED_STEPS_28 28
+#define DCC_SPEED_STEPS_128 128
+#define DCC_DEFAULT_SPEED_STEPS DCC_SPEED_STEPS_128
+
+static inline bool dcc_is_valid_speed_step_mode(int steps)
+{
+    return steps == DCC_SPEED_STEPS_28 || steps == DCC_SPEED_STEPS_128;
+}
+
 // 1..10239: the DCC address range this firmware accepts. Address 0 is the
 // broadcast address and must be rejected, not silently retargeted (#12);
 // anything above the 14-bit long-address space must be rejected rather than

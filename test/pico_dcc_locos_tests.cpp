@@ -31,9 +31,10 @@ void test_add_loco(void **state) {
     assert_int_equal(loco->getAddress(), 3);
 
     raw_dcc_cmd_t cmd1 = loco->getThrottleCommand();
-    assert_int_equal(cmd1.length, 2);
+    assert_int_equal(cmd1.length, 3);
     assert_int_equal(cmd1.data[0], 3);
-    assert_int_equal(cmd1.data[1], 0x40);  // controlled stop, reverse (#48)
+    assert_int_equal(cmd1.data[1], 0x3F);
+    assert_int_equal(cmd1.data[2], 0x00);  // controlled stop, reverse (#48)
 }
 
 void test_update_loco(void **state) {
@@ -50,9 +51,10 @@ void test_update_loco(void **state) {
     loco->update(&packetUpdate);
 
     raw_dcc_cmd_t cmdUpdated = loco->getThrottleCommand();
-    assert_int_equal(cmdUpdated.length, 2);
+    assert_int_equal(cmdUpdated.length, 3);
     assert_int_equal(cmdUpdated.data[0], 3);
-    assert_int_equal(cmdUpdated.data[1], 0x7F);
+    assert_int_equal(cmdUpdated.data[1], 0x3F);
+    assert_int_equal(cmdUpdated.data[2], 0x80 | 127);
 }
 
 void test_forget_loco(void **state) {
@@ -401,7 +403,7 @@ void test_update_loco_rejects_out_of_range_speed(void **state) {
     const char *buffer = "t 3 10 1";
     PicoDccExPacket packet((char *)buffer);
     locos.addLoco(&packet, cmd);
-    assert_int_equal(cmd.data[1], 0x72);
+    assert_int_equal(cmd.data[2], 0x80 | 11);
 
     const char *bufferUpdate = "t 3 128 1";
     PicoDccExPacket packetUpdate((char *)bufferUpdate);
@@ -410,7 +412,7 @@ void test_update_loco_rejects_out_of_range_speed(void **state) {
 
     assert_true(found);
     assert_false(locos.findLoco(3) == nullptr);
-    assert_int_equal(updated.data[1], 0x72);  // unchanged: rejected
+    assert_int_equal(updated.data[2], 0x80 | 11);  // unchanged: rejected
 }
 
 void test_update_loco_estop_and_reminder(void **state) {
@@ -425,15 +427,159 @@ void test_update_loco_estop_and_reminder(void **state) {
     PicoDccExPacket packetUpdate((char *)bufferUpdate);
     raw_dcc_cmd_t updated;
     assert_true(locos.updateLocoThrottle(3, &packetUpdate, updated));
-    assert_int_equal(updated.length, 2);
+    assert_int_equal(updated.length, 3);
     assert_int_equal(updated.data[0], 0x03);
-    assert_int_equal(updated.data[1], 0x61);
+    assert_int_equal(updated.data[1], 0x3F);
+    assert_int_equal(updated.data[2], 0x81);
 
     raw_dcc_cmd_t reminder;
     assert_true(locos.getNextReminder(reminder));
     assert_int_equal(reminder.data[0], 0x03);
-    assert_int_equal(reminder.data[1], 0x61);
+    assert_int_equal(reminder.data[1], 0x3F);
+    assert_int_equal(reminder.data[2], 0x81);
     assert_int_equal(reminder.repeats, 0);
+}
+
+// --------------------------------------------------------------------------
+// Speed step modes (#8)
+// --------------------------------------------------------------------------
+
+void test_station_speed_steps_default_to_128(void **state) {
+    PicoDccLocos locos;
+
+    assert_int_equal(locos.getStationSpeedSteps(), DCC_SPEED_STEPS_128);
+}
+
+// A loco created after the default changes inherits it -- the ordinary case
+// when the orchestrator sets the station mode at startup and then drives.
+void test_new_loco_inherits_the_station_default(void **state) {
+    PicoDccLocos locos;
+    assert_true(locos.setStationSpeedSteps(DCC_SPEED_STEPS_28));
+
+    const char *buffer = "t 3 10 1";
+    PicoDccExPacket packet((char *)buffer);
+    raw_dcc_cmd_t cmd;
+    locos.addLoco(&packet, cmd);
+
+    assert_int_equal(locos.getLocoSpeedSteps(3), DCC_SPEED_STEPS_28);
+    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.data[1], 0x72);
+}
+
+// A loco created *before* the default changes moves with it, and its stored
+// command is re-encoded. Core 1 reads that command for reminders, so a stale
+// one would keep the old encoding on the rails indefinitely.
+void test_existing_locos_follow_a_later_default_change(void **state) {
+    PicoDccLocos locos;
+
+    const char *buffer = "t 3 10 1";
+    PicoDccExPacket packet((char *)buffer);
+    raw_dcc_cmd_t cmd;
+    locos.addLoco(&packet, cmd);
+    assert_int_equal(locos.getLocoSpeedSteps(3), DCC_SPEED_STEPS_128);
+
+    assert_true(locos.setStationSpeedSteps(DCC_SPEED_STEPS_28));
+
+    assert_int_equal(locos.getLocoSpeedSteps(3), DCC_SPEED_STEPS_28);
+    raw_dcc_cmd_t reminder;
+    assert_true(locos.getNextReminder(reminder));
+    assert_int_equal(reminder.length, 2);
+    assert_int_equal(reminder.data[1], 0x72);
+}
+
+// A named loco stays where it was put. It is named because its decoder cannot
+// do 128 steps, so a later station-wide command must not drag it back.
+void test_named_loco_ignores_a_later_default_change(void **state) {
+    PicoDccLocos locos;
+
+    const char *buffer = "t 3 10 1";
+    PicoDccExPacket packet((char *)buffer);
+    raw_dcc_cmd_t cmd;
+    locos.addLoco(&packet, cmd);
+
+    assert_true(locos.setLocoSpeedSteps(3, DCC_SPEED_STEPS_28));
+    assert_true(locos.setStationSpeedSteps(DCC_SPEED_STEPS_128));
+
+    assert_int_equal(locos.getLocoSpeedSteps(3), DCC_SPEED_STEPS_28);
+    assert_int_equal(locos.getStationSpeedSteps(), DCC_SPEED_STEPS_128);
+}
+
+// Naming a cab that is not in the collection creates it, stopped and forward,
+// so the mode is already right when the first throttle command arrives. The
+// orchestrator re-asserts the roster on seeing the boot banner, which is
+// before it drives anything.
+void test_naming_an_unknown_cab_creates_it_stopped(void **state) {
+    PicoDccLocos locos;
+
+    assert_true(locos.setLocoSpeedSteps(7, DCC_SPEED_STEPS_28));
+
+    assert_int_equal(locos.getLocoCount(), 1);
+    PicoDccLoco *loco = locos.findLoco(7);
+    assert_non_null(loco);
+    assert_int_equal(loco->getSpeed(), 0);
+    assert_true(loco->isForward());
+    assert_int_equal(loco->getSpeedSteps(), DCC_SPEED_STEPS_28);
+
+    // The reminder it now generates is a stop, which is the safe direction to
+    // be wrong in: it can only ever hold a locomotive still.
+    raw_dcc_cmd_t reminder;
+    assert_true(locos.getNextReminder(reminder));
+    assert_int_equal(reminder.length, 2);
+    assert_int_equal(reminder.data[0], 0x07);
+    assert_int_equal(reminder.data[1], 0x60);
+}
+
+// The created loco keeps its override, rather than being treated as a fresh
+// loco following the default.
+void test_cab_created_by_naming_keeps_its_override(void **state) {
+    PicoDccLocos locos;
+
+    assert_true(locos.setLocoSpeedSteps(7, DCC_SPEED_STEPS_28));
+    assert_true(locos.setStationSpeedSteps(DCC_SPEED_STEPS_128));
+
+    assert_int_equal(locos.getLocoSpeedSteps(7), DCC_SPEED_STEPS_28);
+}
+
+void test_speed_steps_reject_bad_input(void **state) {
+    PicoDccLocos locos;
+
+    assert_false(locos.setStationSpeedSteps(14));
+    assert_int_equal(locos.getStationSpeedSteps(), DCC_SPEED_STEPS_128);
+
+    assert_false(locos.setLocoSpeedSteps(0, DCC_SPEED_STEPS_28));      // broadcast
+    assert_false(locos.setLocoSpeedSteps(10240, DCC_SPEED_STEPS_28));  // too high
+    assert_false(locos.setLocoSpeedSteps(3, 14));                      // no such mode
+    assert_int_equal(locos.getLocoCount(), 0);
+}
+
+// A full collection cannot take the phantom entry, and must say so rather than
+// silently reporting the mode as set.
+void test_naming_an_unknown_cab_refuses_when_full(void **state) {
+    PicoDccLocos locos;
+
+    for (int cab = 1; cab <= MAX_LOCO; cab++) {
+        char buffer[32];
+        snprintf(buffer, sizeof(buffer), "t %d 0 1", cab);
+        PicoDccExPacket packet(buffer);
+        raw_dcc_cmd_t cmd;
+        assert_true(locos.addLoco(&packet, cmd));
+    }
+
+    assert_false(locos.setLocoSpeedSteps(MAX_LOCO + 1, DCC_SPEED_STEPS_28));
+    assert_int_equal(locos.getLocoCount(), MAX_LOCO);
+
+    // A cab already in the collection is still fine -- no new entry is needed.
+    assert_true(locos.setLocoSpeedSteps(1, DCC_SPEED_STEPS_28));
+    assert_int_equal(locos.getLocoSpeedSteps(1), DCC_SPEED_STEPS_28);
+}
+
+// An unknown cab reports the station default rather than a made-up value.
+void test_unknown_cab_reports_the_station_default(void **state) {
+    PicoDccLocos locos;
+    assert_true(locos.setStationSpeedSteps(DCC_SPEED_STEPS_28));
+
+    assert_int_equal(locos.getLocoSpeedSteps(99), DCC_SPEED_STEPS_28);
+    assert_int_equal(locos.getLocoCount(), 0);  // asking did not create it
 }
 
 // Merge with existing tests
@@ -459,6 +605,15 @@ int main(int argc, char *argv[]) {
         cmocka_unit_test(test_add_loco_caps_at_max_loco),
         cmocka_unit_test(test_update_loco_rejects_out_of_range_speed),
         cmocka_unit_test(test_update_loco_estop_and_reminder),
+        cmocka_unit_test(test_station_speed_steps_default_to_128),
+        cmocka_unit_test(test_new_loco_inherits_the_station_default),
+        cmocka_unit_test(test_existing_locos_follow_a_later_default_change),
+        cmocka_unit_test(test_named_loco_ignores_a_later_default_change),
+        cmocka_unit_test(test_naming_an_unknown_cab_creates_it_stopped),
+        cmocka_unit_test(test_cab_created_by_naming_keeps_its_override),
+        cmocka_unit_test(test_speed_steps_reject_bad_input),
+        cmocka_unit_test(test_naming_an_unknown_cab_refuses_when_full),
+        cmocka_unit_test(test_unknown_cab_reports_the_station_default),
     };
 
     return cmocka_run_group_tests(all_tests, NULL, NULL);

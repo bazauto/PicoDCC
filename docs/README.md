@@ -22,6 +22,7 @@ workflow — live in [`CLAUDE.md`](../CLAUDE.md). This file is the map of everyt
 | Config storage (flash) | ✅ Working | Last 4KB sector, CRC32, preserved across firmware updates |
 | Layout Maintenance Mode | ✅ Working | LCD-only entry, power lockout, `<E>` save gated behind it |
 | Runtime ACK tuning | ✅ Working | `<D ACK LIMIT\|MIN\|MAX>` adjusts RAM config |
+| Speed step mode | ✅ Working | 128 steps by default; `<D SPEED28\|SPEED128 [cab]>` sets it station-wide or per loco (#8). RAM only |
 | `<D CONFIG>` / `<D CAL>` commands | ❌ **Not reachable** | Handlers exist but are never wired in — see Known Gaps |
 | ACK detection | ❌ Not implemented | Parameters are tunable; the detection logic does not exist |
 | CV programming | ❌ Declarations only | Method bodies are absent on `main` |
@@ -39,7 +40,8 @@ describe them as finished:
 1. **`PicoDccExConfig` is dead code.** `lib/PicoDCCEX/pico_dccex_config.cpp` implements
    `<D CONFIG GET/SET/SAVE/RESET/EXPORT>` and the `<D CAL ...>` calibration workflow, and it
    compiles into the `PicoDCCEX` library — but the class is never constructed and never
-   called. The packet validator accepts only `<D ACK ...>`, so every other `D` subcommand is
+   called. The packet validator accepts only `<D ACK ...>` and `<D SPEED28|SPEED128 [cab]>`,
+   so every other `D` subcommand is
    rejected before reaching a handler. This means `docs/implementation-complete-config-storage.md`
    and `docs/calibration-guide.md` describe commands that do not currently work.
 2. **CV programming is stubs.** `verifyCV()`, `readCVByte()`, `readCVBit()`, `writeCVBytes()`
