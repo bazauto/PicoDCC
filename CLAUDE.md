@@ -181,8 +181,11 @@ Full detail in `docs/architecture.md`.
   `pico_enable_stdio_usb(1)` / `pico_enable_stdio_uart(0)`. USB output is for bring-up
   only; it is not the protocol channel.
 - Throttle commands accept **only the 3-field `<t cab speed dir>` form**.
-- Emergency stop is a **single DCC broadcast** (address `0x00`, instruction `0x41`) that
-  clears the main queue, hardware queue and all loco state — not per-loco commands.
+- Emergency stop is a **repeated DCC broadcast** (address `0x00`, instruction `0x41`, sent
+  `DCC_ESTOP_BROADCAST_REPEATS` times) that clears the main and hardware queues — not per-loco
+  commands. It then **holds** every known loco at speed 0, direction preserved, rather than
+  forgetting them: the reminder stream is what keeps asserting "stopped" for a loco that
+  missed the broadcast, and it needs the table to do it (#3). Track power is left on.
 - Command coverage is partial. Read `lib/PicoDCCEX/` for what is actually implemented;
   never assume behaviour from the upstream DCC-EX docs.
 

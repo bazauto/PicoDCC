@@ -162,12 +162,17 @@ void PicoDccController::dccexLoop()
 
             if (packet.isEmergencyStopCommand())
             {
-                // Emergency stop is a broadcast command - send once and clear everything
+                // Emergency stop is a broadcast to every decoder on the layout.
                 cmd.is_prog = false;  // Emergency stop goes to main track
                 cmd.length = 2;
                 cmd.data[0] = 0x00;   // Broadcast address
                 cmd.data[1] = 0x41;   // Emergency stop instruction
-                cmd.repeats = 0;      // Send once only
+
+                // It used to be sent exactly once, against 3 for an ordinary
+                // throttle change (#3). DCC is an unacknowledged broadcast over
+                // a dirty rail joint, and this is the packet that most needs to
+                // arrive.
+                cmd.repeats = DCC_ESTOP_BROADCAST_REPEATS;
                 
                 // Clear the main command queue to stop all pending commands
                 while (!main_cmd_queue.empty()) {
@@ -183,12 +188,23 @@ void PicoDccController::dccexLoop()
                 // Send the emergency stop command immediately
                 main_cmd_queue.push(cmd);
                 
-                // Send locomotive status responses for each loco (DCC-EX spec requirement)
-                // Must be done BEFORE clearing the locomotive collection
-                pico_locos->sendEmergencyStopResponses();
+                // Hold every known loco at speed 0, direction preserved (#3).
+                //
+                // This used to call forgetAllLocos(), which emptied the table --
+                // so Core 1's reminder generator had nothing left to repeat. A
+                // loco that missed the single broadcast kept its previous speed
+                // and nothing would ever contradict it: the reminders that would
+                // have re-asserted "stopped" went out with the entries. The
+                // train ran on while the station believed everything had stopped.
+                //
+                // Forgetting a loco is the right response to "this loco is
+                // gone", not to "stop everything".
+                pico_locos->stopAllLocos();
                 
-                // Clear all locos to prevent further reminders
-                pico_locos->forgetAllLocos();
+                // Status responses are sent after the stop, so each one reports
+                // the speed the loco is actually being held at rather than the
+                // speed it had a moment ago.
+                pico_locos->sendEmergencyStopResponses();
             }
 
             if (packet.isThrottleCommand() || packet.isFunctionCommand())
@@ -462,8 +478,14 @@ void PicoDccController::emergencyPowerCutoff()
         // Remove all queued commands
     }
     
-    // Clear all locos to prevent reminders
-    pico_locos->forgetAllLocos();
+    // Hold every loco at speed 0 rather than forgetting them, for the same
+    // reason as the <!> broadcast above (#3). The track is dead, so nothing
+    // reaches the rails right now -- but an empty table means that when an
+    // operator restores power the station asserts nothing at all, while the
+    // decoders still hold the speed they were last given. They would simply
+    // resume. Holding them at a stop means the reminder stream says "stopped"
+    // from the first packet after power returns.
+    pico_locos->stopAllLocos();
     
     // Latch the fault: lights the LED, and makes Core 0 tell the host (#4, #42).
     // Called from Core 0 (the heartbeat check in dccexLoop), so the report goes

@@ -15,7 +15,7 @@ workflow — live in [`CLAUDE.md`](../CLAUDE.md). This file is the map of everyt
 | DCC signal generation (PIO) | ✅ Working | Main and programming tracks, separate PIO blocks |
 | Throttle / function / accessory | ✅ Working | `<t>` accepts the 3-field form only |
 | Track power and overcurrent | ✅ Working | Only active where an ADC channel is configured |
-| Emergency stop | ✅ Working | Single DCC broadcast, address `0x00` instruction `0x41` |
+| Emergency stop | ✅ Working | DCC broadcast, address `0x00` instruction `0x41`, sent 5 times; every known loco is then held at speed 0 so the reminders keep asserting it (#3). Track power is left on |
 | Dual-core queue architecture | ✅ Working | Reminders generated on Core 1, self-regulating |
 | LCD + touch UI (LVGL) | ✅ Working | Boot sequence, status screen, log viewer, maintenance UI |
 | Diagnostic logging | ✅ Working | 30-entry circular buffer, viewable on the LCD |

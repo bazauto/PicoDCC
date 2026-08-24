@@ -80,6 +80,33 @@ static bool log_contains(const char *needle)
     return false;
 }
 
+static PicoDccController make_controller()
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    return PicoDccController(main_track, prog_track, 25);
+}
+
+static bool uart_log_contains(const char *needle)
+{
+    for (size_t i = 0; i < uart_output_log.size(); ++i) {
+        if (uart_output_log[i].find(needle) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Test cases
 
 // Test timing safety features
@@ -429,11 +456,13 @@ static void test_emergency_stop(void **state)
     // Process the emergency stop command through Core 1 loop to actually send it
     controller.dccLoop();
 
-    // Check that locos collection was cleared after emergency stop
+    // The locos are *kept* (#3). Emptying the table left Core 1's reminder
+    // generator with nothing to repeat, so a loco that missed the single
+    // broadcast kept its previous speed and nothing ever contradicted it.
     printf("Loco count after emergency stop: %lu\n", (unsigned long)controller.getLocoCount());
-    assert_true(controller.getLocoCount() == 0);
+    assert_int_equal(controller.getLocoCount(), 2);
 
-    // Check that a single emergency stop broadcast packet was sent
+    // Check that the emergency stop broadcast packet was sent
     extern std::vector<uint64_t> sent_track_packets;
     
     // Assert on the bytes the PIO would transmit, not on a locally rebuilt
@@ -775,7 +804,14 @@ static void test_emergency_power_cutoff(void **state)
     // Verify emergency state
     assert_false(controller.isTrackPowerOn(false));
     assert_false(controller.isTrackPowerOn(true));
-    assert_int_equal(controller.getLocoCount(), 0); // All locos should be cleared
+    // The locos are held at a stop, not forgotten (#3). An empty table means
+    // the station asserts nothing when an operator restores power, while the
+    // decoders still hold the speed they were last given -- they would simply
+    // resume.
+    assert_int_equal(controller.getLocoCount(), 2);
+    PicoDccLoco *loco = controller.getLocos()->findLoco(3);
+    assert_non_null(loco);
+    assert_int_equal(loco->getSpeed(), 0);
     assert_true(gpio_states[25]); // Error LED should be on
     
     // Check for emergency cutoff message in UART output
@@ -1089,8 +1125,205 @@ static void test_ISSUE_17_emergency_stop_writes_one_response_per_loco(void **sta
     }
     assert_int_equal(cab_updates, loco_count);
 
-    // And the table is cleared afterwards, so no reminders follow.
-    assert_int_equal(controller.getLocoCount(), 0);
+    // The table is *kept* afterwards, so the reminders that hold everything at
+    // a stop keep flowing (#3).
+    assert_int_equal(controller.getLocoCount(), (size_t)loco_count);
+}
+
+// ─── Emergency stop holds the layout stopped (#3) ───────────────────────────
+
+// The broadcast used to be sent exactly once, against 3 for an ordinary
+// throttle change. DCC is an unacknowledged broadcast over a dirty rail joint,
+// and this is the packet that most needs to arrive.
+static void test_emergency_stop_broadcast_is_repeated(void **state)
+{
+    extern std::vector<uint64_t> sent_track_packets;
+    PicoDccController controller = make_controller();
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+
+    uart_test_write("<t 3 100 1>");
+    controller.dccexLoop();
+    for (int i = 0; i < 8; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    sent_track_packets.clear();
+    uart_test_write("<!>");
+    controller.dccexLoop();
+    for (int i = 0; i < 20; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    int broadcasts = 0;
+    for (size_t i = 0; i < sent_track_packets.size(); ++i) {
+        std::vector<uint8_t> bytes = unpack_sent_packet(sent_track_packets[i]);
+        if (bytes == std::vector<uint8_t>{0x00, 0x41, 0x41}) {
+            broadcasts++;
+        }
+    }
+    assert_int_equal(broadcasts, DCC_ESTOP_BROADCAST_REPEATS);
+}
+
+// The heart of #3. After the broadcast, the reminder stream must keep telling
+// every known loco to stay stopped -- a loco that missed the broadcast would
+// otherwise hold its previous speed with nothing ever contradicting it, and
+// run on while the station believed everything had stopped.
+static void test_emergency_stop_reminders_keep_asserting_stop(void **state)
+{
+    extern std::vector<uint64_t> sent_track_packets;
+    PicoDccController controller = make_controller();
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+
+    uart_test_write("<t 3 100 1>");
+    controller.dccexLoop();
+    for (int i = 0; i < 8; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    uart_test_write("<!>");
+    controller.dccexLoop();
+    for (int i = 0; i < 20; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    // Let the queues drain completely, so what follows can only be reminders.
+    sent_track_packets.clear();
+    for (int i = 0; i < 20; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    bool saw_cab3 = false;
+    for (size_t i = 0; i < sent_track_packets.size(); ++i) {
+        std::vector<uint8_t> bytes = unpack_sent_packet(sent_track_packets[i]);
+        if (bytes.empty() || bytes[0] != 0x03) {
+            continue;
+        }
+        saw_cab3 = true;
+        // 128-step controlled stop, forward: 0x03, 0x3F, 0x80, checksum.
+        // Never the speed 100 it was doing before the stop.
+        assert_int_equal(bytes.size(), 4);
+        assert_int_equal(bytes[1], 0x3F);
+        assert_int_equal(bytes[2], 0x80);
+    }
+    assert_true(saw_cab3);
+}
+
+// Direction is preserved through the stop: the decoder still has to know which
+// way to go when an operator resumes, and reversing a locomotive the moment the
+// throttle came back would be its own incident.
+static void test_emergency_stop_preserves_direction(void **state)
+{
+    extern std::vector<uint64_t> sent_track_packets;
+    PicoDccController controller = make_controller();
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+
+    uart_test_write("<t 3 100 0>");   // reverse
+    controller.dccexLoop();
+    for (int i = 0; i < 8; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    uart_test_write("<!>");
+    controller.dccexLoop();
+    for (int i = 0; i < 20; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    sent_track_packets.clear();
+    for (int i = 0; i < 20; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    bool saw_cab3 = false;
+    for (size_t i = 0; i < sent_track_packets.size(); ++i) {
+        std::vector<uint8_t> bytes = unpack_sent_packet(sent_track_packets[i]);
+        if (bytes.empty() || bytes[0] != 0x03) {
+            continue;
+        }
+        saw_cab3 = true;
+        assert_int_equal(bytes[2], 0x00);  // stop, direction bit still clear
+    }
+    assert_true(saw_cab3);
+}
+
+// The per-loco <l> responses report each loco's own direction. This claimed in
+// a comment to maintain the current direction while sending 1 for every loco --
+// which it could not do while the collection was being emptied a line later.
+static void test_emergency_stop_responses_report_real_direction(void **state)
+{
+    PicoDccController controller = make_controller();
+
+    uart_test_write("<t 3 100 0>");   // reverse
+    controller.dccexLoop();
+    uart_test_write("<t 4 100 1>");   // forward
+    controller.dccexLoop();
+
+    uart_output_log.clear();
+    uart_test_write("<!>");
+    controller.dccexLoop();
+
+    // <l cab reg speedByte functMap>: speed byte 0 is stop reverse, 128 is
+    // stop forward.
+    assert_true(uart_log_contains("<l 3 0 0 0>"));
+    assert_true(uart_log_contains("<l 4 0 128 0>"));
+}
+
+// A per-loco speed step override survives the stop, because the loco does.
+// Before #3 the table went with the broadcast, so every override went with it
+// and the orchestrator had to re-push the whole roster (#8).
+static void test_emergency_stop_keeps_speed_step_overrides(void **state)
+{
+    extern std::vector<uint64_t> sent_track_packets;
+    PicoDccController controller = make_controller();
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+
+    uart_test_write("<t 3 100 1>");
+    controller.dccexLoop();
+    uart_test_write("<D SPEED28 3>");
+    controller.dccexLoop();
+
+    uart_test_write("<!>");
+    controller.dccexLoop();
+    for (int i = 0; i < 20; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    sent_track_packets.clear();
+    for (int i = 0; i < 20; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    bool saw_cab3 = false;
+    for (size_t i = 0; i < sent_track_packets.size(); ++i) {
+        std::vector<uint8_t> bytes = unpack_sent_packet(sent_track_packets[i]);
+        if (bytes.empty() || bytes[0] != 0x03) {
+            continue;
+        }
+        saw_cab3 = true;
+        // Still the 28-step encoding: 0x03, 0x60 (controlled stop forward),
+        // checksum -- three bytes, not the four a 128-step packet would be.
+        assert_int_equal(bytes.size(), 3);
+        assert_int_equal(bytes[1], 0x60);
+    }
+    assert_true(saw_cab3);
 }
 
 // ---------------------------------------------------------------------------
@@ -1254,33 +1487,6 @@ static void test_function_command_does_not_queue_a_speed_change(void **state)
 
 
 // ─── Speed step modes: <D SPEED28|SPEED128 [cab]> (#8) ──────────────────────
-
-static PicoDccController make_controller()
-{
-    track_settings_t main_track;
-    main_track.signal_pin = 18;
-    main_track.ctrl_pin = 22;
-    main_track.adc_num = 0;
-    main_track.short_pin = 16;
-
-    track_settings_t prog_track;
-    prog_track.signal_pin = 19;
-    prog_track.ctrl_pin = 21;
-    prog_track.adc_num = 1;
-    prog_track.short_pin = 17;
-
-    return PicoDccController(main_track, prog_track, 25);
-}
-
-static bool uart_log_contains(const char *needle)
-{
-    for (size_t i = 0; i < uart_output_log.size(); ++i) {
-        if (uart_output_log[i].find(needle) != std::string::npos) {
-            return true;
-        }
-    }
-    return false;
-}
 
 // Drive a cab and return the last non-idle packet transmitted for it.
 static std::vector<uint8_t> last_packet_for_cab(PicoDccController &controller,
@@ -1749,6 +1955,11 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_speed_command_explicit_cab_zero_is_station_wide, setup, teardown),
         cmocka_unit_test_setup_teardown(test_speed_command_changes_the_packets_on_the_rails, setup, teardown),
         cmocka_unit_test_setup_teardown(test_speed_command_for_unknown_cab_is_accepted, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_emergency_stop_broadcast_is_repeated, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_emergency_stop_reminders_keep_asserting_stop, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_emergency_stop_preserves_direction, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_emergency_stop_responses_report_real_direction, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_emergency_stop_keeps_speed_step_overrides, setup, teardown),
         cmocka_unit_test_setup_teardown(test_ISSUE_4_timing_cutoff_is_reported_on_the_wire, setup, teardown),
         cmocka_unit_test_setup_teardown(test_ISSUE_4_cutoff_is_reported_once_not_per_pass, setup, teardown),
         cmocka_unit_test_setup_teardown(test_ISSUE_42_error_led_stays_lit_after_the_cutoff, setup, teardown),

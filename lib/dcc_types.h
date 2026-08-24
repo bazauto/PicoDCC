@@ -54,6 +54,18 @@ static inline bool dcc_is_valid_speed_step_mode(int steps)
     return steps == DCC_SPEED_STEPS_28 || steps == DCC_SPEED_STEPS_128;
 }
 
+// How many times the <!> broadcast emergency stop is transmitted (#3). It was
+// sent once, against 3 for an ordinary throttle change, on an unacknowledged
+// broadcast over a dirty rail joint.
+//
+// Higher than the 3 an explicit command gets, because this is the one packet a
+// locomotive the station has never heard of will ever receive: after a reboot
+// the loco table is empty, but decoders still hold the speed they were last
+// given, and for those the broadcast is the only thing that stops them. For
+// locos the station does know, the reminder stream re-asserts speed 0 until an
+// operator commands otherwise, so it is not carrying this alone.
+#define DCC_ESTOP_BROADCAST_REPEATS 5
+
 // 1..10239: the DCC address range this firmware accepts. Address 0 is the
 // broadcast address and must be rejected, not silently retargeted (#12);
 // anything above the 14-bit long-address space must be rejected rather than
