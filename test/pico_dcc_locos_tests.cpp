@@ -582,6 +582,121 @@ void test_unknown_cab_reports_the_station_default(void **state) {
     assert_int_equal(locos.getLocoCount(), 0);  // asking did not create it
 }
 
+// --------------------------------------------------------------------------
+// stopAllLocos(): the <!> broadcast holds the layout stopped (#3)
+// --------------------------------------------------------------------------
+
+// The locos stay in the collection, at speed 0. Emptying it left Core 1's
+// reminder generator with nothing to repeat, so a loco that missed the single
+// broadcast kept its previous speed with nothing ever contradicting it.
+void test_stop_all_locos_keeps_them_at_speed_zero(void **state) {
+    PicoDccLocos locos;
+
+    for (int cab = 1; cab <= 3; cab++) {
+        char buffer[32];
+        snprintf(buffer, sizeof(buffer), "t %d 100 1", cab);
+        PicoDccExPacket packet(buffer);
+        raw_dcc_cmd_t cmd;
+        assert_true(locos.addLoco(&packet, cmd));
+    }
+
+    assert_int_equal(locos.stopAllLocos(), 3);  // all three were moving
+    assert_int_equal(locos.getLocoCount(), 3);  // and all three are still here
+
+    for (int cab = 1; cab <= 3; cab++) {
+        PicoDccLoco *loco = locos.findLoco((uint16_t)cab);
+        assert_non_null(loco);
+        assert_int_equal(loco->getSpeed(), 0);
+    }
+}
+
+// The reminder stream is what actually holds the layout: it must emit a stop
+// for the loco, not the speed it was doing before.
+void test_reminders_after_stop_all_assert_a_stop(void **state) {
+    PicoDccLocos locos;
+
+    const char *buffer = "t 3 100 1";
+    PicoDccExPacket packet((char *)buffer);
+    raw_dcc_cmd_t cmd;
+    locos.addLoco(&packet, cmd);
+
+    locos.stopAllLocos();
+
+    raw_dcc_cmd_t reminder;
+    assert_true(locos.getNextReminder(reminder));
+    assert_int_equal(reminder.data[0], 0x03);
+    assert_int_equal(reminder.data[1], 0x3F);
+    assert_int_equal(reminder.data[2], 0x80);  // 128-step controlled stop, forward
+}
+
+// Direction is preserved: the decoder still needs to know which way to go when
+// an operator resumes.
+void test_stop_all_locos_preserves_direction(void **state) {
+    PicoDccLocos locos;
+
+    const char *forward = "t 3 100 1";
+    PicoDccExPacket p1((char *)forward);
+    raw_dcc_cmd_t c1;
+    locos.addLoco(&p1, c1);
+
+    const char *reverse = "t 4 100 0";
+    PicoDccExPacket p2((char *)reverse);
+    raw_dcc_cmd_t c2;
+    locos.addLoco(&p2, c2);
+
+    locos.stopAllLocos();
+
+    assert_true(locos.findLoco(3)->isForward());
+    assert_false(locos.findLoco(4)->isForward());
+}
+
+// Already-stopped locos are not counted as having been stopped, and are left
+// exactly as they were.
+void test_stop_all_locos_counts_only_the_moving(void **state) {
+    PicoDccLocos locos;
+
+    const char *stopped = "t 3 0 1";
+    PicoDccExPacket p1((char *)stopped);
+    raw_dcc_cmd_t c1;
+    locos.addLoco(&p1, c1);
+
+    const char *moving = "t 4 100 1";
+    PicoDccExPacket p2((char *)moving);
+    raw_dcc_cmd_t c2;
+    locos.addLoco(&p2, c2);
+
+    assert_int_equal(locos.stopAllLocos(), 1);
+    assert_int_equal(locos.getLocoCount(), 2);
+}
+
+// A per-loco speed step override survives, because the loco does (#8).
+void test_stop_all_locos_keeps_speed_step_overrides(void **state) {
+    PicoDccLocos locos;
+
+    const char *buffer = "t 3 100 1";
+    PicoDccExPacket packet((char *)buffer);
+    raw_dcc_cmd_t cmd;
+    locos.addLoco(&packet, cmd);
+    assert_true(locos.setLocoSpeedSteps(3, DCC_SPEED_STEPS_28));
+
+    locos.stopAllLocos();
+
+    assert_int_equal(locos.getLocoSpeedSteps(3), DCC_SPEED_STEPS_28);
+
+    raw_dcc_cmd_t reminder;
+    assert_true(locos.getNextReminder(reminder));
+    assert_int_equal(reminder.length, 2);
+    assert_int_equal(reminder.data[1], 0x60);  // 28-step controlled stop, forward
+}
+
+// An empty collection is not an error, and does not fabricate a stop.
+void test_stop_all_locos_on_an_empty_collection(void **state) {
+    PicoDccLocos locos;
+
+    assert_int_equal(locos.stopAllLocos(), 0);
+    assert_int_equal(locos.getLocoCount(), 0);
+}
+
 // Merge with existing tests
 int main(int argc, char *argv[]) {
     printf("Running Tests\n");
@@ -614,6 +729,12 @@ int main(int argc, char *argv[]) {
         cmocka_unit_test(test_speed_steps_reject_bad_input),
         cmocka_unit_test(test_naming_an_unknown_cab_refuses_when_full),
         cmocka_unit_test(test_unknown_cab_reports_the_station_default),
+        cmocka_unit_test(test_stop_all_locos_keeps_them_at_speed_zero),
+        cmocka_unit_test(test_reminders_after_stop_all_assert_a_stop),
+        cmocka_unit_test(test_stop_all_locos_preserves_direction),
+        cmocka_unit_test(test_stop_all_locos_counts_only_the_moving),
+        cmocka_unit_test(test_stop_all_locos_keeps_speed_step_overrides),
+        cmocka_unit_test(test_stop_all_locos_on_an_empty_collection),
     };
 
     return cmocka_run_group_tests(all_tests, NULL, NULL);

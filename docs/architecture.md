@@ -109,7 +109,8 @@ so it can never stall Core 1's DCC timing.
   - Coordinates Core 0 and Core 1 operations
   - Manages main command queue (Core 0) and hardware queue synchronization
   - Implements Core 1 health monitoring via heartbeat mechanism
-  - Handles emergency stop workflow (queue clearing + broadcast packet)
+  - Handles emergency stop workflow (queue clearing, repeated broadcast packet, and holding
+    every known loco at speed 0 so the reminders keep asserting it)
 - **Key Methods**: `dccLoop()` (Core 1), `dccexLoop()` (Core 0)
 
 ### PicoDccEx
@@ -389,9 +390,29 @@ are safety requirements rather than UX choices. Do not relax them.
 ## DCC Protocol Implementation
 
 ### Emergency Stop Behavior
-- Implements **DCC-compliant broadcast** emergency stop (address 0x00, instruction 0x41)
-- **Single packet approach**: One broadcast command instead of per-locomotive commands
-- **Complete system reset**: Clears main queue, hardware queue, and all locomotive states
+- Implements **DCC-compliant broadcast** emergency stop (address 0x00, instruction 0x41),
+  one broadcast rather than per-locomotive commands
+- **Repeated `DCC_ESTOP_BROADCAST_REPEATS` times** (5). It was sent exactly once, against 3
+  for an ordinary throttle change, on an unacknowledged broadcast over a dirty rail joint
+  (#3). It is repeated harder than an explicit command because it is the only packet a
+  locomotive the station has never heard of will ever receive — after a reboot the loco table
+  is empty, but decoders still hold the speed they were last given
+- **Queues are cleared**, main and hardware, so nothing pending outruns the stop
+- **The loco table is kept, and every loco held at speed 0** with its direction preserved.
+  This used to call `forgetAllLocos()`, which emptied the table — so Core 1's reminder
+  generator had nothing left to repeat, and a loco that missed the single broadcast kept its
+  previous speed with nothing ever contradicting it. The train ran on while the station
+  believed everything had stopped (#3). Forgetting a loco is the right response to "this loco
+  is gone", not to "stop everything"
+- **The reminder stream therefore keeps asserting "stopped"** until an operator commands
+  otherwise. Speed 0 is a controlled stop rather than a repeated emergency stop, so resuming
+  needs no clearing step
+- **Track power is left on.** Cutting it would mean every Safe-Stop needs an explicit `<1>`
+  to recover, and would drop the reminder stream that is doing the holding
+- `emergencyPowerCutoff()` holds the locos the same way. The track is dead so nothing reaches
+  the rails at the time, but an empty table would mean the station asserts nothing when an
+  operator restores power, while the decoders still hold their last speed — they would simply
+  resume
 - **Immediate effect**: Preempts all other traffic for instant response
 
 ### Command Processing Flow
@@ -443,7 +464,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **270 total tests** across all components: Controller (40), DCCEX (9), Locos (27), Loco (28), Packet (45), Track (37), Config Storage (11), Display (9), Diagnostic (9), Wire Format (37), PIO Wire Format (18)
+- **281 total tests** across all components: Controller (45), DCCEX (9), Locos (33), Loco (28), Packet (45), Track (37), Config Storage (11), Display (9), Diagnostic (9), Wire Format (37), PIO Wire Format (18)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

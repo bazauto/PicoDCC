@@ -44,6 +44,12 @@ public:
     void forgetLoco(uint16_t address);
     void forgetAllLocos();
 
+    // Sets every known loco to speed 0, preserving direction (#3). Used by the
+    // <!> broadcast emergency stop, so that the reminder stream keeps asserting
+    // "stopped" for locos that may have missed the broadcast. Returns the
+    // number of locos that were actually moving.
+    size_t stopAllLocos();
+
     PicoDccLoco *findLoco(uint16_t address);
     
     // Update an existing loco's throttle settings while maintaining thread safety

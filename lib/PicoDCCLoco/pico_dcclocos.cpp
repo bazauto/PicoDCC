@@ -163,6 +163,32 @@ void PicoDccLocos::forgetLoco(uint16_t address)
     sem_release(&locos_lock);
 }
 
+size_t PicoDccLocos::stopAllLocos()
+{
+    sem_acquire_blocking(&locos_lock);
+
+    size_t stopped = 0;
+    for (size_t i = 0; i < locos.size(); ++i)
+    {
+        // Direction is preserved: the decoder still needs to know which way to
+        // go when an operator resumes, and changing it here would reverse a
+        // locomotive the moment the throttle came back.
+        //
+        // Speed 0, not the estop sentinel. The broadcast has already slammed
+        // everything to a halt; what the reminders have to do from now on is
+        // keep saying "stopped", and a controlled stop is the packet that says
+        // that. Repeating an emergency stop forever would also mean an operator
+        // resuming had to clear it first.
+        if (locos[i].updateControl(locos[i].isForward(), 0))
+        {
+            stopped++;
+        }
+    }
+
+    sem_release(&locos_lock);
+    return stopped;
+}
+
 void PicoDccLocos::forgetAllLocos()
 {
     sem_acquire_blocking(&locos_lock);
@@ -285,12 +311,16 @@ void PicoDccLocos::sendEmergencyStopResponses()
     // This is required by DCC-EX specification for emergency stop
     for (size_t i = 0; i < locos.size(); ++i) {
         if (locos[i].isValid()) {
-            // Create emergency stop status update packet
+            // Create emergency stop status update packet. The direction is
+            // the loco's own: this said "forward" for every loco while claiming
+            // in a comment to maintain the current direction, which it could
+            // not do while the collection was being emptied a line later (#3).
+            // With the locos retained, it can.
             pico_dccex_packet emergency_status = {
                 't',                    // throttle command opcode
                 (int)locos[i].getAddress(),  // locomotive address
-                0,                      // speed = 0 (emergency stop)
-                1,                      // direction = forward (maintain current direction)
+                0,                      // speed = 0, matching the held state
+                locos[i].isForward() ? 1 : 0,
                 false,                  // power_on (not used for throttle)
                 DCCEX_TRACK_MAIN       // track (not used for throttle)
             };
