@@ -10,6 +10,7 @@ PicoDccLocos::PicoDccLocos()
     sem_init(&locos_lock, 1, 1);
     locos.reserve(MAX_LOCO);
     last_loco_reminder = INVALID_LOCO_ADDR;
+    station_speed_steps = (uint8_t)DCC_DEFAULT_SPEED_STEPS;
 }
 
 PicoDccLoco *PicoDccLocos::findLoco(uint16_t address)
@@ -91,7 +92,7 @@ bool PicoDccLocos::addLoco(PicoDccExPacket *packet, raw_dcc_cmd_t &cmd)
 {
     // Construction and validation touch no shared state, so they happen
     // outside the lock.
-    PicoDccLoco newLoco(packet);
+    PicoDccLoco newLoco(packet, station_speed_steps);
     if (!newLoco.isValid())
     {
         memset(&cmd, 0, sizeof(cmd));
@@ -177,6 +178,103 @@ size_t PicoDccLocos::getLocoCount()
     size_t count = locos.size();
     sem_release(&locos_lock);
     return count;
+}
+
+bool PicoDccLocos::setStationSpeedSteps(uint8_t steps)
+{
+    if (!dcc_is_valid_speed_step_mode(steps))
+    {
+        LOG_WARNING(COMPONENT_DCCEX, "Station speed step mode rejected: not 28 or 128");
+        return false;
+    }
+
+    sem_acquire_blocking(&locos_lock);
+
+    station_speed_steps = steps;
+
+    // Locos already following the default move with it; ones named by a
+    // <D SPEED28|SPEED128 cab> stay where they were put.
+    for (size_t i = 0; i < locos.size(); ++i)
+    {
+        locos[i].applyDefaultSpeedSteps(steps);
+    }
+
+    sem_release(&locos_lock);
+    return true;
+}
+
+uint8_t PicoDccLocos::getStationSpeedSteps()
+{
+    sem_acquire_blocking(&locos_lock);
+    uint8_t steps = station_speed_steps;
+    sem_release(&locos_lock);
+    return steps;
+}
+
+bool PicoDccLocos::setLocoSpeedSteps(uint16_t address, uint8_t steps)
+{
+    if (!dcc_is_valid_loco_address(address))
+    {
+        LOG_WARNING(COMPONENT_DCCEX, "Speed step mode rejected: cab out of range");
+        return false;
+    }
+
+    if (!dcc_is_valid_speed_step_mode(steps))
+    {
+        LOG_WARNING(COMPONENT_DCCEX, "Speed step mode rejected: not 28 or 128");
+        return false;
+    }
+
+    // Construction happens outside the lock, as in addLoco(); it touches no
+    // shared state. It is discarded unnamed if the loco already exists.
+    PicoDccLoco newLoco(address, steps);
+    newLoco.setSpeedSteps(steps);
+
+    sem_acquire_blocking(&locos_lock);
+
+    for (size_t i = 0; i < locos.size(); ++i)
+    {
+        if (locos[i].getAddress() == address)
+        {
+            locos[i].setSpeedSteps(steps);
+            sem_release(&locos_lock);
+            return true;
+        }
+    }
+
+    // size() read inside the lock, per CLAUDE.md rule 5.
+    if (locos.size() >= MAX_LOCO)
+    {
+        sem_release(&locos_lock);
+        LOG_WARNING(COMPONENT_DCCEX, "Speed step mode rejected: collection full");
+        return false;
+    }
+
+    // Unknown cab: create it stopped and forward. The reminder stream will now
+    // assert "speed 0" for this address, which is the safe direction to be
+    // wrong in -- it can only ever hold a locomotive still.
+    locos.push_back(newLoco);
+
+    sem_release(&locos_lock);
+    return true;
+}
+
+uint8_t PicoDccLocos::getLocoSpeedSteps(uint16_t address)
+{
+    sem_acquire_blocking(&locos_lock);
+
+    uint8_t steps = station_speed_steps;
+    for (size_t i = 0; i < locos.size(); ++i)
+    {
+        if (locos[i].getAddress() == address)
+        {
+            steps = locos[i].getSpeedSteps();
+            break;
+        }
+    }
+
+    sem_release(&locos_lock);
+    return steps;
 }
 
 void PicoDccLocos::sendEmergencyStopResponses()

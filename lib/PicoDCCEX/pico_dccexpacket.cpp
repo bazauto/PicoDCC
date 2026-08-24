@@ -145,17 +145,55 @@ void PicoDccExPacket::decodePacket(char *buffer)
         break;
 
     // Config commands
-    case ('D'):  // <D ACK ...> commands
-        // Parse: <D ACK LIMIT value>, <D ACK MIN value>, <D ACK MAX value>
+    case ('D'):  // <D ACK ...> and <D SPEED28|SPEED128 [cab]>
         {
+            packet.addr = -1;  // Unrecognised until a branch below claims it
+
             char subcommand[16] = {0};
+            int after_sub = -1;
+            if (sscanf(buffer, "D %15s%n", subcommand, &after_sub) != 1 || after_sub < 0) {
+                break;
+            }
+
+            // <D SPEED28> / <D SPEED128>, optionally followed by a cab (#8).
+            //
+            // DCC-EX's own command is station-wide and takes no argument; the
+            // trailing cab is our extension, so the DCC-EX form keeps working
+            // unchanged and JMRI never notices the difference.
+            if (strcmp(subcommand, "SPEED28") == 0 || strcmp(subcommand, "SPEED128") == 0) {
+                packet.addr = DCCEX_CONFIG_SPEED;
+                packet.param1 = (strcmp(subcommand, "SPEED28") == 0)
+                                    ? DCC_SPEED_STEPS_28
+                                    : DCC_SPEED_STEPS_128;
+
+                int cab = 0;
+                int consumed = -1;
+                if (is_only_trailing_space(buffer + after_sub)) {
+                    // No cab at all: the station-wide form. Cab 0 is not a
+                    // legal DCC loco address, so it is safe as "no cab".
+                    packet.param2 = 0;
+                } else if (sscanf(buffer + after_sub, " %d%n", &cab, &consumed) == 1
+                           && consumed >= 0
+                           && is_only_trailing_space(buffer + after_sub + consumed)) {
+                    packet.param2 = cab;
+                } else {
+                    // Something followed the subcommand that is not a bare
+                    // number -- a fourth field, or a malformed cab. Guessing
+                    // here would silently change the encoding for the wrong
+                    // locomotive, so refuse the whole command (#7).
+                    packet.addr = -1;
+                }
+                break;
+            }
+
+            // Parse: <D ACK LIMIT value>, <D ACK MIN value>, <D ACK MAX value>
             char param_name[16] = {0};
             int value = 0;
-            
+
             if (sscanf(buffer, "D %15s %15s %d", subcommand, param_name, &value) == 3) {
                 // Check for ACK subcommand
                 if (strcmp(subcommand, "ACK") == 0) {
-                    packet.addr = 1;  // ACK subcommand = 1
+                    packet.addr = DCCEX_CONFIG_ACK;  // ACK subcommand = 1
                     
                     // Parse parameter type
                     if (strcmp(param_name, "LIMIT") == 0) {
@@ -208,6 +246,15 @@ void PicoDccExPacket::validatePacket() {
 
     // Config commands with parameters - validated through parsing
     case ('D'):
+        // <D SPEED28|SPEED128 [cab]>: the parse already established that the
+        // step count is 28 or 128. The cab is deliberately *not* range-checked
+        // here -- an out-of-range cab has to reach the controller so that it
+        // can answer <X> rather than be dropped in silence (#4, #8).
+        if (packet.addr == DCCEX_CONFIG_SPEED) {
+            valid_packet = true;
+            break;
+        }
+
         // <D ACK ...> commands validated if addr != -1 (successful parse)
         if (packet.addr != -1) {
             // Additional range validation based on parameter type

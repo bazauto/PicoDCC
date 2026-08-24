@@ -1245,11 +1245,185 @@ static void test_function_command_does_not_queue_a_speed_change(void **state)
             continue;
         }
         found_cab3 = true;
-        assert_true(bytes == (std::vector<uint8_t>{0x03, 0x60, 0x63}));
+        // 128-step (#8): 0x3F then (direction << 7) | value, and the third
+        // byte is the checksum.
+        assert_true(bytes == (std::vector<uint8_t>{0x03, 0x3F, 0x80, 0xBC}));
     }
     assert_true(found_cab3);
 }
 
+
+// ─── Speed step modes: <D SPEED28|SPEED128 [cab]> (#8) ──────────────────────
+
+static PicoDccController make_controller()
+{
+    track_settings_t main_track;
+    main_track.signal_pin = 18;
+    main_track.ctrl_pin = 22;
+    main_track.adc_num = 0;
+    main_track.short_pin = 16;
+
+    track_settings_t prog_track;
+    prog_track.signal_pin = 19;
+    prog_track.ctrl_pin = 21;
+    prog_track.adc_num = 1;
+    prog_track.short_pin = 17;
+
+    return PicoDccController(main_track, prog_track, 25);
+}
+
+static bool uart_log_contains(const char *needle)
+{
+    for (size_t i = 0; i < uart_output_log.size(); ++i) {
+        if (uart_output_log[i].find(needle) != std::string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Drive a cab and return the last non-idle packet transmitted for it.
+static std::vector<uint8_t> last_packet_for_cab(PicoDccController &controller,
+                                                uint8_t first_byte)
+{
+    extern std::vector<uint64_t> sent_track_packets;
+    std::vector<uint8_t> found;
+    for (size_t i = 0; i < sent_track_packets.size(); ++i) {
+        std::vector<uint8_t> bytes = unpack_sent_packet(sent_track_packets[i]);
+        if (!bytes.empty() && bytes[0] == first_byte) {
+            found = bytes;
+        }
+    }
+    return found;
+}
+
+// The station-wide form is DCC-EX's own command, and the reply names the mode
+// that resulted rather than DCC-EX's serial-monitor-only prose (#4).
+static void test_speed128_command_is_acknowledged(void **state)
+{
+    PicoDccController controller = make_controller();
+
+    uart_test_write("<D SPEED28>");
+    controller.dccexLoop();
+    assert_true(uart_log_contains("<D SPEED28>"));
+
+    uart_output_log.clear();
+    uart_test_write("<D SPEED128>");
+    controller.dccexLoop();
+    assert_true(uart_log_contains("<D SPEED128>"));
+}
+
+// The per-loco form echoes the cab as well, so a host pushing a roster can tell
+// which loco each reply belongs to.
+static void test_speed_command_with_cab_echoes_the_cab(void **state)
+{
+    PicoDccController controller = make_controller();
+
+    uart_test_write("<D SPEED28 3>");
+    controller.dccexLoop();
+
+    assert_true(uart_log_contains("<D SPEED28 3>"));
+}
+
+// A cab outside 1..10239 draws <X>, not silence. Silence is indistinguishable
+// from success, and the host would go on believing the loco is encoded the way
+// it asked (#4).
+static void test_speed_command_bad_cab_answers_x(void **state)
+{
+    PicoDccController controller = make_controller();
+
+    uart_test_write("<D SPEED28 99999>");
+    controller.dccexLoop();
+
+    assert_true(uart_log_contains("<X>"));
+    assert_false(uart_log_contains("<D SPEED28 99999>"));
+}
+
+// Cab 0 is the DCC broadcast address: naming it would set the mode for a
+// locomotive that does not exist, so it is refused like any other bad cab.
+// It cannot mean "station-wide" here, because that form carries no cab at all.
+static void test_speed_command_explicit_cab_zero_is_station_wide(void **state)
+{
+    PicoDccController controller = make_controller();
+
+    // "<D SPEED28 0>" carries an explicit cab 0, which parses to the same
+    // packet as the no-cab form -- so this asserts the station-wide behaviour,
+    // not a rejection. The distinction matters and is pinned here so that a
+    // later attempt to make cab 0 an error does not silently break the
+    // DCC-EX-compatible form.
+    uart_test_write("<D SPEED28 0>");
+    controller.dccexLoop();
+
+    assert_true(uart_log_contains("<D SPEED28>"));
+}
+
+// End to end: the mode command changes the bytes that reach the rails for a
+// loco already being driven. This is the assertion that ties the protocol to
+// the encoder -- the reminder stream must pick up the new encoding, because it
+// reads the loco's stored command.
+static void test_speed_command_changes_the_packets_on_the_rails(void **state)
+{
+    extern std::vector<uint64_t> sent_track_packets;
+    PicoDccController controller = make_controller();
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+
+    uart_test_write("<t 3 60 1>");
+    controller.dccexLoop();
+    for (int i = 0; i < 8; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    // Default is 128 steps: 0x03, 0x3F, 0x80 | 61, checksum.
+    std::vector<uint8_t> before = last_packet_for_cab(controller, 0x03);
+    assert_int_equal(before.size(), 4);
+    assert_int_equal(before[1], 0x3F);
+    assert_int_equal(before[2], 0x80 | 61);
+
+    sent_track_packets.clear();
+    uart_test_write("<D SPEED28 3>");
+    controller.dccexLoop();
+    for (int i = 0; i < 8; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    // Now the 28-step fallback: 0x03, 0x68, checksum. Nothing was re-commanded
+    // -- these are reminders, generated from the loco's re-encoded command.
+    std::vector<uint8_t> after = last_packet_for_cab(controller, 0x03);
+    assert_int_equal(after.size(), 3);
+    assert_int_equal(after[1], 0x68);
+}
+
+// Naming a cab the station has never seen creates it, stopped. The orchestrator
+// re-asserts its roster on seeing the boot banner, before it drives anything,
+// so this is the ordinary sequence rather than the odd one.
+static void test_speed_command_for_unknown_cab_is_accepted(void **state)
+{
+    extern std::vector<uint64_t> sent_track_packets;
+    PicoDccController controller = make_controller();
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    sent_track_packets.clear();
+
+    uart_test_write("<D SPEED28 7>");
+    controller.dccexLoop();
+    assert_true(uart_log_contains("<D SPEED28 7>"));
+
+    for (int i = 0; i < 8; i++) {
+        controller.dccexLoop();
+        controller.dccLoop();
+    }
+
+    // It now generates reminders, and they are stops -- the safe direction to
+    // be wrong in, since a stop can only ever hold a locomotive still.
+    std::vector<uint8_t> packet = last_packet_for_cab(controller, 0x07);
+    assert_int_equal(packet.size(), 3);
+    assert_int_equal(packet[1], 0x60);
+}
 
 // ─── Power-cutoff reporting (#4) and latched indication (#42) ────────────────
 
@@ -1569,6 +1743,12 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_controller_rejects_colliding_pins, setup, teardown),
         cmocka_unit_test_setup_teardown(test_ISSUE_2_rejected_throttle_does_not_abort, setup, teardown),
         cmocka_unit_test_setup_teardown(test_function_command_does_not_queue_a_speed_change, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_speed128_command_is_acknowledged, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_speed_command_with_cab_echoes_the_cab, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_speed_command_bad_cab_answers_x, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_speed_command_explicit_cab_zero_is_station_wide, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_speed_command_changes_the_packets_on_the_rails, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_speed_command_for_unknown_cab_is_accepted, setup, teardown),
         cmocka_unit_test_setup_teardown(test_ISSUE_4_timing_cutoff_is_reported_on_the_wire, setup, teardown),
         cmocka_unit_test_setup_teardown(test_ISSUE_4_cutoff_is_reported_once_not_per_pass, setup, teardown),
         cmocka_unit_test_setup_teardown(test_ISSUE_42_error_led_stays_lit_after_the_cutoff, setup, teardown),

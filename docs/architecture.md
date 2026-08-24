@@ -123,13 +123,14 @@ so it can never stall Core 1's DCC timing.
   | Opcode | Form | Notes |
   |---|---|---|
   | `<0>` / `<1>` | optional `MAIN` / `PROG` | Track power off/on |
-  | `<t>` | `<t cab speed dir>` | **3-field form only**; the legacy 4-field form is rejected. Cab validated **1–10239**, speed **0–126 or -1**; `-1` is a real per-loco emergency stop (`0x41 \| direction`, the same instruction byte as `<!>`) |
+  | `<t>` | `<t cab speed dir>` | **3-field form only**; the legacy 4-field form is rejected. Cab validated **1–10239**, speed **0–126 or -1**; `-1` is a real per-loco emergency stop |
   | `<F>` | `<F cab func state>` | Accepted and cab-validated, but **inert** — functions are not implemented (`updateFunct()` is a stub). It no longer writes the function number into the loco's speed (#1) |
   | `<a>` | `<a addr subaddr activate>` | Accessory; address validated 1–2044 |
   | `<!>` | no parameters | Emergency stop broadcast |
   | `<s>` | no parameters | Status |
   | `<#>` | no parameters | Number of supported cabs |
   | `<D ACK LIMIT\|MIN\|MAX v>` | | Runtime ACK tuning, range-validated |
+  | `<D SPEED28\|SPEED128>` | optional trailing `cab` | Speed step mode (#8). No cab sets the **station default**; a cab sets a **per-loco override** that a later station-wide command will not move. Replies with the resulting mode (`<D SPEED128 3>`), or `<X>` for a cab outside 1–10239 or a full loco table. RAM only, never persisted |
   | `<E>` | no parameters | Save config to flash; maintenance mode only |
 
 - **Parsed but rejected**: `<S>` (sensors) is consumed by the parser but never marked valid,
@@ -203,9 +204,29 @@ so it can never stall Core 1's DCC timing.
   emergency stop. Direction is applied as a bit test rather than `direction * 128`, so a
   direction field carrying anything other than 0 or 1 cannot overflow the byte.
 
-- **The rail-side speed byte is 28-step**, built in `PicoDccLoco::generateThrottleCommand()`.
-  The wire's 0-126 speed is scaled to a 0-28 step, then encoded per S-9.2 as `01DCSSSS`,
-  where the 5-bit speed value is `(SSSS << 1) | C`:
+- **The rail-side speed byte is 128-step by default**, built in
+  `PicoDccLoco::generateThrottleCommand()`. S-9.2.1 advanced operations: instruction byte
+  `0x3F`, then one byte of `(direction << 7) | value`. The `<t>` wire speed maps to that
+  value **N + 1**, except that 0 maps to 0 — the same off-by-one the `<l>` reply above has,
+  and now the two agree:
+
+  | `<t>` speed | Value | Byte (forward / reverse) |
+  |---|---|---|
+  | `0` (stop) | 0 | `0x80` / `0x00` |
+  | `-1` (emergency stop) | 1 | `0x81` / `0x01` |
+  | `1` (slowest step) | 2 | `0x82` / `0x02` |
+  | `126` (full) | 127 | `0xFF` / `0x7F` |
+
+  Every one of the 127 values a host can send therefore produces a distinct packet, which is
+  what the orchestrator's braking model (`layout-orchestration` `docs/braking.md`) and its
+  `crawl_speed_step` assume. This is a **two-byte instruction**, so a long-address throttle
+  packet is four payload bytes plus the checksum — exactly filling the 64-bit PIO word to
+  `DCC_PACKET_FIRST_BYTE`, with no room for a fifth. `pico_dcc_pio_tests.cpp` asserts that
+  packet decodes correctly off the emulated rails.
+
+- **28 steps is retained as a per-loco fallback**, selected by `<D SPEED28 cab>` for a decoder
+  that cannot do 128. The wire's 0-126 speed is scaled to a 0-28 step, then encoded per S-9.2
+  as `01DCSSSS`, where the 5-bit speed value is `(SSSS << 1) | C`:
 
   | Speed value | Meaning | Byte (forward / reverse) |
   |---|---|---|
@@ -218,8 +239,16 @@ so it can never stall Core 1's DCC timing.
   expression was written for moving steps only. **Every ordinary stop on the layout was an
   emergency stop**, so a locomotive commanded to stop slammed to a halt instead of
   decelerating under its own momentum CV, and the final command of an orchestrator braking
-  ramp was discarded (#48). Note the 126-to-28 scaling is coarse at the bottom: wire speeds
-  1-5 all collapse to step 1. 128-step packets are #8.
+  ramp was discarded (#48). The 126-to-28 scaling is coarse at the bottom — wire speeds 1-5
+  all collapse to step 1 — which is why it is the fallback and not the default (#8).
+
+- **Speed step mode lives in RAM and is never persisted.** The orchestrator owns the loco
+  roster and re-asserts each loco's mode when it sees the station's boot banner, so a copy in
+  flash could only ever disagree with it. A `PicoDccLoco` follows the station default until a
+  `<D SPEED28|SPEED128 cab>` names it; naming it re-encodes its stored command in place, so
+  Core 1's reminder stream picks the new encoding up without waiting for a throttle command.
+  Naming a cab the station has never seen **creates it**, stopped and facing forward, so the
+  encoding is already right when the first throttle command arrives.
 
 ### PicoDccLoco
 - **Role**: Individual locomotive state management
@@ -348,6 +377,7 @@ DCC output stops, and decoders that lose the signal fall back to DC mode — whi
   - Main track power is locked out — `<1 MAIN>` returns `<X>`
   - The programming track continues to operate normally
   - `<D ACK ...>` adjusts runtime configuration in RAM
+  - `<D SPEED28|SPEED128 [cab]>` sets the speed step mode, station-wide or per loco (#8)
   - `<E>` saves configuration to flash — legal *only* in this mode
   - Throttle, function and accessory commands are silently rejected
 - **Exit**: manual, from the LCD. There is no timeout. Main track power stays **off** after
@@ -413,7 +443,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **217 total tests** across all components: Controller (26), DCCEX (9), Locos (18), Loco (20), Packet (35), Track (37), Config Storage (11), Display (9), Diagnostic (9), Wire Format (28), PIO Wire Format (15)
+- **270 total tests** across all components: Controller (40), DCCEX (9), Locos (27), Loco (28), Packet (45), Track (37), Config Storage (11), Display (9), Diagnostic (9), Wire Format (37), PIO Wire Format (18)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation
@@ -490,7 +520,8 @@ so they are not mistaken for working features:
 
 - **`PicoDccExConfig` is dead code.** `lib/PicoDCCEX/pico_dccex_config.cpp` implements
   `<D CONFIG ...>` and `<D CAL ...>` handlers, and the class compiles into `PicoDCCEX`, but it
-  is never constructed or called. The packet validator accepts only `<D ACK ...>`, so every
+  is never constructed or called. The packet validator accepts only `<D ACK ...>` and
+  `<D SPEED28|SPEED128 [cab]>`, so every
   other `D` subcommand is rejected before it reaches any handler. The configuration and
   calibration command sets described in `docs/implementation-complete-config-storage.md` and
   `docs/calibration-guide.md` are therefore **not reachable on `main`**.

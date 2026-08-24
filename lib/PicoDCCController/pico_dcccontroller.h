@@ -115,6 +115,8 @@ public:
     
     // Configuration command handlers
     bool handleConfigCommand(class PicoDccExPacket* packet);
+    // <D SPEED28|SPEED128 [cab]>: cab 0 means the station-wide default (#8).
+    void handleSpeedStepCommand(int steps, int cab);
     void handleACKLimitCommand(float value);
     void handleACKMinCommand(float value);
     void handleACKMaxCommand(float value);

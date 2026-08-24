@@ -12,6 +12,14 @@ enum pico_dccex_track_select
     DCCEX_TRACK_PROG = 2
 };
 
+// <D> subcommands, as carried in pico_dccex_packet::addr. -1 there means the
+// command did not parse at all.
+enum pico_dccex_config_subcommand
+{
+    DCCEX_CONFIG_ACK = 1,
+    DCCEX_CONFIG_SPEED = 2
+};
+
 // This is the raw packet data that is transfered through the queues
 struct pico_dccex_packet
 {
@@ -76,9 +84,16 @@ public:
     //   LIMIT (param1=1): 30-100mA (ACK threshold, NMRA S-9.2.3 specifies 60mA)
     //   MIN (param1=2): 3000-8000µs (minimum ACK pulse duration)
     //   MAX (param1=3): 6000-10000µs (maximum ACK pulse duration)
-    int getConfigSubcommand() { return packet.addr; }      // ACK = 1
+    int getConfigSubcommand() { return packet.addr; }      // ACK = 1, SPEED = 2
     int getConfigParamType() { return packet.param1; }     // LIMIT=1, MIN=2, MAX=3
     int getConfigValue() { return packet.param2; }         // Numeric value
+
+    // <D SPEED28|SPEED128 [cab]> accessors (#8). The step count is the literal
+    // 28 or 128, so the wire form and the stored value are the same number.
+    // The cab is 0 for the station-wide form, and is *not* range-checked by
+    // validatePacket() -- see the note there.
+    int getSpeedStepMode() { return packet.param1; }
+    int getSpeedStepCab() { return packet.param2; }
 
     raw_dcc_cmd_t *getRawDccAccessoryCmd();
     char *getDccExCabUpdate();

@@ -10,6 +10,14 @@ extern "C" {
 
 #include "../lib/PicoDCCLoco/pico_dccloco.h"
 
+// Unless a test says otherwise, a PicoDccLoco is built in the station default
+// speed step mode, which is 128 steps (#8). That is a three-byte payload for a
+// short address -- address, 0x3F, then (direction << 7) | value -- so the speed
+// byte is data[1] + 1 places along from where the 28-step form put it. The
+// 28-step fallback and the exact bytes of both encodings are pinned in
+// pico_dcc_wire_format_tests.cpp; this suite is about address handling,
+// validation and state, and reads the speed byte only to prove those.
+
 void test_create_from_packet(void **state)
 {
   const char *buffer = "t 3 0 0";
@@ -19,9 +27,10 @@ void test_create_from_packet(void **state)
   assert_int_equal(loco.getAddress(), 3);
 
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.length, 2);
+  assert_int_equal(cmd.length, 3);
   assert_int_equal(cmd.data[0], 3);
-  assert_int_equal(cmd.data[1], 0x40);  // controlled stop, reverse (#48)
+  assert_int_equal(cmd.data[1], 0x3F);
+  assert_int_equal(cmd.data[2], 0x00);  // controlled stop, reverse (#48)
 }
 void test_create_from_address(void **state)
 {
@@ -30,9 +39,10 @@ void test_create_from_address(void **state)
   assert_int_equal(loco.getAddress(), 3);
 
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.length, 2);
+  assert_int_equal(cmd.length, 3);
   assert_int_equal(cmd.data[0], 3);
-  assert_int_equal(cmd.data[1], 0x60);  // controlled stop, forward (#48)
+  assert_int_equal(cmd.data[1], 0x3F);
+  assert_int_equal(cmd.data[2], 0x80);  // controlled stop, forward (#48)
 }
 
 // Was PicoDccLoco(3, 128, false) asserting data[1] == 81 -- a nonsense speed
@@ -46,9 +56,10 @@ void test_create_from_address_speed_direction(void **state)
   assert_int_equal(loco.getAddress(), 3);
 
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.length, 2);
+  assert_int_equal(cmd.length, 3);
   assert_int_equal(cmd.data[0], 3);
-  assert_int_equal(cmd.data[1], 0x5F);
+  assert_int_equal(cmd.data[1], 0x3F);
+  assert_int_equal(cmd.data[2], 127);  // top speed, reverse
 }
 
 void test_create_from_address_rejects_speed_above_max(void **state)
@@ -58,9 +69,9 @@ void test_create_from_address_rejects_speed_above_max(void **state)
   assert_true(loco.isValid());
 
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.length, 2);
+  assert_int_equal(cmd.length, 3);
   assert_int_equal(cmd.data[0], 0x03);
-  assert_int_equal(cmd.data[1], 0x60);
+  assert_int_equal(cmd.data[2], 0x80);
 }
 
 // A non-throttle, non-function packet used to reach std::terminate here and
@@ -117,10 +128,11 @@ void test_highest_legal_cab_is_encoded(void **state)
   assert_true(loco.isValid());
 
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.length, 3);
+  assert_int_equal(cmd.length, 4);
   assert_int_equal(cmd.data[0], 0xE7);
   assert_int_equal(cmd.data[1], 0xFF);
-  assert_int_equal(cmd.data[2], 0x60);
+  assert_int_equal(cmd.data[2], 0x3F);
+  assert_int_equal(cmd.data[3], 0x80);
 }
 
 // An out-of-range speed on an otherwise-valid address fails safe to a stop
@@ -134,15 +146,14 @@ void test_out_of_range_speed_falls_back_to_stop(void **state)
   assert_true(loco.isValid());
 
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.length, 2);
+  assert_int_equal(cmd.length, 3);
   assert_int_equal(cmd.data[0], 0x03);
-  assert_int_equal(cmd.data[1], 0x60);
+  assert_int_equal(cmd.data[2], 0x80);
 }
 
 // #11: speed -1 is DCC-EX's single-locomotive emergency stop, not a stray
-// value that decodes into full speed. The instruction byte is the same one
-// the <!> broadcast uses (0x41), addressed to one loco, with the direction
-// bit preserved.
+// value that decodes into full speed. In the 128-step instruction that is
+// value 1, addressed to one loco, with the direction bit preserved.
 void test_estop_packet_encodes_emergency_stop(void **state)
 {
   {
@@ -151,9 +162,10 @@ void test_estop_packet_encodes_emergency_stop(void **state)
     PicoDccLoco loco(&packet);
 
     raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.length, 3);
     assert_int_equal(cmd.data[0], 0x03);
-    assert_int_equal(cmd.data[1], 0x61);
+    assert_int_equal(cmd.data[1], 0x3F);
+    assert_int_equal(cmd.data[2], 0x81);
     assert_int_equal(cmd.repeats, 3);
   }
   {
@@ -163,7 +175,7 @@ void test_estop_packet_encodes_emergency_stop(void **state)
 
     raw_dcc_cmd_t cmd = loco.getThrottleCommand();
     assert_int_equal(cmd.data[0], 0x03);
-    assert_int_equal(cmd.data[1], 0x41);
+    assert_int_equal(cmd.data[2], 0x01);
   }
 }
 
@@ -178,8 +190,8 @@ void test_estop_survives_repeated_reads(void **state)
   raw_dcc_cmd_t first = loco.getThrottleCommand();
   raw_dcc_cmd_t second = loco.getThrottleCommand();
 
-  assert_int_equal(first.data[1], 0x61);
-  assert_int_equal(second.data[1], 0x61);
+  assert_int_equal(first.data[2], 0x81);
+  assert_int_equal(second.data[2], 0x81);
 }
 
 void test_estop_long_address(void **state)
@@ -188,10 +200,11 @@ void test_estop_long_address(void **state)
   loco.updateControl(true, DCC_SPEED_ESTOP);
 
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.length, 3);
+  assert_int_equal(cmd.length, 4);
   assert_int_equal(cmd.data[0], 0xC3);
   assert_int_equal(cmd.data[1], 0xE8);
-  assert_int_equal(cmd.data[2], 0x61);
+  assert_int_equal(cmd.data[2], 0x3F);
+  assert_int_equal(cmd.data[3], 0x81);
 }
 
 // <F cab func state> must not write the function number into speed and the
@@ -205,9 +218,9 @@ void test_function_packet_creates_loco_at_stop(void **state)
   assert_int_equal(loco.getAddress(), 3);
 
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.length, 2);
+  assert_int_equal(cmd.length, 3);
   assert_int_equal(cmd.data[0], 0x03);
-  assert_int_equal(cmd.data[1], 0x60);  // not speed 8, not reverse
+  assert_int_equal(cmd.data[2], 0x80);  // not speed 8, not reverse
 }
 
 void test_function_packet_does_not_change_speed(void **state)
@@ -215,7 +228,7 @@ void test_function_packet_does_not_change_speed(void **state)
   PicoDccLoco loco(3);
   loco.updateControl(true, 20);
   raw_dcc_cmd_t before = loco.getThrottleCommand();
-  assert_int_equal(before.data[1], 0x64);
+  assert_int_equal(before.data[2], 0x80 | 21);
 
   const char *buffer = "F 3 8 1";
   PicoDccExPacket packet((char *)buffer);
@@ -223,7 +236,7 @@ void test_function_packet_does_not_change_speed(void **state)
 
   assert_false(updated);
   raw_dcc_cmd_t after = loco.getThrottleCommand();
-  assert_int_equal(after.data[1], 0x64);
+  assert_int_equal(after.data[2], 0x80 | 21);
 }
 
 void test_update_control_rejects_out_of_range_speed(void **state)
@@ -235,7 +248,7 @@ void test_update_control_rejects_out_of_range_speed(void **state)
 
   assert_false(updated);
   raw_dcc_cmd_t after = loco.getThrottleCommand();
-  assert_int_equal(after.data[1], before.data[1]);
+  assert_int_equal(after.data[2], before.data[2]);
 }
 
 void test_update_control_accepts_estop_sentinel(void **state)
@@ -246,7 +259,7 @@ void test_update_control_accepts_estop_sentinel(void **state)
 
   assert_true(updated);
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.data[1], 0x61);
+  assert_int_equal(cmd.data[2], 0x81);
 }
 
 void test_out_of_range_address_emits_nothing(void **state)
@@ -264,9 +277,10 @@ void test_update_control(void **state)
 
   assert_true(updated);
   raw_dcc_cmd_t cmd = loco.getThrottleCommand();
-  assert_int_equal(cmd.length, 2);
+  assert_int_equal(cmd.length, 3);
   assert_int_equal(cmd.data[0], 3);
-  assert_int_equal(cmd.data[1], 88);
+  assert_int_equal(cmd.data[1], 0x3F);
+  assert_int_equal(cmd.data[2], 65);  // reverse, wire speed 64 -> value 65
 }
 
 // PicoDccLoco::updateFunct() has an empty body and getFunctionCommand()
@@ -307,6 +321,110 @@ void test_function_command(void **state)
   assert_int_equal(cmd.repeats, 0);
 }
 
+// --------------------------------------------------------------------------
+// Speed step mode (#8)
+// --------------------------------------------------------------------------
+
+// A loco follows the station default until it is named, and 128 steps is that
+// default. Both facts matter to the orchestrator: it may push a roster of
+// overrides, or push none at all and rely on this.
+void test_default_speed_step_mode_is_128(void **state)
+{
+  PicoDccLoco loco(3);
+
+  assert_int_equal(loco.getSpeedSteps(), DCC_SPEED_STEPS_128);
+  assert_false(loco.hasSpeedStepsOverride());
+}
+
+// Naming a loco re-encodes its stored command in place. Core 1 reads that
+// command for reminders, so a mode change that did not regenerate it would
+// leave the old encoding on the rails until the next throttle command.
+void test_setting_28_steps_re_encodes_the_stored_command(void **state)
+{
+  PicoDccLoco loco(3, 60, true);
+  assert_int_equal(loco.getThrottleCommand().length, 3);
+
+  assert_true(loco.setSpeedSteps(DCC_SPEED_STEPS_28));
+
+  raw_dcc_cmd_t cmd = loco.getThrottleCommand();
+  assert_int_equal(loco.getSpeedSteps(), DCC_SPEED_STEPS_28);
+  assert_true(loco.hasSpeedStepsOverride());
+  assert_int_equal(cmd.length, 2);
+  assert_int_equal(cmd.data[0], 3);
+  assert_int_equal(cmd.data[1], 0x68);
+}
+
+// Neither 28 nor 128: refused outright rather than rounded to whichever is
+// nearer. There is no third mode to fall back to.
+void test_invalid_speed_step_mode_is_refused(void **state)
+{
+  PicoDccLoco loco(3, 60, true);
+
+  assert_false(loco.setSpeedSteps(14));
+  assert_false(loco.setSpeedSteps(0));
+  assert_int_equal(loco.getSpeedSteps(), DCC_SPEED_STEPS_128);
+  assert_false(loco.hasSpeedStepsOverride());
+}
+
+// A step count is not a speed, and the two sit next to each other in the
+// constructor's argument list.
+void test_constructor_rejects_a_bogus_step_count(void **state)
+{
+  PicoDccLoco loco(3, 60, true, 42);
+
+  assert_int_equal(loco.getSpeedSteps(), DCC_SPEED_STEPS_128);
+}
+
+// An override survives a station-wide default change: that is the whole point
+// of it, since the loco with the old decoder is the reason it was set.
+void test_override_is_not_moved_by_the_station_default(void **state)
+{
+  PicoDccLoco loco(3, 60, true);
+  assert_true(loco.setSpeedSteps(DCC_SPEED_STEPS_28));
+
+  assert_false(loco.applyDefaultSpeedSteps(DCC_SPEED_STEPS_128));
+  assert_int_equal(loco.getSpeedSteps(), DCC_SPEED_STEPS_28);
+}
+
+// Re-asserting the mode a loco already has is not an error, and does not clear
+// the override -- the orchestrator re-sends the whole roster on every boot
+// banner, so this is the common case, not the odd one.
+void test_re_asserting_the_same_mode_still_marks_it_overridden(void **state)
+{
+  PicoDccLoco loco(3, 60, true);
+
+  assert_false(loco.setSpeedSteps(DCC_SPEED_STEPS_128));  // nothing changed
+  assert_true(loco.hasSpeedStepsOverride());              // but it is named
+  assert_false(loco.applyDefaultSpeedSteps(DCC_SPEED_STEPS_28));
+  assert_int_equal(loco.getSpeedSteps(), DCC_SPEED_STEPS_128);
+}
+
+// A loco that is still following the default moves with it, and the stored
+// command is re-encoded.
+void test_default_change_moves_an_unnamed_loco(void **state)
+{
+  PicoDccLoco loco(3, 60, true);
+
+  assert_true(loco.applyDefaultSpeedSteps(DCC_SPEED_STEPS_28));
+  assert_int_equal(loco.getSpeedSteps(), DCC_SPEED_STEPS_28);
+  assert_int_equal(loco.getThrottleCommand().data[1], 0x68);
+}
+
+// PicoDccLocos stores locos by value, so every vector insertion and every
+// reallocation runs the copy constructor -- which lists its members by hand.
+void test_copy_constructor_carries_the_mode(void **state)
+{
+  PicoDccLoco loco(3, 60, true);
+  assert_true(loco.setSpeedSteps(DCC_SPEED_STEPS_28));
+
+  PicoDccLoco copy(loco);
+
+  assert_int_equal(copy.getSpeedSteps(), DCC_SPEED_STEPS_28);
+  assert_true(copy.hasSpeedStepsOverride());
+  assert_int_equal(copy.getThrottleCommand().length, 2);
+  assert_int_equal(copy.getThrottleCommand().data[1], 0x68);
+}
+
 int main(int argc, char *argv[])
 {
   printf("Running Tests\n");
@@ -331,7 +449,15 @@ int main(int argc, char *argv[])
       cmocka_unit_test(test_create_from_address_rejects_speed_above_max),
       cmocka_unit_test(test_update_control),
       cmocka_unit_test(test_update_function),
-      cmocka_unit_test(test_function_command)
+      cmocka_unit_test(test_function_command),
+      cmocka_unit_test(test_default_speed_step_mode_is_128),
+      cmocka_unit_test(test_setting_28_steps_re_encodes_the_stored_command),
+      cmocka_unit_test(test_invalid_speed_step_mode_is_refused),
+      cmocka_unit_test(test_constructor_rejects_a_bogus_step_count),
+      cmocka_unit_test(test_override_is_not_moved_by_the_station_default),
+      cmocka_unit_test(test_re_asserting_the_same_mode_still_marks_it_overridden),
+      cmocka_unit_test(test_default_change_moves_an_unnamed_loco),
+      cmocka_unit_test(test_copy_constructor_carries_the_mode)
   };
 
   return cmocka_run_group_tests(tests, NULL, NULL);

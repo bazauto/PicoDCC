@@ -3,8 +3,15 @@
 #include "pico_dccloco.h"
 #include "../pico_diagnostic.h"
 
-PicoDccLoco::PicoDccLoco(PicoDccExPacket *packet)
+PicoDccLoco::PicoDccLoco(PicoDccExPacket *packet, uint8_t speed_steps)
 {
+    // Set before any generateThrottleCommand() call below -- the encoding
+    // branch reads it.
+    this->speed_steps = dcc_is_valid_speed_step_mode(speed_steps)
+                            ? speed_steps
+                            : (uint8_t)DCC_DEFAULT_SPEED_STEPS;
+    this->speed_steps_overridden = false;
+
     // A loco can only exist from a throttle or function command. Anything else
     // (a malformed or unrelated packet reaching here) used to throw and abort
     // the firmware (#2); it now yields an inert loco instead. Every member is
@@ -65,13 +72,23 @@ PicoDccLoco::PicoDccLoco(PicoDccExPacket *packet)
     generateThrottleCommand();
 }
 
-PicoDccLoco::PicoDccLoco(uint16_t address)
-    : PicoDccLoco(address, (uint8_t)0, true)
+PicoDccLoco::PicoDccLoco(uint16_t address, uint8_t speed_steps)
+    : PicoDccLoco(address, (uint8_t)0, true, speed_steps)
 {
 }
 
-PicoDccLoco::PicoDccLoco(uint16_t address, uint8_t speed, bool forward)
+PicoDccLoco::PicoDccLoco(uint16_t address, uint8_t speed, bool forward, uint8_t speed_steps)
 {
+    // Validated rather than trusted: this parameter sits next to `speed` in
+    // the argument list, and a step count is not a speed.
+    if (!dcc_is_valid_speed_step_mode(speed_steps))
+    {
+        LOG_WARNING(COMPONENT_DCCEX, "Invalid speed step mode, using default");
+        speed_steps = (uint8_t)DCC_DEFAULT_SPEED_STEPS;
+    }
+    this->speed_steps = speed_steps;
+    this->speed_steps_overridden = false;
+
     if (dcc_is_valid_loco_address(address))
     {
         this->address = address;
@@ -164,6 +181,35 @@ void PicoDccLoco::generateThrottleCommand()
     }
     cmd.data[cmd.length++] = address & 0xff;
 
+    if (speed_steps == DCC_SPEED_STEPS_128)
+    {
+        // S-9.2.1 advanced operations: instruction 0x3F followed by one byte of
+        // (direction << 7) | value, where value 0 is the controlled stop, 1 is
+        // the emergency stop, and 2..127 are speed steps 1..126 (#8).
+        //
+        // So there is an off-by-one against the <t> wire value that the 28-step
+        // path below does not have: <t> speed 0 encodes as 0, but <t> speed N
+        // encodes as N + 1. Getting this wrong shifts every train by one step,
+        // which is almost invisible by eye and completely visible to a braking
+        // profile.
+        cmd.data[cmd.length++] = 0x3F;
+        uint8_t value;
+        if (speed == DCC_SPEED_ESTOP)
+        {
+            value = 1;
+        }
+        else if (speed == 0)
+        {
+            value = 0;
+        }
+        else
+        {
+            value = (uint8_t)(speed + 1);  // 1..126 -> 2..127
+        }
+        cmd.data[cmd.length++] = (forward ? 0x80 : 0x00) | value;
+        return;
+    }
+
     if (speed == DCC_SPEED_ESTOP)
     {
         // Same instruction byte as the <!> broadcast estop (0x00 0x41 built in
@@ -188,6 +234,41 @@ void PicoDccLoco::generateThrottleCommand()
     uint8_t value = (speed28 == 0) ? 0 : (uint8_t)(speed28 + 3);
     uint8_t code28 = (uint8_t)((value >> 1) | ((value & 1) << 4));
     cmd.data[cmd.length++] = 0x40 | code28 | (forward ? 0x20 : 0x00);
+}
+
+bool PicoDccLoco::setSpeedSteps(uint8_t steps)
+{
+    if (!dcc_is_valid_speed_step_mode(steps))
+    {
+        LOG_WARNING(COMPONENT_DCCEX, "Speed step mode rejected: not 28 or 128");
+        return false;
+    }
+
+    // The override is recorded even when the mode is unchanged: a loco already
+    // sitting on the station default has still been *named*, and must not be
+    // dragged along by a later <D SPEED128> with no cab.
+    speed_steps_overridden = true;
+
+    if (speed_steps == steps)
+    {
+        return false;
+    }
+
+    speed_steps = steps;
+    generateThrottleCommand();
+    return true;
+}
+
+bool PicoDccLoco::applyDefaultSpeedSteps(uint8_t steps)
+{
+    if (speed_steps_overridden || !dcc_is_valid_speed_step_mode(steps) || speed_steps == steps)
+    {
+        return false;
+    }
+
+    speed_steps = steps;
+    generateThrottleCommand();
+    return true;
 }
 
 void PicoDccLoco::updateFunct(uint8_t function, bool value)

@@ -24,18 +24,37 @@ private:
     uint8_t speed;
     bool forward;
 
+    // How this loco's speed is encoded on the rails: DCC_SPEED_STEPS_128 or
+    // DCC_SPEED_STEPS_28 (#8). Held in RAM only, never persisted -- the
+    // orchestrator owns the roster and re-asserts each loco's mode when it
+    // sees the boot banner, so a copy in flash could only ever disagree
+    // with it.
+    uint8_t speed_steps;
+
+    // False while this loco simply follows the station default, true once a
+    // <D SPEED28|SPEED128 cab> has named it. A station-default change moves
+    // every loco that is still following it, and leaves the overridden ones
+    // where they are.
+    bool speed_steps_overridden;
+
 
 
     // This is the command that will be sent to the track when needed.  It is initially zero length to avoid it being used.
     raw_dcc_cmd_t cmd;
 
 public:
-    PicoDccLoco(PicoDccExPacket *packet);
-    PicoDccLoco(uint16_t address);
-    PicoDccLoco(uint16_t address, uint8_t speed, bool forward);
+    PicoDccLoco(PicoDccExPacket *packet, uint8_t speed_steps = DCC_DEFAULT_SPEED_STEPS);
+    PicoDccLoco(uint16_t address, uint8_t speed_steps = DCC_DEFAULT_SPEED_STEPS);
+    PicoDccLoco(uint16_t address, uint8_t speed, bool forward, uint8_t speed_steps = DCC_DEFAULT_SPEED_STEPS);
 
-    // Copy constructor
-    PicoDccLoco(const PicoDccLoco &other) : address(other.address), speed(other.speed), forward(other.forward), cmd(other.cmd) {}
+    // Copy constructor. Every member is listed here explicitly, so a member
+    // added without a line below is silently dropped on every copy -- and
+    // PicoDccLocos stores locos by value in a std::vector, so that is every
+    // insertion and every reallocation.
+    PicoDccLoco(const PicoDccLoco &other)
+        : address(other.address), speed(other.speed), forward(other.forward),
+          speed_steps(other.speed_steps),
+          speed_steps_overridden(other.speed_steps_overridden), cmd(other.cmd) {}
 
     // Comparision operator for ease of comparing objects
     bool operator==(const PicoDccLoco &other) const {
@@ -43,6 +62,20 @@ public:
     }
 
     uint16_t getAddress() { return address; }
+    uint8_t getSpeed() const { return speed; }
+    bool isForward() const { return forward; }
+
+    uint8_t getSpeedSteps() const { return speed_steps; }
+    bool hasSpeedStepsOverride() const { return speed_steps_overridden; }
+
+    // Names this loco's mode explicitly. Returns true when the encoding
+    // actually moved, so the caller can tell a real change from a re-assert.
+    bool setSpeedSteps(uint8_t steps);
+
+    // Follows the station default. Ignored once setSpeedSteps() has named this
+    // loco, which is what keeps a per-loco 28-step decoder from being dragged
+    // back to 128 by a later station-wide command.
+    bool applyDefaultSpeedSteps(uint8_t steps);
 
     bool update(PicoDccExPacket *packet);
     bool updateControl(bool _forward, uint8_t _speed);
