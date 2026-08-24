@@ -68,9 +68,29 @@ private:
                                   // t=0 is a legal timestamp and cannot be a sentinel
     uint32_t core1_start_ms;      // When Core 1's loop first ran
 
+    // Power-fault reporting (#4) and indication (#42).
+    //
+    // A fault cutoff has to survive the pass that caused it. Cutting power stops
+    // commands being sent, so on the very next pass the command gap is small
+    // again and isPIOHealthy() recovers -- which used to run the `else` branch
+    // and turn the error LED back off, leaving a dead layout looking healthy
+    // (#42). The LED, and the report, follow this LATCH rather than the
+    // instantaneous condition.
+    //
+    // Announcing is split from latching because of which core is which.
+    // dccLoop() is Core 1, the DCC hot path; a blocking uart_puts() there is
+    // exactly the stall the timing monitor exists to catch. So Core 1 sets
+    // `power_fault_unannounced` and Core 0 drains it in dccexLoop() and emits
+    // the <p0 ...> frames. Both are volatile bools written by one core and read
+    // by the other -- single-word, no struct assignment across cores (rule 4).
+    volatile bool power_fault_latched;      // A fault cut power; LED follows this
+    volatile bool power_fault_unannounced;  // Core 0 owes the host a <p0 ...>
+
     // Operation mode and configuration
     OperationMode operation_mode;
     PicoConfigStorage config_storage;
+
+    void raisePowerFault();
 
 public:
     PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s, uint8_t timing_led_pin);
@@ -80,6 +100,9 @@ public:
     
     // Safety functions
     void emergencyPowerCutoff();
+
+    /** Whether a fault (timing, PIO, Core 1 heartbeat, overcurrent) is currently cutting power. Cleared only by a deliberate power restore. */
+    bool isPowerFaultLatched() const { return power_fault_latched; }
     
     // Layout Maintenance Mode management
     bool canEnterMaintenanceMode() const;

@@ -47,6 +47,12 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     core1_seen_alive = false;
     core1_loop_started = false;
     core1_start_ms = 0;
+
+    // Power-fault latch (#4, #42). Boot is not a fault: the LED is set off just
+    // above, and both flags start clear so nothing is announced until something
+    // actually cuts power.
+    power_fault_latched = false;
+    power_fault_unannounced = false;
     
     // Initialize operation mode and configuration
     operation_mode = OperationMode::NORMAL;
@@ -58,6 +64,30 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
 // This is the Core 0 loop
 void PicoDccController::dccexLoop()
 {
+    // #4: report a power cutoff on the wire. The cutoff itself happens on Core 1
+    // (or inside emergencyPowerCutoff()); this is the only place that writes it
+    // to the UART, because a blocking uart_puts() on Core 1 would stall the DCC
+    // hot path that the timing monitor exists to protect. <p0 MAIN> / <p0 PROG>
+    // are the standard DCC-EX power notifications, which any host already
+    // parses -- the orchestrator has handled them, including unsolicited ones,
+    // since bazauto/layout-orchestration#148.
+    //
+    // Drained once per cutoff, not once per pass: the latch is what persists,
+    // and re-announcing at 100Hz for as long as the fault held would be its own
+    // kind of noise.
+    if (power_fault_unannounced)
+    {
+        power_fault_unannounced = false;
+        // Each track's ACTUAL state, read here rather than assumed to be off.
+        // The timing, PIO and heartbeat cutoffs take both tracks down, so this
+        // is <p0 MAIN> <p0 PROG> for all three. An overcurrent trip need not be:
+        // the programming track can trip on its own while the main track is
+        // still live, and announcing <p0 MAIN> there would be a lie about the
+        // one track that matters most.
+        DCCEX_RESPONSE(main_track->getPower() ? "<p1 MAIN>" : "<p0 MAIN>");
+        DCCEX_RESPONSE(prog_track->getPower() ? "<p1 PROG>" : "<p0 PROG>");
+    }
+
     // Core 1 health monitoring - check every 50ms
     uint32_t current_time = dcc_millis();
 
@@ -302,28 +332,40 @@ void PicoDccController::dccLoop()
         // If we have a dangerous gap in commands (> 100ms) OR PIO failure
         if (main_gap >= 100 || !main_pio_healthy || !prog_pio_healthy)
         {
-            // Emergency safety measures
+            // Cutting power is unconditional and repeated: it is the safe
+            // action, it is idempotent, and re-asserting it costs a GPIO write.
             main_track->setPower(false); // Cut power to main track
             prog_track->setPower(false); // Cut power to prog track
-            gpio_put(timing_error_led_pin, 1); // Turn on error LED
-            
-            if (main_gap >= 100)
+
+            // Everything that is a REPORT rather than an action happens once per
+            // fault. Logging every 10ms pass would fill the 30-entry buffer in
+            // 300ms and erase the history that explains the fault -- the LCD log
+            // being the only surviving evidence is precisely what made #32 hard
+            // to diagnose.
+            if (!power_fault_latched)
             {
-                LOG_CRITICAL(COMPONENT_CONTROLLER, "DCC timing violation detected");
-            }
-            if (!main_pio_healthy)
-            {
-                LOG_CRITICAL(COMPONENT_CONTROLLER, "Main track PIO failure - emergency cutoff");
-            }
-            if (!prog_pio_healthy)
-            {
-                LOG_CRITICAL(COMPONENT_CONTROLLER, "Programming track PIO failure - emergency cutoff");
+                raisePowerFault();
+
+                if (main_gap >= 100)
+                {
+                    LOG_CRITICAL(COMPONENT_CONTROLLER, "DCC timing violation detected");
+                }
+                if (!main_pio_healthy)
+                {
+                    LOG_CRITICAL(COMPONENT_CONTROLLER, "Main track PIO failure - emergency cutoff");
+                }
+                if (!prog_pio_healthy)
+                {
+                    LOG_CRITICAL(COMPONENT_CONTROLLER, "Programming track PIO failure - emergency cutoff");
+                }
             }
         }
-        else
-        {
-            gpio_put(timing_error_led_pin, 0); // Turn off error LED if timing is good
-        }
+        // #42: deliberately NO `else` clearing the LED. Cutting power stops
+        // commands being sent, so the very next pass sees a small gap and a
+        // healthy PIO, and the old `else` branch turned the LED off while the
+        // power stayed off -- a dead layout with no indication, and an error LED
+        // essentially never observed lit. The LED follows the latch, and the
+        // latch is cleared only by a deliberate power restore, below.
         
         last_command_check = current_time;
     }
@@ -358,6 +400,49 @@ void PicoDccController::dccLoop()
     // often than it can transmit one.
     main_track->loop(PicoDccTrack::Pacing::Blocking);
     prog_track->loop(PicoDccTrack::Pacing::NonBlocking);
+
+    // Overcurrent and the fault-latch bookkeeping, AFTER the track loops above
+    // rather than before them -- an overcurrent trip happens inside
+    // PicoDccTrack::loop(), so checking first would always observe it one pass
+    // late.
+    //
+    // A trip is the same class of event as the cutoffs at the top of this
+    // function: the layout goes dark and the wire says nothing. It is also the
+    // cutoff most likely to actually happen in service, a derailment shorting
+    // the rails. So it raises the same latch and draws the same report (#4).
+    if (main_track->isTripped() || prog_track->isTripped())
+    {
+        if (!power_fault_latched)
+        {
+            raisePowerFault();
+            LOG_CRITICAL(COMPONENT_POWER, "Overcurrent trip - power cut");
+        }
+    }
+
+    // The one way out of a latched fault: power deliberately restored, by <1> or
+    // from the LCD. Detected by observing the tracks rather than by hooking each
+    // command path, so the LCD's direct setPower() call is covered without
+    // lvgl_renderer needing to know this latch exists.
+    //
+    // Both `isTripped()` terms are load-bearing. Without them, a
+    // programming-track trip while the main track is still powered would raise
+    // the latch above and clear it here on the same pass, then re-raise it on
+    // the next -- announcing a fault at the loop rate for as long as the short
+    // lasted. `tripped` is cleared by PicoDccTrack::setPower(true), so it is the
+    // same "deliberately restored" signal, read per track.
+    //
+    // If the underlying fault is still present, the timing check re-trips on the
+    // next pass and the host is told again -- the correct answer to "restore
+    // power into a station that is still faulty". There is deliberately no
+    // automatic restore: a decoder that loses the DCC signal falls back to DC,
+    // and DC on a powered main track is full speed.
+    if (power_fault_latched && main_track->getPower()
+        && !main_track->isTripped() && !prog_track->isTripped())
+    {
+        power_fault_latched = false;
+        gpio_put(timing_error_led_pin, 0);
+        LOG_INFO(COMPONENT_POWER, "Power restored - fault indication cleared");
+    }
 }
 
 void PicoDccController::emergencyPowerCutoff()
@@ -380,11 +465,30 @@ void PicoDccController::emergencyPowerCutoff()
     // Clear all locos to prevent reminders
     pico_locos->forgetAllLocos();
     
-    // Turn on error LED to indicate emergency state
-    gpio_put(timing_error_led_pin, 1);
+    // Latch the fault: lights the LED, and makes Core 0 tell the host (#4, #42).
+    // Called from Core 0 (the heartbeat check in dccexLoop), so the report goes
+    // out on this same pass or the next.
+    raisePowerFault();
     
     // Log emergency event
     LOG_CRITICAL(COMPONENT_POWER, "Emergency power cutoff activated");
+}
+
+/**
+ * Latches a power fault: LED on, and one <p0 ...> owed to the host (#4, #42).
+ *
+ * Safe to call from either core. It writes two volatile bools and one GPIO --
+ * no allocation, no blocking, nothing that can stall the DCC hot path. The UART
+ * write it implies is deferred to Core 0's dccexLoop().
+ *
+ * Callers inside a loop must check `power_fault_latched` first, so that logging
+ * and announcing happen once per fault rather than once per pass.
+ */
+void PicoDccController::raisePowerFault()
+{
+    power_fault_latched = true;
+    power_fault_unannounced = true;
+    gpio_put(timing_error_led_pin, 1);
 }
 
 // Layout Maintenance Mode management

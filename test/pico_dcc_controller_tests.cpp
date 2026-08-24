@@ -21,6 +21,8 @@ extern "C"
 extern bool track_power_states[2];
 extern std::vector<std::string> uart_output_log;
 extern uint32_t mock_time_ms;
+void mock_adc_set_channel(uint8_t adc_num, uint32_t reading);
+void mock_adc_clear_channels(void);
 
 // Read a packed packet word the way dcc.pio consumes it: byte 7 is the preamble
 // length, byte 6 the number of bytes to send, and the payload runs downwards
@@ -47,6 +49,7 @@ static int setup(void **state)
     memset(track_power_states, 0, sizeof(track_power_states));
     queued_commands.clear();
     uart_output_log.clear();
+    mock_adc_clear_channels();  // per-channel currents must not leak between tests
     mock_time_ms = 0;
     diag_log_init();  // Initialize diagnostic log buffer
     return 0;
@@ -1247,6 +1250,294 @@ static void test_function_command_does_not_queue_a_speed_change(void **state)
     assert_true(found_cab3);
 }
 
+
+// ─── Power-cutoff reporting (#4) and latched indication (#42) ────────────────
+
+// Counts how many times `needle` appears in the UART log. The host cannot act
+// on what it is never told, and it also cannot act sensibly on being told 100
+// times a second -- both directions matter, so both are asserted.
+static int uart_count(const char *needle)
+{
+    int n = 0;
+    for (const std::string &line : uart_output_log) {
+        if (line.find(needle) != std::string::npos) n++;
+    }
+    return n;
+}
+
+// Builds the standard two-track fixture used by every test below.
+static void power_fault_fixture(track_settings_t *main_track, track_settings_t *prog_track)
+{
+    main_track->signal_pin = 18;
+    main_track->ctrl_pin = 22;
+    main_track->adc_num = 0;
+    main_track->short_pin = 16;
+
+    prog_track->signal_pin = 19;
+    prog_track->ctrl_pin = 21;
+    prog_track->adc_num = 1;
+    prog_track->short_pin = 17;
+}
+
+// #4 section 1: the layout went dark and the wire stayed quiet. The orchestrator
+// on the other end is a safety-cased control system whose first rule is that
+// uncertainty must halt movement -- it cannot act on a fault it is never told
+// about, and would go on issuing throttle commands into dead rails.
+static void test_ISSUE_4_timing_cutoff_is_reported_on_the_wire(void **state)
+{
+    track_settings_t main_track, prog_track;
+    power_fault_fixture(&main_track, &prog_track);
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    assert_true(controller.isTrackPowerOn(false));
+
+    mock_time_ms = 10;
+    controller.dccLoop();
+
+    uart_output_log.clear();
+
+    // Core 1 trips the cutoff.
+    mock_time_ms = 150;
+    controller.dccLoop();
+    assert_false(controller.isTrackPowerOn(false));
+
+    // Core 1 must NOT have written to the UART: dccLoop() is the DCC hot path,
+    // and a blocking uart_puts() there is the very stall the timing monitor
+    // exists to catch.
+    assert_int_equal(uart_count("<p0"), 0);
+
+    // Core 0 is what tells the host.
+    controller.dccexLoop();
+    assert_int_equal(uart_count("<p0 MAIN>"), 1);
+    assert_int_equal(uart_count("<p0 PROG>"), 1);
+}
+
+// The report is once per cutoff, not once per pass. The cutoff condition is
+// re-evaluated every 10ms and holds for as long as power is off, so announcing
+// unconditionally would put 100 frames a second on a link JMRI also speaks.
+static void test_ISSUE_4_cutoff_is_reported_once_not_per_pass(void **state)
+{
+    track_settings_t main_track, prog_track;
+    power_fault_fixture(&main_track, &prog_track);
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    mock_time_ms = 10;
+    controller.dccLoop();
+
+    uart_output_log.clear();
+
+    for (uint32_t t = 150; t < 400; t += 10) {
+        mock_time_ms = t;
+        controller.dccLoop();
+        controller.dccexLoop();
+    }
+
+    assert_int_equal(uart_count("<p0 MAIN>"), 1);
+    assert_int_equal(uart_count("<p0 PROG>"), 1);
+}
+
+// #42: the two halves of the old cutoff had different lifetimes. Cutting power
+// stops commands being sent, so on the very next pass the gap is small again,
+// the `else` branch ran, and the LED went out -- leaving both tracks unpowered,
+// the error LED off, and a system that looked healthy. The only surviving
+// evidence was a LOG_CRITICAL on a screen nobody looks at first.
+static void test_ISSUE_42_error_led_stays_lit_after_the_cutoff(void **state)
+{
+    track_settings_t main_track, prog_track;
+    power_fault_fixture(&main_track, &prog_track);
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    mock_time_ms = 10;
+    controller.dccLoop();
+
+    mock_time_ms = 150;
+    controller.dccLoop();
+    assert_true(gpio_states[25]);
+
+    // Exactly the passes that used to clear it: power is off, so no commands are
+    // being sent, so the measured gap is small and the PIO reads healthy again.
+    for (uint32_t t = 160; t < 400; t += 10) {
+        mock_time_ms = t;
+        controller.dccLoop();
+        assert_true(gpio_states[25]);       // The indication survives
+        assert_false(controller.isTrackPowerOn(false));  // ...and so does the cutoff
+    }
+
+    assert_true(controller.isPowerFaultLatched());
+}
+
+// The latch is not a one-way door. Restoring power deliberately -- <1>, or the
+// LCD's own power control -- clears the fault indication, mirroring how
+// PicoDccTrack::setPower(true) clears `tripped`.
+static void test_ISSUE_42_deliberate_power_restore_clears_the_indication(void **state)
+{
+    track_settings_t main_track, prog_track;
+    power_fault_fixture(&main_track, &prog_track);
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    mock_time_ms = 10;
+    controller.dccLoop();
+    mock_time_ms = 150;
+    controller.dccLoop();
+    assert_true(gpio_states[25]);
+
+    // The operator restores power. Core 1 observes it on its next pass.
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    mock_time_ms = 155;
+    controller.dccLoop();
+
+    assert_false(controller.isPowerFaultLatched());
+    assert_false(gpio_states[25]);
+}
+
+// ...and restoring power into a station that is still faulty re-trips, and
+// tells the host again. A cutoff that could be cleared without being fixed
+// would be worse than one that never cleared.
+static void test_ISSUE_4_restoring_power_into_a_live_fault_re_reports(void **state)
+{
+    track_settings_t main_track, prog_track;
+    power_fault_fixture(&main_track, &prog_track);
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    mock_time_ms = 10;
+    controller.dccLoop();
+    mock_time_ms = 150;
+    controller.dccLoop();
+    controller.dccexLoop();
+
+    uart_output_log.clear();
+
+    // Power back on, but nothing has sent a command, so the gap is still fatal.
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    mock_time_ms = 160;
+    controller.dccLoop();   // observes power restored, clears the latch
+    mock_time_ms = 300;
+    controller.dccLoop();   // gap is fatal again -- re-trips
+    controller.dccexLoop();
+
+    assert_false(controller.isTrackPowerOn(false));
+    assert_true(controller.isPowerFaultLatched());
+    assert_int_equal(uart_count("<p0 MAIN>"), 1);
+}
+
+// The Core 1 heartbeat cutoff runs on Core 0, through emergencyPowerCutoff().
+// It was equally silent, and is the case where the host is least able to guess:
+// Core 1 has stopped, so the rails are dark AND nothing is generating packets.
+static void test_ISSUE_4_core1_heartbeat_cutoff_is_reported(void **state)
+{
+    track_settings_t main_track, prog_track;
+    power_fault_fixture(&main_track, &prog_track);
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+
+    // Core 1 ticks once, so the monitor sees it alive...
+    mock_time_ms = 10;
+    controller.dccLoop();
+    mock_time_ms = 60;
+    controller.dccexLoop();
+
+    uart_output_log.clear();
+
+    // ...and then stops. Two Core 0 passes 50ms apart with no Core 1 tick.
+    mock_time_ms = 120;
+    controller.dccexLoop();
+    mock_time_ms = 180;
+    controller.dccexLoop();
+
+    assert_false(controller.isTrackPowerOn(false));
+    assert_true(gpio_states[25]);
+    assert_int_equal(uart_count("<p0 MAIN>"), 1);
+    assert_int_equal(uart_count("<p0 PROG>"), 1);
+}
+
+// Boot is not a fault. Nothing has cut power, so nothing is announced and the
+// LED stays dark -- the guard that this latch did not just make every startup
+// report a cutoff.
+static void test_no_power_fault_reported_on_a_clean_boot(void **state)
+{
+    track_settings_t main_track, prog_track;
+    power_fault_fixture(&main_track, &prog_track);
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_output_log.clear();
+
+    mock_time_ms = 5;
+    controller.dccexLoop();
+    controller.dccLoop();
+
+    assert_false(controller.isPowerFaultLatched());
+    assert_false(gpio_states[25]);
+    assert_int_equal(uart_count("<p0"), 0);
+}
+
+
+// An overcurrent trip is the cutoff most likely to actually happen in service --
+// a derailment shorting the rails -- and it was silent too. It happens inside
+// PicoDccTrack::loop(), so the controller picks it up from `tripped` rather than
+// causing it.
+//
+// The programming track can trip ON ITS OWN while the main track stays live, and
+// that case is why the announcement reports each track's real state instead of
+// assuming a cutoff means both are dark. Saying <p0 MAIN> here would be a lie
+// about the one track that matters most.
+static void test_ISSUE_4_prog_only_overcurrent_reports_each_track_honestly(void **state)
+{
+    track_settings_t main_track, prog_track;
+    power_fault_fixture(&main_track, &prog_track);
+    PicoDccController controller(main_track, prog_track, 25);
+
+    uart_test_write("<1>");
+    controller.dccexLoop();
+    mock_time_ms = 10;
+    controller.dccLoop();
+
+    uart_output_log.clear();
+
+    // Programming track (adc_num 1) goes over the trip threshold; main is fine.
+    mock_adc_set_channel(1, TRACK_POWER_TRIP_THRESHOLD + 1);
+    mock_time_ms = 20;
+    controller.dccLoop();
+    controller.dccexLoop();
+
+    assert_true(controller.isTrackPowerOn(false));   // Main still live
+    assert_false(controller.isTrackPowerOn(true));   // Prog tripped out
+    assert_true(controller.isPowerFaultLatched());
+    assert_true(gpio_states[25]);
+
+    assert_int_equal(uart_count("<p1 MAIN>"), 1);
+    assert_int_equal(uart_count("<p0 PROG>"), 1);
+    assert_int_equal(uart_count("<p0 MAIN>"), 0);
+
+    // The latch must not flip-flop. `tripped` persists until power is
+    // deliberately restored, and the main track's power never went away -- so a
+    // clear condition that only looked at the main track would clear the latch
+    // on this same pass and re-raise it on the next, announcing a fault at the
+    // loop rate for as long as the short lasted.
+    for (uint32_t t = 30; t < 200; t += 10) {
+        mock_time_ms = t;
+        controller.dccLoop();
+        controller.dccexLoop();
+    }
+
+    assert_true(controller.isPowerFaultLatched());
+    assert_int_equal(uart_count("<p1 MAIN>"), 1);
+    assert_int_equal(uart_count("<p0 PROG>"), 1);
+}
+
 int main(void)
 {
     printf("Running Controller Tests\n");
@@ -1278,6 +1569,14 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_controller_rejects_colliding_pins, setup, teardown),
         cmocka_unit_test_setup_teardown(test_ISSUE_2_rejected_throttle_does_not_abort, setup, teardown),
         cmocka_unit_test_setup_teardown(test_function_command_does_not_queue_a_speed_change, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_ISSUE_4_timing_cutoff_is_reported_on_the_wire, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_ISSUE_4_cutoff_is_reported_once_not_per_pass, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_ISSUE_42_error_led_stays_lit_after_the_cutoff, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_ISSUE_42_deliberate_power_restore_clears_the_indication, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_ISSUE_4_restoring_power_into_a_live_fault_re_reports, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_ISSUE_4_core1_heartbeat_cutoff_is_reported, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_no_power_fault_reported_on_a_clean_boot, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_ISSUE_4_prog_only_overcurrent_reports_each_track_honestly, setup, teardown),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
