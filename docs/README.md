@@ -72,7 +72,7 @@ has shipped.
 | [`gpio-pinout-reference.md`](gpio-pinout-reference.md) | Pin assignments for tracks, LEDs, ADC, LCD and touch |
 | [`lcd-integration.md`](lcd-integration.md) | Display hardware, LVGL setup and UI structure |
 | [`safety-recommendations.md`](safety-recommendations.md) | Overcurrent, emergency stop, programming-track limits, isolation |
-| [`DCC Service Mode Programming.html`](DCC%20Service%20Mode%20Programming.html) | Offline copy of the DCC Wiki article on NMRA S-9.2.3 (the web version is Cloudflare-blocked) |
+| [DCC Wiki: Service Mode Programming](https://dccwiki.com/Service_Mode_Programming) | External. Readable summary of NMRA S-9.2.3. The site is Cloudflare-blocked to some clients; the standard itself is the authority, at [nmra.org](https://www.nmra.org/index-nmra-standards-and-recommended-practices) |
 
 ### Protocol compliance
 
