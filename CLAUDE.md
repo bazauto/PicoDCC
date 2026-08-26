@@ -65,8 +65,9 @@ SDK default script.
 CI (`.github/workflows/ci.yml`) runs the `host` preset and its ctest on every push and PR —
 the same commands you run locally, so the two cannot drift. It does not cross-build firmware,
 so **hardware-mode breakage is not caught by CI** — run the `pico` preset locally before
-merging anything that touches shared headers, `lib/*/CMakeLists.txt`, or code behind
-`#ifdef TEST_BUILD`.
+merging anything that touches shared headers, `lib/*/CMakeLists.txt`, `PicoDCCDisplay`, or
+code behind `#ifdef TEST_BUILD`. It builds into its own tree, so nothing needs clearing or
+restoring afterwards.
 
 ---
 
