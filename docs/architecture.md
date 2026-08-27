@@ -290,15 +290,18 @@ so it can never stall Core 1's DCC timing.
 
   Both tracks blocked until 2026-08-23, which paced the loop at the programming track's
   slower rate -- `DCC_PROG_PREAMBLE 20` against `DCC_MAIN_PREAMBLE 14` -- so the main track
-  refilled more slowly than it drained. Its FIFO trended empty, and an empty FIFO parks the
-  signal pin high (#34), so the coupling showed on a scope as 2.2-2.5ms of DC on the main
-  track between packets against the programming track's designed 197-209us (#35).
+  refilled more slowly than it drained. Its FIFO trended empty, and at the time an empty FIFO
+  parked the signal pin high (#34), so the coupling showed on a scope as 2.2-2.5ms of DC on
+  the main track between packets against the programming track's designed 197-209us (#35).
+  A starved FIFO now idles on `1` bits instead (see below), so the same coupling today would
+  cost throughput rather than putting DC on the rails.
 
 - **The inter-packet gap is a bit, not a held level.** `dcc.pio` emits one legal `1` bit
-  between packets -- 58us high, then 58us low split across the `.wrap` so that the four
-  cycles of `pull block` / `out y` / `out x` / `jmp x--` land *inside* the low half rather
-  than extending it. Those four instructions carry the previous pin level, because side-set
-  is `opt`.
+  between packets -- 58us high, then 58us low split across the `.wrap` so that the five
+  cycles of `pull noblock` / `out y` / `out x` / `jmp x!=y` / `jmp x--` land *inside* the low
+  half rather than extending it. Those five instructions carry the previous pin level,
+  because side-set is `opt`. (It was four before the starvation branch below added one to
+  the packet path; the gap's own delay dropped from four cycles to three to pay for it.)
 
   It used to be two `side 1` delays: 116us of high with no low half, running into the four
   carried cycles and then the next packet's first preamble instruction. The line was
@@ -308,15 +311,33 @@ so it can never stall Core 1's DCC timing.
   of DC on the rails at every packet boundary (#34). Measured on a scope at the GPIO on
   2026-08-23 as 197-209us, and reproduced exactly by the emulator.
 
-  **Still outstanding on #34**: `.wrap` targets `pull block`, and a stalled instruction holds
-  the pin at its last value. An empty TX FIFO is therefore not "signal stops", it is one
-  polarity held for as long as the FIFO stays empty -- now `side 0` rather than `side 1`,
-  which changes which rail is hot but not the fact of it. #35 removes the cause in normal
-  operation by keeping the FIFO full, and `dccLoop()`'s 100ms timing-violation cutoff catches
-  a Core 1 that has stopped refilling. Making the PIO emit `1` bits while starved instead of
-  stalling needs `pull noblock` with a sentinel, which needs X freed from its byte-counter
-  duty, and it takes the program from 27 to 31 of the 32 available instructions. That is its
-  own change and its own bench session.
+- **A starved FIFO idles on `1` bits, it does not park.** `.wrap` used to target
+  `pull block`, and a stalled instruction holds the pin at its last side-set value. An empty
+  TX FIFO was therefore not "signal stops", it was one polarity held for as long as the FIFO
+  stayed empty -- DC on the rails, and a decoder that loses the alternating waveform falls
+  back to DC mode, which means full speed.
+
+  `pull noblock` copies X into the OSR on an empty FIFO instead, and the program branches to
+  a three-instruction `starved` loop that emits legal `1` bits until real data arrives. The
+  starvation test costs no sentinel register: on a starved pull both `out`s read the same
+  byte of X, so `X == Y`, and a real packet can never do that -- Y is the preamble count (14
+  main, 20 prog) and X is the byte count, at most six. `dcc_program_init()` seeds X and Y
+  equal so the first pass on an empty FIFO idles rather than transmitting whatever the
+  scratch registers powered up holding.
+
+  The cycle budget is the delicate part, because the header runs at the carried-low level and
+  so counts toward the low half of the preceding bit. All four paths total eight cycles:
+  gap-to-packet 3+5, gap-to-starved 3+4+1, starved-to-starved 3+4+1, starved-to-packet 3+5.
+  The program is 31 of the 32 available instructions.
+
+  This also means #35's "keep the FIFO full" is no longer load-bearing for safety -- it is
+  back to being a throughput property. `dccLoop()`'s 100ms timing-violation cutoff still
+  catches a Core 1 that has stopped refilling.
+
+  **Verified by emulation, not yet on hardware.** `test_starved_fifo_emits_an_idle_carrier_not_dc`
+  and `test_idle_carrier_bits_are_in_spec` assert the carrier is alternating and inside the
+  S-9.1 window, and `test_packet_after_starvation_still_decodes` covers the starved-to-packet
+  transition where a mis-budgeted cycle would show. The scope check at the GPIO is still owed.
 
 ### PicoDCCDisplay
 - **Role**: All LCD and touch behaviour, as a self-contained component

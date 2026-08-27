@@ -156,9 +156,17 @@ tracks in one pass; the main track's `pio_sm_put_blocking` is what stops that pa
 the hardware. The programming track is passed `Pacing::NonBlocking` and skips a pass rather
 than waiting. When both blocked, the pass ran at the *slower* track's rate -- programming
 packets carry six more preamble bits -- so the main FIFO drained faster than it refilled, and
-an empty FIFO parks the signal pin high rather than going quiet, putting 2.2-2.5ms of DC on
-the main track between packets (#34, #35). Do not make the programming track block again, and
-do not add a third blocking point.
+at the time an empty FIFO parked the signal pin high rather than going quiet, putting
+2.2-2.5ms of DC on the main track between packets (#34, #35). Do not make the programming
+track block again, and do not add a third blocking point.
+
+**A starved FIFO now idles on `1` bits rather than parking the pin** (#34). `dcc.pio` pulls
+with `pull noblock` and branches to a `starved` loop that emits legal `1` bits until data
+arrives, so an empty FIFO costs throughput rather than putting DC on the rails. The cycle
+budget is shared between the starved loop and the packet path -- both complete the low half
+of a bit cell -- so changing any delay in the header, the gap or `starved` means re-checking
+all four paths. `docs/architecture.md` has the arithmetic. Verified by emulation only; the
+scope check at the GPIO is still owed.
 
 | Component | Lives in | Owns |
 |---|---|---|
