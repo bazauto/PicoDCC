@@ -79,9 +79,12 @@ void diag_log_clear(void);
  * - Display reads are limited to 20 entries max with conservative buffer management
  * 
  * Thread-safety:
- * - Writer (Core 1) uses blocking semaphore
+ * - Writer (either core) uses sem_try_acquire and DROPS the entry on contention
  * - Reader (Core 0 display) uses non-blocking semaphore
- * - Prevents Core 1 DCC timing disruption during display updates
+ * - Neither side can stall Core 1, so logging is never a DCC timing hazard
+ *
+ * The writer used to block, which contradicted the line above and made LOG_CRITICAL
+ * from the Core 1 hot path a timing risk (#17). Dropping a line is the cheaper loss.
  */
 void log_diagnostic(diagnostic_level_t level, const char* component, const char* message);
 

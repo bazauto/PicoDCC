@@ -165,10 +165,20 @@ uint adc_read()
 
 void setup_default_uart() {}
 
+void (*mock_uart_puts_hook)(void) = nullptr;
+
 void uart_puts(void *uart, const char *str) {
     (void)uart;
     // Log UART output for testing acknowledgments
     uart_output_log.push_back(std::string(str));
+
+    // Fires while the write is "in progress". On hardware uart_puts blocks until the
+    // bytes are clear, so this is the window in which the rest of the firmware has to
+    // keep working -- it is how a test observes what a caller still holds while it
+    // writes. Used by the #17 regression test.
+    if (mock_uart_puts_hook) {
+        mock_uart_puts_hook();
+    }
 }
 
 char uart_getc(void *uart) {
