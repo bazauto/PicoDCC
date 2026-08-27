@@ -328,7 +328,32 @@ so it can never stall Core 1's DCC timing.
   The cycle budget is the delicate part, because the header runs at the carried-low level and
   so counts toward the low half of the preceding bit. All four paths total eight cycles:
   gap-to-packet 3+5, gap-to-starved 3+4+1, starved-to-starved 3+4+1, starved-to-packet 3+5.
-  The program is 31 of the 32 available instructions.
+  The program is 32 of the 32 available instructions -- full, with no headroom left. Adding
+  anything to `dcc.pio` now means taking something out first.
+
+- **A header claiming zero bytes is discarded, not transmitted.** A packet is one or two
+  32-bit words, and if the FIFO ever slips by one the state machine pulls a packet's *second*
+  word at `start` and reads it as a header. An idle packet's second word is `0xFF000000`:
+  preamble 255, byte count 0. `jmp x--` post-decremented that 0 to `0xFFFFFFFF`, so the
+  packet claimed 4.29 billion bytes and never ended -- the state machine emitted every
+  subsequent FIFO word verbatim as 9-bit data bytes, with no preamble, until the board was
+  rebooted. Captured on the bench in `DCC_Broken.png`: the main track carried
+  `... 3F 80 BB | 00 00 | 0E 04 03 3F ...`, which is the raw packet words on the rails,
+  `0E` being `DCC_MAIN_PREAMBLE` and `04` being `length+1`. Every locomotive held its last
+  commanded speed for as long as it lasted.
+
+  The guard at `have_packet` costs one instruction and sends a zero-count header to
+  `starved_high` instead. Dropping that word is also the resync: one word out of step,
+  dropped, puts the next pull back on a real first word. It is off the packet path, so all
+  four budgets above are untouched; the recovery bit itself is 9 cycles low against 8 high,
+  one malformed bit at the moment of recovery.
+
+  This bounds the damage rather than removing the cause. **What put the FIFO one word out of
+  step is not known.** Word pushes match word consumption for every payload length, there is
+  a single writer, nothing clears or restarts the state machine, and both queues use the same
+  element size -- so the trigger is still open. A header with a *non-zero* but wrong byte
+  count is still transmitted as a long garbage packet; only the permanent case is caught.
+  The session it was seen in also logged a DCC timing violation, at an unrecorded point.
 
   This also means #35's "keep the FIFO full" is no longer load-bearing for safety -- it is
   back to being a throughput property. `dccLoop()`'s 100ms timing-violation cutoff still
@@ -485,7 +510,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **288 total tests** across all components: Controller (45), DCCEX (9), Locos (36), Loco (28), Packet (45), Track (37), Config Storage (12), Display (9), Diagnostic (9), Wire Format (37), PIO Wire Format (21)
+- **290 total tests** across all components: Controller (45), DCCEX (9), Locos (36), Loco (28), Packet (45), Track (37), Config Storage (12), Display (9), Diagnostic (9), Wire Format (37), PIO Wire Format (23)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

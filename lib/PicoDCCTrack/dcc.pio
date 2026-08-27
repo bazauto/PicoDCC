@@ -51,11 +51,39 @@ starved:
     nop                     side 0          ; 1 cycle: pads the starved path to
                                             ; match the two extra header cycles
                                             ; the packet path spends
+starved_high:
+    ; Second entry point, for the recovery jmp at `have_packet` below. It has
+    ; already spent the pad cycle above getting here, so it joins one instruction
+    ; late. Nothing on a normal path enters here.
     nop                     side 1  [7]     ; 8 cycles = 58us high
     jmp start               side 0  [2]     ; 3 cycles low; the header adds the rest
 
 have_packet:
     jmp x-- preamble_bits                   ; Need to decrement for the post decrement at the end of the loop other wise we will loop 1 too many times
+
+    ; Only reached when the header claimed a byte count of zero.
+    ;
+    ; No packet this station builds has zero bytes, so the word just pulled was
+    ; not a packet header at all -- it was a packet's *second* word, read as a
+    ; first. That happens if the FIFO ever slips by one word, and the second word
+    ; of an idle packet is 0xFF000000: preamble 255, byte count 0.
+    ;
+    ; Without this instruction the fall-through ran straight into preamble_bits
+    ; with `jmp x--` having post-decremented 0 to 0xFFFFFFFF -- a packet of 4.29
+    ; billion bytes. The state machine then emitted every subsequent FIFO word
+    ; verbatim as 9-bit data bytes, with no preamble, for the rest of time: no
+    ; decoder saw a valid packet again and only a reboot cleared it. That is the
+    ; failure captured in docs/DCC_Broken.png.
+    ;
+    ; Discarding the word and going round again is also the resync: one word out
+    ; of step, dropped, puts the next pull back on a real first word.
+    ;
+    ; The recovery bit is 9 cycles low (65us) against 8 high, because this path
+    ; spends one instruction more than the packet path -- slightly outside the
+    ; S-9.1 transmit window for a '1'. That is deliberate: it costs one malformed
+    ; bit at the moment of recovery and leaves all four normal-path budgets above
+    ; untouched, which is the trade worth making.
+    jmp starved_high
 
     ; Send preamble
 preamble_bits:
