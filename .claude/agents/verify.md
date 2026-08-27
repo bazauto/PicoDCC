@@ -19,12 +19,15 @@ cmake --build --preset host
 ctest --preset host
 ```
 
-Expect **10 suites / 145 tests**, under a second. If the suite or test count differs from
-that, say so explicitly — it means suites were added or removed and the docs may be stale.
+Expect **11 suites / 288 tests**, under a second. If the suite or test count differs from
+that, say so explicitly — it means tests were added or removed, and the per-suite table in
+`docs/architecture.md` needs updating in the same PR.
 
-On Windows, run these from PowerShell, or prepend `/c/msys64/ucrt64/bin` to `PATH` first if
-you are in bash. Without it the compiler fails to load its DLLs and ninja prints `FAILED:`
-with no compiler diagnostic — an environment problem that reads as a code failure.
+On Windows, prepend `/c/msys64/ucrt64/bin` to `PATH` first — in **every** shell, PowerShell
+included. Without it the compiler fails to load its DLLs and ninja prints `FAILED:` with no
+compiler diagnostic — an environment problem that reads as a code failure. Note that
+`c++ --version` still succeeds when this is broken, because it never loads `cc1plus`; only an
+actual compile shows it. See the toolchain section of `CLAUDE.md`.
 
 ## When to also run the hardware build
 
