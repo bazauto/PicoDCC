@@ -12,7 +12,7 @@ workflow — live in [`CLAUDE.md`](../CLAUDE.md). This file is the map of everyt
 
 | Subsystem | State | Notes |
 |---|---|---|
-| DCC signal generation (PIO) | ✅ Working | Main and programming tracks, separate PIO blocks |
+| DCC signal generation (PIO) | ⚠️ Working, one open fault | Main and programming tracks, separate PIO blocks. A FIFO that slips by one word wrecks the waveform; the damage is now bounded and self-clearing, but the cause is not known — see Known Gaps |
 | Throttle / function / accessory | ✅ Working | `<t>` accepts the 3-field form only |
 | Track power and overcurrent | ✅ Working | Only active where an ADC channel is configured |
 | Emergency stop | ✅ Working | DCC broadcast, address `0x00` instruction `0x41`, sent 5 times; every known loco is then held at speed 0 so the reminders keep asserting it (#3). Track power is left on |
@@ -48,6 +48,16 @@ describe them as finished:
    and `writeCVBit()` are declared in `lib/PicoDCCLoco/pico_dccloco.h` with no definitions.
 3. **ACK detection is absent** from `PicoDccTrack`, which is the prerequisite for all of the
    above.
+4. **A one-word FIFO slip on the main track has been seen, and its cause is unknown.** On the
+   bench the main track stopped emitting DCC packets entirely and instead put the raw 32-bit
+   PIO words on the rails as data bytes, with no preamble, until the board was rebooted
+   (`DCC_Broken.png`). The state machine now discards a header claiming zero bytes, which
+   bounds that to one bad bit and resynchronises — but *what put the FIFO one word out of
+   step in the first place has not been found*. Word pushes match word consumption for every
+   payload length, there is a single writer, nothing restarts the state machine, and both
+   queues use the same element size. The session it happened in also logged a DCC timing
+   violation, at an unrecorded point. If the waveform goes to garbage again and a reboot
+   clears it, this is the fault — capture the diagnostic log before rebooting.
 
 ### Work in progress: the `programming` branch
 

@@ -187,8 +187,15 @@ with `pull noblock` and branches to a `starved` loop that emits legal `1` bits u
 arrives, so an empty FIFO costs throughput rather than putting DC on the rails. The cycle
 budget is shared between the starved loop and the packet path -- both complete the low half
 of a bit cell -- so changing any delay in the header, the gap or `starved` means re-checking
-all four paths. `docs/architecture.md` has the arithmetic. Verified by emulation only; the
-scope check at the GPIO is still owed.
+all four paths. `docs/architecture.md` has the arithmetic.
+
+**The program now fills all 32 PIO instruction slots.** Adding anything to `dcc.pio` means
+taking something out first. The last slot went to the guard at `have_packet`: a header
+claiming **zero** bytes is discarded rather than transmitted, because `jmp x--` turned that 0
+into `0xFFFFFFFF` and the state machine spent the rest of the session emitting raw FIFO words
+as data bytes with no preamble — only a reboot cleared it (`docs/DCC_Broken.png`). That is
+what a FIFO slipped by one word looks like; **what causes the slip is still unknown**, so
+treat "the waveform is garbage and a reboot fixes it" as a known open fault, not a solved one.
 
 | Component | Lives in | Owns |
 |---|---|---|

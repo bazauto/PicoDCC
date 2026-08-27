@@ -287,9 +287,12 @@ static void test_idle_packet_reaches_the_rails(void **state)
     assert_null(run.unsupported);
     const DccPacket p = dcc_decode(run);
 
-    // S-9.2 idle packet: 0xFF 0x00, checksum 0xFF. sendIdle() supplies the
-    // checksum byte as data, so the station appends its XOR (0x00) as well.
-    assert_bytes(p, {0xFF, 0x00, 0xFF, 0x00});
+    // S-9.2 idle packet: address 0xFF, data 0x00, error-detection byte 0xFF.
+    // Three bytes exactly. sendIdle() used to pass the 0xFF checksum as a third
+    // *payload* byte, so sendCommand() checksummed that in turn and the rails
+    // carried FF 00 FF 00 -- checksum-valid, ignored by decoders, and nine bits
+    // longer than the packet the standard names.
+    assert_bytes(p, {0xFF, 0x00, 0xFF});
     assert_true(dcc_checksum_valid(p.bytes));
     assert_all_bits_in_spec(p);
 }
@@ -626,6 +629,70 @@ static void test_both_packets_decode_across_the_boundary(void **state)
     assert_true(p.preamble_bits >= 14);
 }
 
+// ---------------------------------------------------------------------------
+// Recovery from a FIFO that has slipped by one word
+// ---------------------------------------------------------------------------
+
+// The failure captured in docs/DCC_Broken.png.
+//
+// A packet is one or two 32-bit words. If the FIFO ever slips by one, the state
+// machine pulls a packet's *second* word at `start` and reads it as a header. An
+// idle packet's second word is 0xFF000000: preamble 255, byte count 0. `jmp x--`
+// post-decremented that 0 to 0xFFFFFFFF -- a packet of 4.29 billion bytes -- and
+// the state machine then emitted every subsequent FIFO word verbatim as 9-bit
+// data bytes, with no preamble, until the board was rebooted. On the layout that
+// is a station transmitting nothing a decoder can read, so every locomotive
+// holds its last commanded speed indefinitely.
+//
+// The guard at `have_packet` discards a header claiming zero bytes. Dropping
+// that word is also the resync: one word out of step, dropped, puts the next
+// pull back on a real first word.
+static void test_slipped_fifo_word_does_not_run_away(void **state)
+{
+    (void)state;
+    PicoDccTrack track(false, main_settings());
+
+    // Build two real idle packets, then present them one word out of step by
+    // dropping the leading word -- the state machine's first pull lands on a
+    // second word, exactly as it did on the bench.
+    sent_track_words.clear();
+    track.sendIdle();
+    track.sendIdle();
+    assert_true(sent_track_words.size() == 4);
+
+    std::vector<uint32_t> slipped(sent_track_words.begin() + 1, sent_track_words.end());
+
+    const PioRunResult run = pio_emulate(dcc_program_instructions, dcc_program_length,
+                                         dcc_wrap_target, dcc_wrap, slipped);
+    assert_null(run.unsupported);
+
+    // Whatever the discarded word produced, the stream must come back to a real
+    // packet rather than streaming words as data for ever. Before the guard this
+    // decoded as one endless packet whose bytes were the raw FIFO words --
+    // 00 00 0E 04 FF 00 FF 00 ... -- and never reached an end bit.
+    const DccPacket p = dcc_decode(run);
+    assert_true(p.well_formed);
+    assert_bytes(p, {0xFF, 0x00, 0xFF});
+    assert_true(dcc_checksum_valid(p.bytes));
+    assert_true(p.preamble_bits >= 14);
+}
+
+// The recovery must not cost anything on the paths that run in normal service.
+// The guard sits after `jmp x--`, so a real packet never executes it, and all
+// four cycle budgets in dcc.pio are unchanged -- this is what says so.
+static void test_guard_does_not_disturb_a_normal_packet(void **state)
+{
+    (void)state;
+    PicoDccTrack track(false, main_settings());
+
+    const DccPacket p = transmit(track, make_cmd(false, {0x03, 0x3F, 0x80}));
+
+    assert_bytes(p, {0x03, 0x3F, 0x80, 0xBC});
+    assert_true(dcc_checksum_valid(p.bytes));
+    assert_true(p.preamble_bits >= 14);
+    assert_all_bits_in_spec(p);
+}
+
 int main(void)
 {
     const struct CMUnitTest tests[] = {
@@ -654,6 +721,9 @@ int main(void)
         cmocka_unit_test_setup(test_idle_carrier_bits_are_in_spec, setup),
         cmocka_unit_test_setup(test_packet_after_starvation_still_decodes, setup),
         cmocka_unit_test_setup(test_both_packets_decode_across_the_boundary, setup),
+
+        cmocka_unit_test_setup(test_slipped_fifo_word_does_not_run_away, setup),
+        cmocka_unit_test_setup(test_guard_does_not_disturb_a_normal_packet, setup),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

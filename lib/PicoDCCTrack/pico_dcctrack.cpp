@@ -252,13 +252,20 @@ void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
 
 void PicoDccTrack::sendIdle()
 {
-    // This is the Idle packet
+    // The S-9.2 idle packet: address 0xFF, one data byte of 0x00, then the
+    // error-detection byte -- which is the XOR of the two, 0xFF.
+    //
+    // `length` counts payload only; sendCommand() appends the checksum itself.
+    // Passing 0xFF as a third payload byte therefore did not supply the
+    // checksum, it supplied a byte the station then had to checksum in turn, and
+    // the rails carried a four-byte FF 00 FF 00. Checksum-valid and ignored by
+    // decoders -- address 0xFF is reserved -- but nine bits longer than the idle
+    // packet, and not the packet the standard names.
     raw_dcc_cmd_t idle_cmd;
     idle_cmd.is_prog = is_prog;
-    idle_cmd.length = 3;
-    idle_cmd.data[0] = 0xFF;  // Idle packet starts with 0xFF
+    idle_cmd.length = 2;
+    idle_cmd.data[0] = 0xFF;  // Idle packet address
     idle_cmd.data[1] = 0x00;  // No data
-    idle_cmd.data[2] = 0xFF;  // Error detection byte
     idle_cmd.cmd_data = 0;    // Will be computed in sendCommand
     idle_cmd.repeats = 0;
     sendCommand(&idle_cmd);
