@@ -41,10 +41,36 @@ typedef struct {
     uint16_t prog_track_current_limit_ma;   // Prog track overcurrent limit
     
     // Reserved for future use (pad to 4KB sector size)
-    uint8_t reserved[3960];
+    uint8_t reserved[4060];
     
     uint32_t checksum;           // CRC32 of all data above
 } pico_config_t;
+
+// Size of one flash page. `flash_range_program` requires its byte count to be a
+// multiple of this; the SDK hard-asserts otherwise.
+#define CONFIG_FLASH_PAGE_SIZE 256
+
+// The struct is handed to `flash_range_program` whole, so its size is not a detail --
+// it is a precondition of the SDK call, and the SDK checks it by hard-asserting.
+//
+// That assert fires at the worst possible moment: inside the critical section, with
+// interrupts off, Core 1 already halted by `multicore_lockout_start_blocking()`, and
+// the sector already erased. Core 1 never resumes, so the DCC signal never resumes --
+// and per rule 1 in CLAUDE.md, decoders that lose the signal fall back to DC mode,
+// which on a powered track is full speed. The config is left erased as well.
+//
+// `reserved` was 100 bytes short of the sector it claimed to pad to, so every save()
+// ever attempted took that path. Nothing caught it because save() is stubbed out
+// entirely under TEST_BUILD, so the 11 storage tests exercised the mock.
+//
+// These asserts are the guard, and they are deliberately compile-time: they fail in
+// BOTH build modes, including the host build CI runs, which is what makes the sizing
+// testable at all. If you add a field above, shrink `reserved` by the same number of
+// bytes and the build will tell you when you have it right.
+static_assert(sizeof(pico_config_t) == CONFIG_FLASH_SIZE,
+              "pico_config_t must exactly fill the 4KB config sector -- adjust reserved[]");
+static_assert(CONFIG_FLASH_SIZE % CONFIG_FLASH_PAGE_SIZE == 0,
+              "config sector must be a whole number of flash pages");
 
 // Runtime configuration (RAM-based, volatile)
 typedef struct {
