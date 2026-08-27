@@ -88,10 +88,17 @@ typedef struct {
     uint16_t prog_track_current_limit_ma;   // Prog track overcurrent limit
     
     // Reserved for future use
-    uint8_t reserved[3960];      // Pad to 4KB sector size
+    uint8_t reserved[4060];      // Pad to 4KB sector size
     
     uint32_t checksum;           // CRC32 of all data above
 } pico_config_t;
+
+// The size is a precondition, not a detail: save() hands the whole struct to
+// flash_range_program, which requires a multiple of the 256-byte page and
+// hard-asserts otherwise -- inside the critical section, with Core 1 halted and
+// the sector already erased. reserved[] was 100 bytes short of the sector it
+// claimed to pad to, so every save faulted there (#13). A static_assert in
+// pico_config_storage.h now fails the build in both modes if it drifts again.
 
 // Configuration management class
 class PicoConfigStorage {

@@ -191,6 +191,23 @@ static void test_baseline_current(void **state) {
     assert_true(storage.isValid());
 }
 
+// Test: the struct exactly fills the flash sector it is programmed into (#13)
+//
+// `save()` hands the whole struct to `flash_range_program`, which requires a byte count
+// that is a multiple of the 256-byte page. It was 3996 -- 100 short of the sector the
+// `reserved` array claimed to pad to -- so every save faulted inside the critical
+// section with Core 1 halted and the sector already erased, stopping the DCC signal.
+//
+// The real guard is the static_assert in the header, which fails the build in both
+// modes. This test restates it at runtime so the invariant is visible in the suite
+// rather than only in a header nobody opens.
+static void test_config_struct_fills_flash_sector(void **state) {
+    (void)state;
+
+    assert_int_equal(sizeof(pico_config_t), CONFIG_FLASH_SIZE);
+    assert_int_equal(sizeof(pico_config_t) % CONFIG_FLASH_PAGE_SIZE, 0);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_default_config_values),
@@ -204,6 +221,7 @@ int main(void) {
         cmocka_unit_test(test_config_checksum),
         cmocka_unit_test(test_multiple_instances),
         cmocka_unit_test(test_baseline_current),
+        cmocka_unit_test(test_config_struct_fills_flash_sector),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

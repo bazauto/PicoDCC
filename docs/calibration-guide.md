@@ -379,7 +379,7 @@ typedef struct {
     float baseline_current_ma;   // Baseline current
     uint16_t main_track_current_limit_ma;
     uint16_t prog_track_current_limit_ma;
-    uint8_t reserved[3960];      // Future expansion
+    uint8_t reserved[4060];      // Future expansion; sized so sizeof() is exactly 4096
     uint32_t checksum;           // CRC32 validation
 } pico_config_t;
 ```
