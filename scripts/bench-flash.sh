@@ -64,7 +64,10 @@ decode_config() {
     python3 - "$1" <<'PY'
 import struct, sys, zlib
 raw = open(sys.argv[1], 'rb').read()
-SIZE = 3996                      # sizeof(pico_config_t)
+SIZE = 4096                      # sizeof(pico_config_t) -- fills the sector (#13).
+                                 # Was 3996. The checksum sits at SIZE-4, so a sector
+                                 # written by pre-#13 firmware now reads INVALID --
+                                 # correct, and exactly what the firmware itself does.
 if len(raw) < SIZE:
     print("    sector too short"); sys.exit(0)
 magic, version = struct.unpack_from('<II', raw, 0)

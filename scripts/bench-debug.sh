@@ -76,13 +76,15 @@ if [ "$MODE" = "config" ]; then
     DUMP=$(mktemp); LOG=$(mktemp)
     trap 'rm -f "$DUMP" "$LOG"' EXIT
 
-    RESUME_CMD="-c reset run"
-    [ "$RESUME" = "0" ] && RESUME_CMD=""
+    # An array, not a string: "-c reset run" word-splits into three arguments and
+    # openocd rejects `run` as a stray positional ("Unexpected command line
+    # argument: run"), so `config` and `fault` failed outright before reading anything.
+    RESUME_CMD=(-c "reset run")
+    [ "$RESUME" = "0" ] && RESUME_CMD=()
 
-    # shellcheck disable=SC2086
     "$OCD" -s "$OCD_DIR/scripts" -f interface/cmsis-dap.cfg -f target/rp2350.cfg \
         -c "adapter speed $SPEED" -c "init" -c "halt" \
-        -c "dump_image $DUMP $CONFIG_ADDR $CONFIG_SIZE" $RESUME_CMD -c "shutdown" >"$LOG" 2>&1
+        -c "dump_image $DUMP $CONFIG_ADDR $CONFIG_SIZE" "${RESUME_CMD[@]}" -c "shutdown" >"$LOG" 2>&1
 
     if [ $? -ne 0 ] || [ ! -s "$DUMP" ]; then
         bad "read" "openocd failed"; tail -15 "$LOG" | sed 's/^/    /'; exit 1
@@ -94,7 +96,10 @@ if [ "$MODE" = "config" ]; then
     python3 - "$DUMP" <<'PY'
 import struct, sys, zlib
 raw = open(sys.argv[1], 'rb').read()
-SIZE = 3996                      # sizeof(pico_config_t)
+SIZE = 4096                      # sizeof(pico_config_t) -- fills the sector (#13).
+                                 # Was 3996. The checksum sits at SIZE-4, so a sector
+                                 # written by pre-#13 firmware now reads INVALID --
+                                 # correct, and exactly what the firmware itself does.
 magic, version = struct.unpack_from('<II', raw, 0)
 if magic != 0x50444343:
     blank = all(b == 0xFF for b in raw[:SIZE])
