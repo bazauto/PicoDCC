@@ -30,14 +30,36 @@ cmake --preset pico
 cmake --build --preset pico
 ```
 
-**On Windows, the host build needs the MSYS2 toolchain ahead of Git's on PATH.** Git Bash puts
-its own `mingw64/bin` near the front, and that directory ships `zlib1.dll` and
-`libwinpthread-1.dll` which shadow the copies `cc1.exe` links against. The compiler then dies at
-DLL load and ninja reports `FAILED:` with **no compiler diagnostic at all** — a failure that
-looks unreal, because the same build from PowerShell succeeds. Prepend
-`/c/msys64/ucrt64/bin` to `PATH` when building from bash. The Stop hook does this for itself;
-`PICODCC_HOST_TOOLCHAIN_BIN` overrides the location. A machine-local `CMakeUserPresets.json`
-(gitignored) is the place for any other environment fix.
+**On Windows, the host build needs `C:\msys64\ucrt64\bin` at the FRONT of PATH — in every
+shell, PowerShell included.** Ninja reports `FAILED:` with **no compiler diagnostic at all**,
+which looks unreal and is the signature of this and nothing else.
+
+The cause is DLL shadowing. `cc1plus.exe` lives in `ucrt64/lib/gcc/x86_64-w64-mingw32/<ver>/`,
+**not** in `ucrt64/bin`, so the loader's "application directory first" rule does not protect
+it: it falls through to PATH and picks up whichever `zlib1.dll`, `libgmp-10.dll`,
+`libmpfr-6.dll`, `libisl-23.dll` or `libwinpthread-1.dll` it finds first. An older copy gives
+`0xC0000139 STATUS_ENTRYPOINT_NOT_FOUND` before the compiler prints anything.
+
+Any directory shipping those DLLs will do it. Observed culprits on this machine: Git Bash's
+`mingw64/bin`, `C:\Strawberry\c\bin` (Strawberry Perl) and `E:\win-build\bin`. This file
+used to blame Git Bash alone and say "the same build from PowerShell succeeds" — that was true
+of one culprit and is not true in general. PowerShell is not safe by virtue of being PowerShell.
+
+Diagnosing it: `c++ --version` **succeeds** even when the toolchain is broken, because it never
+loads `cc1plus`. Compile something instead, or run `cc1plus.exe --version` directly and look at
+the exit code. To find the shadowing copy:
+
+```powershell
+foreach ($n in 'zlib1.dll','libgmp-10.dll','libmpfr-6.dll','libisl-23.dll') {
+    "$n -> $((Get-Command $n -ErrorAction SilentlyContinue).Source)"
+}
+```
+
+Anything outside `C:\msys64\ucrt64\bin` is the problem. The Stop hook
+(`.claude/hooks/verify-build.sh`) prepends the toolchain for itself and
+`PICODCC_HOST_TOOLCHAIN_BIN` overrides the location, but an interactive build has to do it by
+hand. A machine-local `CMakeUserPresets.json` (gitignored) is the place for any other
+environment fix.
 
 `scripts/Validate-DualMode.ps1` runs both presets in sequence and is the quickest way to check
 a change end to end. It resolves the SDK and ARM toolchain from `PICO_SDK_PATH` /
