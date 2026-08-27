@@ -6,8 +6,20 @@
 ;.define public PreambleCount 13             ; zero based, will be 14 1 bits
 
 .wrap_target
-    ; Take first word of packet from FIFO, will block here if no data in FIFO
-    pull block
+start:
+    ; Take the first word of the packet from the FIFO.
+    ;
+    ; This was `pull block`. A blocking pull parks the state machine with the pin
+    ; holding whatever level the last side_set left -- which is not "the signal
+    ; stops", it is one polarity held for as long as the FIFO stays empty. An
+    ; H-bridge driven from that pin puts DC on the rails, and a decoder that loses
+    ; the alternating waveform falls back to DC mode, which means full speed (#34).
+    ;
+    ; `pull noblock` instead copies X into the OSR when the FIFO is empty, so a
+    ; starved state machine falls through to `starved` below and keeps emitting
+    ; legal '1' bits until real data arrives. The signal degrades to an idle
+    ; carrier rather than to DC.
+    pull noblock
 
     ; First byte is number of Preamble bits that should be sent (allows same code for main and prog)
     out y, 8                                ; setup preamble bit count
@@ -16,6 +28,33 @@
     ; Shift first byte from OSR in to ISR to use as a byte counter
     ; This is done before the preamble to ensure correct timing to first packet bit
     out x, 8
+
+    ; Starvation test, costing no sentinel register of its own.
+    ;
+    ; On an empty FIFO `pull noblock` loaded X, so both of the OUTs above read
+    ; from the same byte of it and X == Y. A real packet can never do that: Y is
+    ; the preamble count (14 main, 20 prog) and X is the byte count, which is at
+    ; most six for any DCC packet this station builds. dcc_program_init() seeds
+    ; X and Y equal so the very first pass on an empty FIFO idles rather than
+    ; transmitting whatever the scratch registers powered up holding.
+    jmp x!=y have_packet
+
+starved:
+    ; No data. Emit one legal '1' bit and go round again.
+    ;
+    ; Cycle budget -- every '1' half must be 8 cycles (58us), and the header above
+    ; runs at the carried-low level, so it counts toward the low half:
+    ;   gap -> packet   3 (gap) + 5 (pull,out,out,jmp taken,jmp x--)      = 8
+    ;   gap -> starved  3 (gap) + 4 (pull,out,out,jmp not taken) + 1 (pad) = 8
+    ;   starved -> starved  3 (jmp) + 4 + 1                               = 8
+    ;   starved -> packet   3 (jmp) + 5                                   = 8
+    nop                     side 0          ; 1 cycle: pads the starved path to
+                                            ; match the two extra header cycles
+                                            ; the packet path spends
+    nop                     side 1  [7]     ; 8 cycles = 58us high
+    jmp start               side 0  [2]     ; 3 cycles low; the header adds the rest
+
+have_packet:
     jmp x-- preamble_bits                   ; Need to decrement for the post decrement at the end of the loop other wise we will loop 1 too many times
 
     ; Send preamble
@@ -83,11 +122,13 @@ final_bit:
     ; holding one polarity adds nothing while giving the booster's DC-detect
     ; something to object to.
     ;
-    ; The low half is deliberately split across the wrap. Four cycles here plus
-    ; the four of pull/out/out/jmp make 58us, so the overhead lands *inside* the
-    ; half instead of extending it, and the gap costs no extra instructions.
+    ; The low half is deliberately split across the wrap. Three cycles here plus
+    ; the five of pull/out/out/jmp/jmp make 58us, so the overhead lands *inside*
+    ; the half instead of extending it, and the gap costs no extra instructions.
+    ; (It was four plus four before the starvation branch added an instruction to
+    ; the packet path -- see the cycle budget at `starved`.)
     nop                     side 1  [7]     ; 8 cycles = 58us high
-    nop                     side 0  [3]     ; 4 cycles; + 4 below = 58us low
+    nop                     side 0  [2]     ; 3 cycles; + 5 below = 58us low
 
 .wrap
 
@@ -108,5 +149,13 @@ static inline void dcc_program_init(PIO pio, uint sm, uint offset, uint pin, uin
     sm_config_set_clkdiv(&c, div);
 
     pio_sm_init(pio, sm, offset, &c);
+
+    // Seed X and Y equal. The starvation test at `start` reads "X == Y" as "the
+    // FIFO was empty", and until the first packet completes, the scratch
+    // registers hold whatever they powered up with. Without this, a state
+    // machine enabled before anything is queued could read two unequal bytes out
+    // of an uninitialised X and transmit them as a packet header (#34).
+    pio_sm_exec(pio, sm, pio_encode_set(pio_x, 0));
+    pio_sm_exec(pio, sm, pio_encode_set(pio_y, 0));
 }
 %}

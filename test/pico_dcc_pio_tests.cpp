@@ -159,7 +159,9 @@ static void test_emulator_models_the_whole_program(void **state)
     const PioRunResult run = pio_emulate(dcc_program_instructions, dcc_program_length,
                                          dcc_wrap_target, dcc_wrap, sent_track_words);
     assert_null(run.unsupported);
-    assert_true(run.stalled_on_empty_fifo);   // ran a whole packet and parked
+    // The program no longer parks on an empty FIFO -- it idles on '1' bits (#34) --
+    // so reaching the cycle cap is the expected end, not a stall.
+    assert_false(run.stalled_on_empty_fifo);
     assert_true(run.total_cycles > 0);
 }
 
@@ -475,12 +477,12 @@ static void test_packet_boundary_carries_no_dc(void **state)
     const PioRunResult run = pio_emulate(dcc_program_instructions, dcc_program_length,
                                          dcc_wrap_target, dcc_wrap, sent_track_words);
     assert_null(run.unsupported);
-    assert_true(run.stalled_on_empty_fifo);
+    assert_false(run.stalled_on_empty_fifo);   // idles rather than parking (#34)
 
     // runs[0] is the pre-preamble startup before the first packet, and the last
-    // run is where the program parked once the FIFO ran dry. Everything between
-    // is transmission, and every level run in it must be one half-bit: 8 cycles
-    // for a '1' half, 16 for a '0' half.
+    // run is however far into a half-bit the emulator was when it hit the cycle
+    // cap. Everything between is transmission or idle carrier, and every level
+    // run in it must be one half-bit: 8 cycles for a '1' half, 16 for a '0' half.
     assert_true(run.runs.size() > 2);
     for (size_t i = 1; i + 1 < run.runs.size(); i++) {
         if (run.runs[i].cycles != 8 && run.runs[i].cycles != 16) {
@@ -489,6 +491,113 @@ static void test_packet_boundary_carries_no_dc(void **state)
                      "packets, which is DC on the rails (#34).",
                      i, run.runs.size(), run.runs[i].cycles,
                      run.runs[i].cycles * DCC_PIO_CYCLE_NS, run.runs[i].level);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// #34 case 2: an empty TX FIFO must not park the line at a level
+// ---------------------------------------------------------------------------
+//
+// `.wrap` used to target `pull block`. A stalled instruction holds the pin at its
+// last side_set value, so an empty FIFO was not "the signal stops" -- it was one
+// polarity held for as long as the FIFO stayed empty. An H-bridge driven from
+// that pin puts DC on the rails, and a decoder that loses the alternating
+// waveform falls back to DC mode, which means full speed on a powered track.
+//
+// The FIFO does run dry in normal operation, so "keep it fed" was a load-bearing
+// strategy that was never written down anywhere. The program now emits legal '1'
+// bits while starved instead.
+static void test_starved_fifo_emits_an_idle_carrier_not_dc(void **state)
+{
+    (void)state;
+
+    // Nothing queued at all: the state machine starts starved and stays starved.
+    const std::vector<uint32_t> nothing;
+    const PioRunResult run = pio_emulate(dcc_program_instructions, dcc_program_length,
+                                         dcc_wrap_target, dcc_wrap, nothing, 4000u);
+
+    assert_null(run.unsupported);
+
+    // It must not park.
+    assert_false(run.stalled_on_empty_fifo);
+
+    // And what it emits must be an alternating carrier of legal '1' half-bits,
+    // not a held level. The last run is truncated by the cycle cap, so it is
+    // excluded; run 0 is the startup before the first edge.
+    assert_true(run.runs.size() > 8);
+    unsigned last_level = 2;
+    for (size_t i = 1; i + 1 < run.runs.size(); i++) {
+        if (run.runs[i].cycles != 8) {
+            fail_msg("idle run %zu of %zu is %u cycles (%u ns) held at level %u -- a "
+                     "starved FIFO is putting DC on the rails (#34).",
+                     i, run.runs.size(), run.runs[i].cycles,
+                     run.runs[i].cycles * DCC_PIO_CYCLE_NS, run.runs[i].level);
+        }
+        if (run.runs[i].level == last_level) {
+            fail_msg("idle run %zu repeats level %u -- the line is not alternating.",
+                     i, run.runs[i].level);
+        }
+        last_level = run.runs[i].level;
+    }
+}
+
+// The idle carrier is only useful if it is *legal*: a decoder has to read it as
+// '1' bits, which means both halves inside the S-9.1 command station window.
+static void test_idle_carrier_bits_are_in_spec(void **state)
+{
+    (void)state;
+
+    const std::vector<uint32_t> nothing;
+    const PioRunResult run = pio_emulate(dcc_program_instructions, dcc_program_length,
+                                         dcc_wrap_target, dcc_wrap, nothing, 4000u);
+    assert_null(run.unsupported);
+
+    const DccPacket p = dcc_decode(run);
+    assert_true(p.bits.size() > 4);
+
+    // Every whole bit the carrier produced is a '1' and inside spec. The final
+    // bit can be truncated by the cycle cap, so it is not judged.
+    for (size_t i = 0; i + 1 < p.bits.size(); i++) {
+        assert_int_equal(p.bits[i].kind, DCC_BIT_ONE);
+        if (!p.bits[i].in_spec) {
+            fail_msg("idle bit %zu is out of S-9.1 spec: high %u ns, low %u ns.",
+                     i, p.bits[i].high_ns, p.bits[i].low_ns);
+        }
+    }
+}
+
+// A packet queued after a spell of starvation must still transmit correctly.
+// This is the path that matters on the layout: the FIFO runs dry between
+// commands, the station idles, and then real data arrives. The starved loop and
+// the packet path share the low half of a bit cell, so if the cycle budget in
+// dcc.pio is wrong in either direction it shows up here as a malformed bit.
+static void test_packet_after_starvation_still_decodes(void **state)
+{
+    (void)state;
+    PicoDccTrack track(false, main_settings());
+
+    sent_track_words.clear();
+    raw_dcc_cmd_t cmd = make_cmd(false, {0x03, 0x40});
+    track.sendCommand(&cmd);
+
+    const PioRunResult run = pio_emulate(dcc_program_instructions, dcc_program_length,
+                                         dcc_wrap_target, dcc_wrap, sent_track_words,
+                                         6000u);
+    assert_null(run.unsupported);
+
+    const DccPacket p = dcc_decode(run);
+    assert_true(p.well_formed);
+    assert_bytes(p, {0x03, 0x40, 0x43});
+    assert_true(dcc_checksum_valid(p.bytes));
+    assert_all_bits_in_spec(p);
+
+    // Everything after the packet is idle carrier, and it must be legal too --
+    // this is where a mis-budgeted starved loop would show as a short half-bit.
+    for (size_t i = p.packet_bits; i + 1 < p.bits.size(); i++) {
+        if (p.bits[i].kind != DCC_BIT_ONE || !p.bits[i].in_spec) {
+            fail_msg("bit %zu after the packet is not a legal '1': high %u ns, low %u ns.",
+                     i, p.bits[i].high_ns, p.bits[i].low_ns);
         }
     }
 }
@@ -541,6 +650,9 @@ int main(void)
         cmocka_unit_test_setup(test_byte_count_matches_payload_plus_checksum, setup),
 
         cmocka_unit_test_setup(test_packet_boundary_carries_no_dc, setup),
+        cmocka_unit_test_setup(test_starved_fifo_emits_an_idle_carrier_not_dc, setup),
+        cmocka_unit_test_setup(test_idle_carrier_bits_are_in_spec, setup),
+        cmocka_unit_test_setup(test_packet_after_starvation_still_decodes, setup),
         cmocka_unit_test_setup(test_both_packets_decode_across_the_boundary, setup),
     };
 
