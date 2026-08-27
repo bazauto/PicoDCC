@@ -698,6 +698,112 @@ void test_stop_all_locos_on_an_empty_collection(void **state) {
 }
 
 // Merge with existing tests
+// ---------------------------------------------------------------------------
+// #17: the emergency-stop echo must not hold locos_lock across the UART writes
+// ---------------------------------------------------------------------------
+//
+// sendEmergencyStopResponses() used to hold locos_lock for the whole emit loop.
+// DCCEX_RESPONSE is a blocking uart_puts, so with a full table that was 70-90 ms of
+// Core 1 parked in getNextReminder() emitting no DCC at all -- inside the station's own
+// 100 ms timing-violation cutoff.
+//
+// mock_uart_puts_hook fires from inside uart_puts, standing in for the window when the
+// real one is still transmitting. If the lock is held there, a reminder cannot be taken.
+
+static PicoDccLocos *g_hook_locos = nullptr;
+static int g_hook_calls = 0;
+static int g_hook_reminders_taken = 0;
+
+static void reminder_during_uart_write(void) {
+    g_hook_calls++;
+    raw_dcc_cmd_t cmd;
+    if (g_hook_locos && g_hook_locos->getNextReminder(cmd)) {
+        g_hook_reminders_taken++;
+    }
+}
+
+void test_estop_echo_does_not_hold_the_lock_across_uart(void **state) {
+    (void)state;
+
+    PicoDccLocos locos;
+    const char *a = "t 3 40 1";
+    const char *b = "t 7 20 0";
+    PicoDccExPacket pa((char *)a);
+    PicoDccExPacket pb((char *)b);
+    raw_dcc_cmd_t cmd;
+    locos.addLoco(&pa, cmd);
+    locos.addLoco(&pb, cmd);
+
+    uart_output_log.clear();
+    mock_reset_sem_stats();
+    g_hook_locos = &locos;
+    g_hook_calls = 0;
+    g_hook_reminders_taken = 0;
+    mock_uart_puts_hook = reminder_during_uart_write;
+
+    locos.sendEmergencyStopResponses();
+
+    mock_uart_puts_hook = nullptr;
+    g_hook_locos = nullptr;
+
+    // One echo per loco, so the hook ran during a real write.
+    assert_int_equal(g_hook_calls, 2);
+
+    // The point of the test: Core 1 could take a reminder during every one of those
+    // writes. Holding the lock across the emit loop makes this zero.
+    assert_int_equal(g_hook_reminders_taken, 2);
+
+    // And nothing anywhere in that path wanted to block.
+    assert_int_equal(mock_sem_would_block, 0);
+}
+
+// The refactor that fixed the above must not change what goes on the wire: one cab
+// update per valid loco, each carrying that loco's own direction, speed 0.
+void test_estop_echo_reports_each_loco_own_direction(void **state) {
+    (void)state;
+
+    PicoDccLocos locos;
+    const char *fwd = "t 3 40 1";
+    const char *rev = "t 7 20 0";
+    PicoDccExPacket pf((char *)fwd);
+    PicoDccExPacket pr((char *)rev);
+    raw_dcc_cmd_t cmd;
+    locos.addLoco(&pf, cmd);
+    locos.addLoco(&pr, cmd);
+
+    uart_output_log.clear();
+    locos.sendEmergencyStopResponses();
+
+    assert_int_equal(uart_output_log.size(), 2);
+
+    // <l cab reg speedByte functMap>, speedByte bit 7 = direction, low bits = speed
+    // where 0 is stop. So a stopped loco is 128 forward and 0 reverse -- the direction
+    // is the loco's own, not a blanket "forward" (#3), and the speed is 0 either way.
+    assert_string_equal(uart_output_log[0].c_str(), "<l 3 0 128 0>");
+    assert_string_equal(uart_output_log[1].c_str(), "<l 7 0 0 0>");
+
+    // The echo reports, it does not forget: #3 keeps the table so reminders can go on
+    // asserting "stopped" at a loco that missed the broadcast.
+    assert_int_equal(locos.getLocoCount(), 2);
+}
+
+// getNextReminder runs on Core 1 every pass and must never wait (#17).
+void test_get_next_reminder_never_blocks(void **state) {
+    (void)state;
+
+    PicoDccLocos locos;
+    const char *buffer = "t 3 40 1";
+    PicoDccExPacket packet((char *)buffer);
+    raw_dcc_cmd_t cmd;
+    locos.addLoco(&packet, cmd);
+
+    mock_reset_sem_stats();
+    for (int i = 0; i < 10; ++i) {
+        locos.getNextReminder(cmd);
+    }
+    assert_int_equal(mock_sem_would_block, 0);
+}
+
 int main(int argc, char *argv[]) {
     printf("Running Tests\n");
 
@@ -735,6 +841,9 @@ int main(int argc, char *argv[]) {
         cmocka_unit_test(test_stop_all_locos_counts_only_the_moving),
         cmocka_unit_test(test_stop_all_locos_keeps_speed_step_overrides),
         cmocka_unit_test(test_stop_all_locos_on_an_empty_collection),
+        cmocka_unit_test(test_estop_echo_does_not_hold_the_lock_across_uart),
+        cmocka_unit_test(test_estop_echo_reports_each_loco_own_direction),
+        cmocka_unit_test(test_get_next_reminder_never_blocks),
     };
 
     return cmocka_run_group_tests(all_tests, NULL, NULL);

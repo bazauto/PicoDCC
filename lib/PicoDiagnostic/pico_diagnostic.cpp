@@ -39,8 +39,19 @@ void diag_log_add(diagnostic_msg_t msg) {
     }
     
 #ifndef TEST_BUILD
-    // Acquire semaphore for thread-safe access
-    sem_acquire_blocking(&g_diag_log_buffer.sem);
+    // Try, never wait. LOG_CRITICAL reaches here from PicoDccTrack::checkPIOHealth() and
+    // PicoDccController::dccLoop(), both on Core 1 in the DCC hot path, so a blocking
+    // acquire here makes *logging itself* a timing hazard (rule 4) -- and that penalises
+    // exactly the diagnostics the design wants most, at exactly the moment a fault is
+    // being reported.
+    //
+    // On contention the entry is dropped. That is the deliberate trade: the only other
+    // party holding this lock is the Core 0 display reader, which holds it for a bounded
+    // copy, so a drop means one log line lost to a 10 Hz display refresh. A stalled DCC
+    // signal costs a great deal more than a log line -- see rule 1.
+    if (!sem_try_acquire(&g_diag_log_buffer.sem)) {
+        return;
+    }
 #endif
     
     // CRITICAL: Bounds check head position to prevent buffer overflow

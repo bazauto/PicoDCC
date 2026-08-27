@@ -33,7 +33,22 @@ PicoDccLoco *PicoDccLocos::findLoco(uint16_t address)
 
 bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
 {
-    sem_acquire_blocking(&locos_lock);
+    // Core 1 calls this every pass of PicoDccTrack::loop(), so it must never wait on a
+    // lock Core 0 holds (rule 4). Core 0 takes the same lock for addLoco(),
+    // updateLocoThrottle(), forgetAllLocos() and getLocoCount() -- and the display path
+    // calls getLocoCount() at 10 Hz, so contention is routine rather than exceptional.
+    //
+    // Failing to acquire is not an error and is not logged: the caller falls through to
+    // sendIdle(), which keeps the DCC waveform alternating, and `last_loco_reminder` is
+    // left untouched so the round-robin resumes at the same loco on the next pass. No
+    // loco is skipped -- one is deferred by a single pass, which no decoder can observe.
+    //
+    // The alternative is what this replaces: Core 1 parked here emitting no packets at
+    // all, closing on the 100 ms timing-violation cutoff that powers both tracks down.
+    if (!sem_try_acquire(&locos_lock))
+    {
+        return false;
+    }
     
     if (locos.empty())
     {
@@ -305,30 +320,56 @@ uint8_t PicoDccLocos::getLocoSpeedSteps(uint16_t address)
 
 void PicoDccLocos::sendEmergencyStopResponses()
 {
+    // Snapshot under the lock, emit outside it (#17).
+    //
+    // This used to hold locos_lock across the whole emit loop. DCCEX_RESPONSE is
+    // uart_puts(uart0, ...), which blocks until the bytes are clear; each `<l ...>` is
+    // ~16 bytes, so a full table of MAX_LOCO at 115200 baud held the lock for 70-90 ms.
+    // For all of that, Core 1 was parked in getNextReminder() emitting no DCC at all --
+    // within ~10-30 ms of the station's own 100 ms timing-violation cutoff, which powers
+    // both tracks down. During an emergency stop, of all moments.
+    //
+    // The margin degraded with table size, so it was invisible on a bench with two locos
+    // and worst on a busy layout. getNextReminder() is now non-blocking as well, so
+    // neither half of that interaction survives; this half is fixed independently
+    // because a 90 ms lock hold is wrong whether or not the other side waits on it.
+    //
+    // Static rather than stack: rule 4 bars large stack allocations, and Core 0's
+    // dccexLoop() is the only caller, so there is no reentrancy to guard against.
+    struct EStopEcho {
+        uint16_t address;
+        bool     forward;
+    };
+    static EStopEcho echoes[MAX_LOCO] __attribute__((aligned(8)));
+    size_t echo_count = 0;
+
     sem_acquire_blocking(&locos_lock);
-    
-    // Send locomotive status response for each active locomotive
-    // This is required by DCC-EX specification for emergency stop
-    for (size_t i = 0; i < locos.size(); ++i) {
+    for (size_t i = 0; i < locos.size() && echo_count < MAX_LOCO; ++i) {
         if (locos[i].isValid()) {
-            // Create emergency stop status update packet. The direction is
-            // the loco's own: this said "forward" for every loco while claiming
-            // in a comment to maintain the current direction, which it could
-            // not do while the collection was being emptied a line later (#3).
-            // With the locos retained, it can.
-            pico_dccex_packet emergency_status = {
-                't',                    // throttle command opcode
-                (int)locos[i].getAddress(),  // locomotive address
-                0,                      // speed = 0, matching the held state
-                locos[i].isForward() ? 1 : 0,
-                false,                  // power_on (not used for throttle)
-                DCCEX_TRACK_MAIN       // track (not used for throttle)
-            };
-            
-            PicoDccExPacket response_packet(emergency_status);
-            DCCEX_RESPONSE(response_packet.getDccExCabUpdate());
+            // The direction is the loco's own: this said "forward" for every loco while
+            // claiming in a comment to maintain the current direction, which it could
+            // not do while the collection was being emptied a line later (#3). With the
+            // locos retained, it can.
+            echoes[echo_count].address = locos[i].getAddress();
+            echoes[echo_count].forward = locos[i].isForward();
+            echo_count++;
         }
     }
-    
     sem_release(&locos_lock);
+
+    // Send locomotive status response for each active locomotive
+    // This is required by DCC-EX specification for emergency stop
+    for (size_t i = 0; i < echo_count; ++i) {
+        pico_dccex_packet emergency_status = {
+            't',                    // throttle command opcode
+            (int)echoes[i].address, // locomotive address
+            0,                      // speed = 0, matching the held state
+            echoes[i].forward ? 1 : 0,
+            false,                  // power_on (not used for throttle)
+            DCCEX_TRACK_MAIN       // track (not used for throttle)
+        };
+
+        PicoDccExPacket response_packet(emergency_status);
+        DCCEX_RESPONSE(response_packet.getDccExCabUpdate());
+    }
 }

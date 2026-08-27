@@ -63,6 +63,10 @@ extern void* uart0;
 
 void setup_default_uart();
 void uart_puts(void *uart, const char *str);
+
+// Called from inside uart_puts, standing in for the window during which a real
+// blocking uart_puts is still transmitting. NULL to disable. See #17.
+extern void (*mock_uart_puts_hook)(void);
 void uart_test_write(const char* str);
 char uart_getc(void *uart);
 bool uart_is_writable(void *uart);
