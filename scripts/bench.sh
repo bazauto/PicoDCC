@@ -7,6 +7,7 @@
 #   bash scripts/bench.sh fault                  # TOUCHES THE BOARD (halts both cores)
 #   bash scripts/bench.sh config                 # TOUCHES THE BOARD (halts to read flash)
 #   bash scripts/bench.sh dccex '<s>'            # TOUCHES THE BOARD (serial command)
+#   bash scripts/bench.sh dccex --repeat 200 '<#>'  # TOUCHES THE BOARD (UART loss test, #6)
 #
 # Exists so the ssh incantation lives in one place and so each operation is a
 # short, distinct command line. That second point is what makes the permission
@@ -83,6 +84,7 @@ usage: bash scripts/bench.sh <command>
     fault [--no-resume]    halt, registers + backtrace both cores, resume
     config [--no-resume]   read and decode the stored configuration
     dccex [--force] '<s>'  send a DCC-EX command, capture the reply
+    dccex --repeat N '<#>' send N back to back, count replies -- the #6 loss test
 
 Build and stage first with: pwsh -NoProfile -File scripts/Deploy-Firmware.ps1
 USAGE
