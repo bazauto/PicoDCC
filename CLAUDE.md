@@ -144,6 +144,15 @@ the lock is the race, not just mutating it.
 data gathering and update logic (`init()`, `runBootSequence()`, `loop(controller)`). No timer
 variables, no cross-component queries, no calculations in `main()`.
 
+**Everything is constructed inside `main()`, after `diag_log_init()`**, and reached from
+Core 1 through the `pico_controller` pointer. `PicoDccController` used to be a file-scope
+static, so its constructor ran during dynamic initialisation — before `main()`, where
+`log_diagnostic()` returns early because the buffer is not initialised yet, and where
+`diag_log_init()` would then `memset` the entries anyway. Its boot banner and
+`PicoConfigStorage::load()`'s diagnostic were dropped on every boot (#46). Nothing else on
+the happy path logs, so an empty diagnostic screen was the normal state and could not be
+told apart from a broken log pipeline. Do not move construction back to file scope.
+
 ### 7. `dcc_millis()` is the only millisecond clock
 
 `lib/dcc_time.h`. **Never write `time_us_32() / 1000`.** Unsigned delta arithmetic
