@@ -63,7 +63,9 @@ extern diagnostic_log_buffer_t g_diag_log_buffer;
 
 // Log buffer management functions
 void diag_log_init(void);
-void diag_log_add(diagnostic_msg_t msg);
+// Takes a pointer, not a value: the parameter used to be an 88-byte struct
+// passed by value, which was one of three copies made of every entry (#18).
+void diag_log_add(const diagnostic_msg_t* msg);
 uint8_t diag_log_get_count(void);
 bool diag_log_get_entry(uint8_t index, diagnostic_msg_t* out_entry);  // Thread-safe copy
 void diag_log_clear(void);
@@ -73,7 +75,9 @@ void diag_log_clear(void);
  * Stores messages in circular buffer for LCD display
  * 
  * Implementation notes:
- * - Uses static allocation with 8-byte alignment to prevent ARM UNALIGNED faults
+ * - The entry is built directly in the ring slot, inside the lock. It used to be
+ *   assembled in a function-level static shared by both cores and then copied in,
+ *   so two concurrent calls could commit a hybrid entry (#18)
  * - Byte-by-byte string copy instead of strncpy() to avoid alignment issues
  * - Non-blocking semaphore (sem_try_acquire) prevents Core 1 blocking
  * - Display reads are limited to 20 entries max with conservative buffer management
