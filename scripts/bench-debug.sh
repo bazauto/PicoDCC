@@ -30,10 +30,12 @@ CONFIG_SIZE=4096
 
 MODE="${1:-}"; shift || true
 RESUME=1
+VERBOSE=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --no-resume) RESUME=0; shift ;;
         --elf) ELF="${2:-}"; shift 2 ;;
+        --verbose) VERBOSE=1; shift ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -217,6 +219,9 @@ fi
 # It is also the telemetry channel for #38: the heap sampler logs through
 # LOG_INFO, the layout runs for a few hours, and this reads the trend back off
 # the board in one halt at the end rather than stopping DCC to take each sample.
+#
+# This neither resets nor halts: a reset restarts the uptime the log is measuring
+# against, and a halt stops DCC. The debug port reads RAM while the cores run.
 
 if [ "$MODE" = "log" ]; then
     echo
@@ -255,18 +260,55 @@ if [ "$MODE" = "log" ]; then
     DUMP=$(mktemp); LOG=$(mktemp)
     trap 'rm -f "$DUMP" "$LOG"' EXIT
 
-    RESUME_CMD=(-c "reset run")
-    [ "$RESUME" = "0" ] && RESUME_CMD=()
-
+    # NEITHER RESET NOR HALT. Both alternatives were tried on hardware and both
+    # are wrong, so the reasoning is recorded rather than rediscovered:
+    #
+    #   `-c "reset run"`  reboots the board. A log dump that reboots destroys the
+    #                     thing being read -- uptime never accumulates past the
+    #                     gap between two reads, and anything on a long interval
+    #                     can never show a second entry. The #38 heap sampler runs
+    #                     on ten minutes; two reads seven minutes apart returned
+    #                     identical logs and it looked like a broken sampler.
+    #
+    #   `-c "init"`       resets it too, which is much less obvious. Dropping
+    #                     `reset run` alone changed nothing: the board still came
+    #                     back with an uptime of a couple of minutes.
+    #
+    #   halt + resume     hard-faults Core 0. Driving it through gdb the way
+    #                     `fault` does -- `monitor halt`, dump, `monitor resume`
+    #                     -- leaves the board in lockup: "clearing lockup after
+    #                     double fault", `pc 0xeffffffe`, and DCC-EX stops
+    #                     answering. Verified by flashing, confirming <s> replies,
+    #                     doing one read, and finding <s> silent.
+    #
+    # `reset_config none` stops openocd asserting reset during `init`, so the
+    # board is examined and read where it stands. Nothing is halted, so DCC never
+    # stops and Core 0 is never disturbed.
+    #
+    # The cost is that a read can catch the ring mid-write. The decoder
+    # bounds-checks head and count and refuses rather than printing rubbish.
     "$OCD" -s "$OCD_DIR/scripts" -f interface/cmsis-dap.cfg -f target/rp2350.cfg \
-        -c "adapter speed $SPEED" -c "init" -c "halt" \
-        -c "dump_image $DUMP $SYM_ADDR_HEX $SYM_SIZE_HEX" "${RESUME_CMD[@]}" -c "shutdown" >"$LOG" 2>&1
+        -c "adapter speed $SPEED" -c "reset_config none" -c "init" \
+        -c "dump_image $DUMP $SYM_ADDR_HEX $SYM_SIZE_HEX" -c "shutdown" >"$LOG" 2>&1
 
-    if [ $? -ne 0 ] || [ ! -s "$DUMP" ]; then
-        bad "read" "openocd failed"; tail -15 "$LOG" | sed 's/^/    /'; exit 1
+    if [ ! -s "$DUMP" ]; then
+        bad "read" "openocd could not dump the buffer"; tail -15 "$LOG" | sed 's/^/    /'; exit 1
     fi
     ok "read" "$SYM_SIZE bytes from $SYM_ADDR_HEX"
-    [ "$RESUME" = "1" ] && ok "board" "reset and running" || ok "board" "left HALTED (--no-resume)"
+
+    if [ "$VERBOSE" = "1" ]; then
+        echo "  --    openocd transcript"
+        sed 's/^/          /' "$LOG"
+    fi
+
+    # Do not grep the transcript for `ocd_process_reset_inner`: openocd echoes it
+    # while parsing the target config, before the adapter is even up, so it shows
+    # on reads that demonstrably leave the board alone.
+    if grep -qi "HardFault\|lockup" "$LOG" 2>/dev/null; then
+        bad "board" "a core is in HardFault -- run: bash scripts/bench.sh fault"
+    else
+        ok "board" "untouched -- never halted, never reset, DCC did not stop"
+    fi
     echo
 
     python3 - "$DUMP" <<'PY'

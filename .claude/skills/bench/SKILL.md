@@ -44,7 +44,7 @@ own it, and starting it yourself after they ran would double up.
 bash scripts/bench.sh flash --expect <sha256>   # program over SWD
 bash scripts/bench.sh fault                     # halt, registers + backtrace, resume
 bash scripts/bench.sh config                    # read and decode stored config
-bash scripts/bench.sh log                       # read and decode the diagnostic log
+bash scripts/bench.sh log                       # read the diagnostic log (never halts)
 bash scripts/bench.sh dccex '<s>'               # DCC-EX health check
 bash scripts/bench.sh dccex --repeat 100 --pace 10 '<#>'   # UART loss test (#6)
 ```
@@ -54,6 +54,12 @@ so it is safe to use to check the path is ready before asking for approval.
 
 `fault` and `config` resume the board when done; pass `--no-resume` to leave it
 halted for further inspection, which leaves DCC output stopped.
+
+`log` is different: it neither halts nor resets. The Cortex-M33 debug port reads
+RAM while the cores run, so DCC keeps going and the uptime the log is measured
+against survives. It used to end in `reset run`, which rebooted the board on every
+read and made any long-interval entry -- the #38 heap sampler is on ten minutes --
+impossible to observe. It still attaches the probe, so it still prompts.
 
 `dccex` gates anything that can move a locomotive or power the track: `<s>`, `<#>`,
 `<0>` and `<!>` run as-is, everything else needs `--force`. `--repeat` does not
