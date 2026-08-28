@@ -343,9 +343,17 @@ void PicoDccController::dccLoop()
         // Measure from when Core 1 started instead -- so a Core 1 that starts and
         // then sends nothing still trips the same 100ms limit, but the boot
         // transient does not.
+        // `last_cmd == 0` was the test for "nothing has ever been sent", and it
+        // is wrong: dcc_millis() returns 0 for the whole first millisecond after
+        // boot, so a packet transmitted during it looks identical to no packet
+        // at all (#80). Core 1 starting promptly is precisely when that happens,
+        // and the gap then silently switched to measuring from core1_start_ms
+        // while the transmitter was in fact stalled -- reporting the wrong cause
+        // for a real fault. Ask the track directly.
+        bool ever_sent = main_track->hasSentCommand();
         uint32_t last_cmd = main_track->getLastCommandTime();
-        uint32_t main_gap = (last_cmd == 0) ? (current_time - core1_start_ms)
-                                            : (current_time - last_cmd);
+        uint32_t main_gap = ever_sent ? (current_time - last_cmd)
+                                      : (current_time - core1_start_ms);
         
         // Check PIO health on both tracks
         bool main_pio_healthy = main_track->isPIOHealthy();
@@ -385,7 +393,7 @@ void PicoDccController::dccLoop()
                     snprintf(gap_msg, sizeof(gap_msg),
                              "DCC timing violation: gap %ums%s",
                              (unsigned)main_gap,
-                             (last_cmd == 0) ? " (no packet sent yet)" : "");
+                             ever_sent ? "" : " (no packet sent yet)");
                     LOG_CRITICAL(COMPONENT_CONTROLLER, gap_msg);
                 }
                 if (!main_pio_healthy)
