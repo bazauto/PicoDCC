@@ -1847,6 +1847,45 @@ static void test_ISSUE_4_core1_heartbeat_cutoff_is_reported(void **state)
 // Boot is not a fault. Nothing has cut power, so nothing is announced and the
 // LED stays dark -- the guard that this latch did not just make every startup
 // report a cutoff.
+// #46: constructing the controller puts one entry in the diagnostic log.
+//
+// Nothing on the happy path logs, so without this an empty diagnostic screen is
+// the normal state and cannot be told apart from a log buffer or LCD log view
+// that is not working. This is the heartbeat entry that makes "no entries" mean
+// something.
+//
+// The ordering half of #46 -- that main() must construct the controller *after*
+// diag_log_init(), which it now does -- is not reachable from here: src/pico_dcc.cpp
+// is the firmware entry point and is compiled only by the `pico` preset. This
+// guards the banner itself, so that the entry the ordering fix exists to deliver
+// cannot be deleted without a test failing.
+static void test_construction_logs_a_boot_banner(void **state)
+{
+    (void)state;
+    track_settings_t main_track, prog_track;
+    power_fault_fixture(&main_track, &prog_track);
+
+    assert_int_equal(diag_log_get_count(), 0);
+
+    PicoDccController controller(main_track, prog_track, 25);
+
+    // Two entries: PicoConfigStorage::load() reports where the configuration
+    // came from, then the controller's own banner. #46 lost both, because the
+    // constructor ran during dynamic initialisation, before diag_log_init().
+    assert_int_equal(diag_log_get_count(), 2);
+
+    diagnostic_msg_t config_entry;
+    assert_true(diag_log_get_entry(0, &config_entry));
+    assert_string_equal(config_entry.component, COMPONENT_SYSTEM);
+
+    // The banner is last, so it is what the log viewer opens on.
+    diagnostic_msg_t banner;
+    assert_true(diag_log_get_entry(1, &banner));
+    assert_int_equal(banner.level, DIAG_INFO);
+    assert_string_equal(banner.component, COMPONENT_SYSTEM);
+    assert_string_equal(banner.message, "PicoDCCController initialized in NORMAL mode");
+}
+
 static void test_no_power_fault_reported_on_a_clean_boot(void **state)
 {
     track_settings_t main_track, prog_track;
@@ -1968,6 +2007,7 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_ISSUE_4_core1_heartbeat_cutoff_is_reported, setup, teardown),
         cmocka_unit_test_setup_teardown(test_no_power_fault_reported_on_a_clean_boot, setup, teardown),
         cmocka_unit_test_setup_teardown(test_ISSUE_4_prog_only_overcurrent_reports_each_track_honestly, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_construction_logs_a_boot_banner, setup, teardown),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

@@ -29,12 +29,9 @@
 
 #define FLASH_TARGET_OFFSET (PICO_FLASH_SIZE_BYTES - FLASH_SECTOR_SIZE) // Last sector
 
-// Our controller instance
-static PicoDccController pico_controller(
-	(track_settings_t){TRACK_MAIN_SIGNAL_PIN, TRACK_MAIN_POWER_CTRL_PIN, TRACK_MAIN_POWER_ADC_NUM, TRACK_MAIN_SHORT_LED}, 
-	(track_settings_t){TRACK_PROG_SIGNAL_PIN, TRACK_PROG_POWER_CTRL_PIN, TRACK_PROG_POWER_ADC_NUM, TRACK_PROG_SHORT_LED},
-	TIMING_ERROR_LED_PIN
-	);
+// Our controller instance. Constructed inside main(), after diag_log_init(),
+// and pointed at here so main_core1() can reach it -- see the note in main().
+static PicoDccController *pico_controller = nullptr;
 
 static void main_core1()
 {
@@ -43,7 +40,7 @@ static void main_core1()
 
 	while(true)
 	{
-		pico_controller.dccLoop();
+		pico_controller->dccLoop();
 	}
 }
 
@@ -53,6 +50,33 @@ int main() {
 	
 	// Initialize diagnostic log buffer
 	diag_log_init();
+
+	// Constructed here rather than at file scope, so that it is built *after*
+	// diag_log_init() (#46).
+	//
+	// As a file-scope static its constructor ran during dynamic initialisation,
+	// before main(). log_diagnostic() returns early while the buffer is not
+	// initialised, and diag_log_init() then memsets the entry array, so an entry
+	// logged that early would have been wiped even if the flag had been set.
+	// Its own "PicoDCCController initialized in NORMAL mode" banner, and any
+	// diagnostic PicoConfigStorage::load() emits, were dropped on every boot.
+	//
+	// That cost more than one line. Nothing on the happy path logs, so an empty
+	// diagnostic screen was the normal state and could not be told apart from a
+	// log buffer or LCD log view that was not working -- "no entries" was not
+	// evidence of a healthy system, it was an absence of evidence either way.
+	// The banner now lands, so an empty log is unambiguously a fault in the
+	// logging.
+	//
+	// Ordering is explicit here rather than dependent on when dynamic
+	// initialisation happens to run, which across translation units is
+	// unspecified.
+	static PicoDccController controller(
+		(track_settings_t){TRACK_MAIN_SIGNAL_PIN, TRACK_MAIN_POWER_CTRL_PIN, TRACK_MAIN_POWER_ADC_NUM, TRACK_MAIN_SHORT_LED},
+		(track_settings_t){TRACK_PROG_SIGNAL_PIN, TRACK_PROG_POWER_CTRL_PIN, TRACK_PROG_POWER_ADC_NUM, TRACK_PROG_SHORT_LED},
+		TIMING_ERROR_LED_PIN
+		);
+	pico_controller = &controller;
 
 	// Initialize LCD display with dependency injection (hardware mode only)
 	LcdDriver lcd;
@@ -72,8 +96,8 @@ int main() {
 	// This is our core 0 loop
 	while (true)
 	{
-		pico_controller.dccexLoop();
-		display.loop(&pico_controller);
+		pico_controller->dccexLoop();
+		display.loop(pico_controller);
 	}
 }
 
