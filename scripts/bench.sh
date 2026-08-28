@@ -6,6 +6,7 @@
 #   bash scripts/bench.sh flash --expect <sha>   # TOUCHES THE BOARD
 #   bash scripts/bench.sh fault                  # TOUCHES THE BOARD (halts both cores)
 #   bash scripts/bench.sh config                 # TOUCHES THE BOARD (halts to read flash)
+#   bash scripts/bench.sh log                    # TOUCHES THE BOARD (halts to read RAM)
 #   bash scripts/bench.sh dccex '<s>'            # TOUCHES THE BOARD (serial command)
 #   bash scripts/bench.sh dccex --repeat 200 '<#>'  # TOUCHES THE BOARD (UART loss test, #6)
 #
@@ -67,6 +68,7 @@ case "$CMD" in
     flash)     run bench-flash.sh "$@" ;;
     fault)     run bench-debug.sh fault "$@" ;;
     config)    run bench-debug.sh config "$@" ;;
+    log)       run bench-debug.sh log "$@" ;;
     dccex)     run bench-dccex.sh "$@" ;;
     provision) run provision-bench.sh ;;
     *)
@@ -83,6 +85,7 @@ usage: bash scripts/bench.sh <command>
     flash --expect <sha>   program over SWD, verify config sector survives
     fault [--no-resume]    halt, registers + backtrace both cores, resume
     config [--no-resume]   read and decode the stored configuration
+    log [--no-resume]      read and decode the 30-entry diagnostic log from RAM
     dccex [--force] '<s>'  send a DCC-EX command, capture the reply
     dccex --repeat N '<#>' send N back to back, count replies -- the #6 loss test
 
