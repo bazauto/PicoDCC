@@ -45,6 +45,7 @@ bash scripts/bench.sh flash --expect <sha256>   # program over SWD
 bash scripts/bench.sh fault                     # halt, registers + backtrace, resume
 bash scripts/bench.sh config                    # read and decode stored config
 bash scripts/bench.sh dccex '<s>'               # DCC-EX health check
+bash scripts/bench.sh dccex --repeat 100 --pace 10 '<#>'   # UART loss test (#6)
 ```
 
 `bash scripts/bench.sh dry-run` runs the full flash preflight and writes nothing,
@@ -54,7 +55,16 @@ so it is safe to use to check the path is ready before asking for approval.
 halted for further inspection, which leaves DCC output stopped.
 
 `dccex` gates anything that can move a locomotive or power the track: `<s>`, `<#>`,
-`<0>` and `<!>` run as-is, everything else needs `--force`.
+`<0>` and `<!>` run as-is, everything else needs `--force`. `--repeat` does not
+widen that gate.
+
+`--repeat N [--pace MS]` sends the command N times and counts the replies — the
+outside-in measurement for #6, with no firmware instrumentation. Use `<#>`, whose
+reply is one short frame. Loss begins somewhere between 100 and 200 commands/s and
+gets worse with longer commands, because `processCommand()` consumes **one command
+per core 0 loop pass** and the rest backs up in a 32-byte FIFO. Raise `--timeout`
+for large bursts; a run that cannot deliver every command in time aborts as a
+harness failure rather than reporting the shortfall as loss.
 
 ## The normal deploy
 
