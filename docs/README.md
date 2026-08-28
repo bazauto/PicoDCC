@@ -14,7 +14,7 @@ workflow — live in [`CLAUDE.md`](../CLAUDE.md). This file is the map of everyt
 |---|---|---|
 | DCC signal generation (PIO) | ⚠️ Working, one open fault | Main and programming tracks, separate PIO blocks. A FIFO that slips by one word wrecks the waveform; the damage is now bounded and self-clearing, but the cause is not known — see Known Gaps |
 | Throttle / function | ✅ Working | `<t>` accepts the 3-field form only; `<F>` is accepted but inert (#1) |
-| Accessory (`<a>`) | ⚠️ Addressing fixed, coil never released | The `AAA` field was not ones-complemented, so **every** address was driven 448 high — `<a 1 0 1>` reached decoder 449. Fixed and covered by the wire-format suite, but **not yet re-tested on hardware**. No off packet is sent, so a coil-holding decoder stays energised — the open half of #15 |
+| Accessory (`<a>`) | ⚠️ Addressing fixed, coil never released | The `AAA` field was not ones-complemented, so **every** address was driven 448 high — `<a 1 0 1>` reached decoder 449. Fixed, covered by the wire-format suite, and confirmed on the bench. **Existing decoders need re-addressing — see below.** No off packet is sent, so a coil-holding decoder stays energised — the open half of #15 |
 | Track power and overcurrent | ✅ Working | Only active where an ADC channel is configured |
 | Emergency stop | ✅ Working | DCC broadcast, address `0x00` instruction `0x41`, sent 5 times; every known loco is then held at speed 0 so the reminders keep asserting it (#3). Track power is left on |
 | Dual-core queue architecture | ✅ Working | Reminders generated on Core 1, self-regulating |
@@ -32,6 +32,34 @@ workflow — live in [`CLAUDE.md`](../CLAUDE.md). This file is the map of everyt
 **Tests**: 11 CMocka suites, all passing. CI runs them on every push and PR. The per-suite
 test counts live in [`architecture.md`](architecture.md) and nowhere else — repeating them
 here only guaranteed they would disagree.
+
+### Upgrading past the accessory address fix (#15)
+
+**Accessory decoders addressed before this fix hold an address 448 higher than the one they
+were commanded at, and will stop responding until they are re-addressed.**
+
+The old encoding left the `AAA` field uninverted. A conforming decoder complements it back, so
+for any commanded address below 64 the effective address on the rails was `7×64 + C`:
+
+```
+commanded 3  ->  old byte2 0x89  (AAA=000)  ->  decoder hears address 451
+commanded 3  ->  new byte2 0xF9  (AAA=111)  ->  decoder hears address 3
+```
+
+Most accessory decoders learn their address from the first accessory packet they receive in
+learn mode — press the button, then throw the turnout from JMRI. Any decoder set up that way
+against the old firmware **learned the mangled address**. The decoder and the station agreed
+with each other and neither agreed with the standard, so the layout worked and the defect was
+invisible from the operating position.
+
+To migrate, put each accessory decoder back in learn mode and throw it from JMRI at the
+address you actually want. It then holds a standards-correct address, and the station is
+byte-identical to DCC-EX for the same command. Confirmed on the bench on 2026-08-28: a point
+motor that had stopped responding worked again as soon as it was re-addressed.
+
+This is a one-off per decoder. It is not a regression to be reverted — reverting would restore
+the old behaviour at the cost of never matching DCC-EX, JMRI, or any decoder addressed by
+other means.
 
 ### Known gaps
 
