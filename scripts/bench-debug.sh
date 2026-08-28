@@ -217,6 +217,9 @@ fi
 # It is also the telemetry channel for #38: the heap sampler logs through
 # LOG_INFO, the layout runs for a few hours, and this reads the trend back off
 # the board in one halt at the end rather than stopping DCC to take each sample.
+#
+# This neither resets nor halts: a reset restarts the uptime the log is measuring
+# against, and a halt stops DCC. The debug port reads RAM while the cores run.
 
 if [ "$MODE" = "log" ]; then
     echo
@@ -255,18 +258,33 @@ if [ "$MODE" = "log" ]; then
     DUMP=$(mktemp); LOG=$(mktemp)
     trap 'rm -f "$DUMP" "$LOG"' EXIT
 
-    RESUME_CMD=(-c "reset run")
-    [ "$RESUME" = "0" ] && RESUME_CMD=()
+    # NEITHER RESET NOR HALT.
+    #
+    # `reset run` reboots the board, which for a log dump destroys the thing
+    # being read: the next dump shows a fresh boot, uptime never accumulates,
+    # and anything on a long interval -- the #38 heap sampler is on ten minutes
+    # -- can never produce a second sample no matter how long you wait between
+    # reads. It looked like the sampler was broken; it was this.
+    #
+    # Halting and resuming is not the answer either: RP2350 is an SMP target and
+    # `resume` after a bare `halt` fails with "[rp2350.cm1] not halted", leaving
+    # the board stopped.
+    #
+    # The buffer is plain RAM, and the Cortex-M33 debug port can read memory
+    # while the cores run. So this reads without touching execution at all --
+    # no reset, no halt, and DCC never stops. The cost is that a read can
+    # catch the ring mid-write; the decoder bounds-checks head and count and
+    # refuses rather than printing rubbish if it does.
 
     "$OCD" -s "$OCD_DIR/scripts" -f interface/cmsis-dap.cfg -f target/rp2350.cfg \
-        -c "adapter speed $SPEED" -c "init" -c "halt" \
-        -c "dump_image $DUMP $SYM_ADDR_HEX $SYM_SIZE_HEX" "${RESUME_CMD[@]}" -c "shutdown" >"$LOG" 2>&1
+        -c "adapter speed $SPEED" -c "init" \
+        -c "dump_image $DUMP $SYM_ADDR_HEX $SYM_SIZE_HEX" -c "shutdown" >"$LOG" 2>&1
 
     if [ $? -ne 0 ] || [ ! -s "$DUMP" ]; then
         bad "read" "openocd failed"; tail -15 "$LOG" | sed 's/^/    /'; exit 1
     fi
     ok "read" "$SYM_SIZE bytes from $SYM_ADDR_HEX"
-    [ "$RESUME" = "1" ] && ok "board" "reset and running" || ok "board" "left HALTED (--no-resume)"
+    ok "board" "untouched -- never halted, DCC did not stop"
     echo
 
     python3 - "$DUMP" <<'PY'
