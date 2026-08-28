@@ -116,7 +116,10 @@ describe them as finished:
    payload length, there is a single writer, nothing restarts the state machine, and both
    queues use the same element size. The session it happened in also logged a DCC timing
    violation, at an unrecorded point. If the waveform goes to garbage again and a reboot
-   clears it, this is the fault — capture the diagnostic log before rebooting.
+   clears it, this is the fault — capture the diagnostic log before rebooting, with
+   `bash scripts/bench.sh log`. That reads the 30-entry ring straight out of RAM over SWD
+   and decodes it; until it existed the only way to see the log was to photograph the LCD,
+   which is why this fault has no captured evidence.
 
 ### Work in progress: the `programming` branch
 

@@ -169,6 +169,7 @@ bash scripts/bench.sh dry-run                       # flash preflight, writes no
 bash scripts/bench.sh flash --expect <sha256>       # program over SWD
 bash scripts/bench.sh fault                         # halt, registers + backtrace, resume
 bash scripts/bench.sh config                        # read and decode the config sector
+bash scripts/bench.sh log                           # read and decode the diagnostic log
 bash scripts/bench.sh dccex '<s>'                   # DCC-EX health check
 bash scripts/bench.sh dccex --repeat 100 --pace 10 '<#>'  # UART loss test (#6)
 ```
