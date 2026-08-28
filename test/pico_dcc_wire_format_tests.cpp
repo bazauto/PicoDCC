@@ -533,8 +533,45 @@ static void test_accessory_low_address(void **state)
 
     assert_int_equal(cmd.length, 2);
     assert_int_equal(cmd.data[0], 0x81);
-    assert_int_equal(cmd.data[1], 0x89);
+    // 1 110 1 00 1 -- AAA = 110, the ones complement of address bits 8-6 (000).
+    // This used to be 0x89, with AAA uninverted. A conforming decoder complements
+    // AAA back, so 000 was read as 111 and `<a 1 0 1>` drove decoder 449 (#15).
+    assert_int_equal(cmd.data[1], 0xF9);
     assert_int_equal(cmd.repeats, 3);
+}
+
+static void test_accessory_high_address_ones_complemented(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t cmd = accessory_for("a 100 0 1");
+
+    assert_int_equal(cmd.length, 2);
+    assert_int_equal(cmd.data[0], 0xA4);  // 10 100100 -- low 6 bits, 100 & 0x3F = 36
+    // 1 110 1 00 1 -- AAA = 110 complements to 001, so address bits 8-6 = 1,
+    // giving 64 + 36 = 100. Emitted uninverted as 0x99 before the fix.
+    assert_int_equal(cmd.data[1], 0xE9);
+}
+
+static void test_accessory_gate_bit_carries_activate(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t activate = accessory_for("a 100 0 1");
+    raw_dcc_cmd_t deactivate = accessory_for("a 100 0 0");
+
+    // G (bit 0) is the coil select, and it is the only bit the activate parameter
+    // moves. This matches DCC-EX's default build, where <a addr sub activate>
+    // calls setAccessory(addr, sub, activate == 1) and that argument is the gate.
+    // JMRI drives the two turnout positions this way.
+    assert_int_equal(activate.data[1], 0xE9);
+    assert_int_equal(deactivate.data[1], 0xE8);
+    assert_int_equal(activate.data[1] ^ deactivate.data[1], 0x01);
+}
+
+static void test_accessory_port_occupies_bits_2_1(void **state)
+{
+    (void)state;
+    // 1 110 1 11 1 -- PP = 11 = subaddress 3.
+    assert_int_equal(accessory_for("a 100 3 1").data[1], 0xEF);
 }
 
 // ---------------------------------------------------------------------------
@@ -704,34 +741,31 @@ static void test_power_update_response_format(void **state)
 //
 // #11, #12 and #16 used to live here too (speed -1, cab 0, and addresses above
 // the 14-bit long-address space). They are fixed now, so their tests moved up
-// into the correct-behaviour sections above. Only the accessory encoding
-// issues remain unaddressed.
+// into the correct-behaviour sections above, as has the accessory address
+// encoding. What remains of #15 is the coil never being released.
 // ---------------------------------------------------------------------------
 
-static void test_ISSUE_15_accessory_high_bits_not_ones_complemented(void **state)
-{
-    (void)state;
-    raw_dcc_cmd_t cmd = accessory_for("a 100 0 1");
-
-    assert_int_equal(cmd.length, 2);
-    assert_int_equal(cmd.data[0], 0xA4);
-    // NMRA S-9.2.1 requires the AAA field (bits 4-6) in ones complement, which
-    // would make this 0xF9. It is emitted uninverted as 0x99, so any accessory
-    // address of 64 or above reaches the wrong decoder.
-    assert_int_equal(cmd.data[1], 0x99);
-}
-
-static void test_ISSUE_15_accessory_activate_bit_is_stuck_on(void **state)
+static void test_ISSUE_15_accessory_never_sends_an_off_packet(void **state)
 {
     (void)state;
     raw_dcc_cmd_t activate = accessory_for("a 100 0 1");
     raw_dcc_cmd_t deactivate = accessory_for("a 100 0 0");
 
-    // The C bit (0x08) is hardcoded on, so it is set in both. The activate
-    // parameter lands in bit 0 instead, which is an output-select bit.
+    // C (bit 3) is set in both, which is correct for an *on* packet -- DCC-EX
+    // emits the same thing. What DCC-EX also does, and this does not, is follow
+    // it with the same packet with C cleared 100ms later:
+    //
+    //   scheduleAccOnOffPacket(b, 2, 3, 100)   // on x3, then off x3 at +100ms
+    //
+    // Until that exists, a solenoid point motor whose decoder holds the coil
+    // while C is asserted is never told to stop. That is the hardware-damage
+    // half of #15, and it needs delayed-packet scheduling in the controller
+    // plus a bench test -- it is not a change to this encoding.
     assert_int_equal(activate.data[1] & 0x08, 0x08);
     assert_int_equal(deactivate.data[1] & 0x08, 0x08);
-    assert_int_equal(activate.data[1] ^ deactivate.data[1], 0x01);
+
+    // One command, three repeats, and nothing scheduled behind it.
+    assert_int_equal(activate.repeats, 3);
 }
 
 int main(int argc, char *argv[])
@@ -768,6 +802,9 @@ int main(int argc, char *argv[])
         cmocka_unit_test_setup(test_reminder_does_not_repeat, setup),
         cmocka_unit_test_setup(test_reminders_rotate_between_locos, setup),
         cmocka_unit_test_setup(test_accessory_low_address, setup),
+        cmocka_unit_test_setup(test_accessory_high_address_ones_complemented, setup),
+        cmocka_unit_test_setup(test_accessory_gate_bit_carries_activate, setup),
+        cmocka_unit_test_setup(test_accessory_port_occupies_bits_2_1, setup),
         cmocka_unit_test_setup(test_cab_update_response_format, setup),
         cmocka_unit_test_setup(test_cab_update_speed_extremes, setup),
         cmocka_unit_test_setup(test_cab_update_speed_one_reports_one_not_estop, setup),
@@ -776,8 +813,7 @@ int main(int argc, char *argv[])
         cmocka_unit_test_setup(test_estop_response_reports_estop_not_full_speed, setup),
         cmocka_unit_test_setup(test_cab_update_is_not_truncated_for_long_addresses, setup),
         cmocka_unit_test_setup(test_power_update_response_format, setup),
-        cmocka_unit_test_setup(test_ISSUE_15_accessory_high_bits_not_ones_complemented, setup),
-        cmocka_unit_test_setup(test_ISSUE_15_accessory_activate_bit_is_stuck_on, setup),
+        cmocka_unit_test_setup(test_ISSUE_15_accessory_never_sends_an_off_packet, setup),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

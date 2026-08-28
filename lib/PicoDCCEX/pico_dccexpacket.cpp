@@ -333,12 +333,29 @@ raw_dcc_cmd_t *PicoDccExPacket::getRawDccAccessoryCmd()
         raw_dcc_cmd.length++;
 
         // 1AAACPPG
-        // Second byte is the upper 3 bits of the address, the activate bit, subaddress, and gate bit
-        raw_dcc_cmd.data[raw_dcc_cmd.length] = 0x80;                                      // Control bit
-        raw_dcc_cmd.data[raw_dcc_cmd.length] |= ((getAccessoryAddr() >> 6) & 0x07) << 4;  // Upper 3 bits of address (AAA)
-        raw_dcc_cmd.data[raw_dcc_cmd.length] |= 1 << 3;                                   // Activate bit (C)
-        raw_dcc_cmd.data[raw_dcc_cmd.length] |= (getAccessorySubAddr() & 0x03) << 1;      // Subaddress / Port (PP)
-        raw_dcc_cmd.data[raw_dcc_cmd.length] |= (getAccessoryActivate() & 0x01);          // Gate bit (G)
+        // Second byte is the upper 3 bits of the address, the C bit, the port and the gate.
+        //
+        // AAA is the ones complement of address bits 8-6 (NMRA S-9.2.1). This is the
+        // whole point of the trailing `^ 0xF8`, which in one step sets the leading
+        // control bit, inverts AAA, and sets C. It is the same expression DCC-EX
+        // itself emits:
+        //
+        //   b[1] = ((((address / 64) % 8) << 4) + (port % 4 << 1) + gate % 2) ^ 0xF8;
+        //
+        // The inversion was missing here, and it was missing for *every* address, not
+        // just those above 63: a conforming decoder complements AAA back, so an
+        // uninverted 000 was read as 111 and every accessory command landed 448
+        // addresses high. Sending `<a 1 0 1>` drove decoder 449.
+        //
+        // G carries the activate parameter, matching DCC-EX's default build, where
+        // `<a addr sub activate>` calls setAccessory(addr, sub, activate == 1) and that
+        // third argument is the gate -- the coil, not the C bit. JMRI drives the two
+        // turnout positions with activate 1 and 0, so G is what has to move.
+        raw_dcc_cmd.data[raw_dcc_cmd.length] =
+            (uint8_t)(((((getAccessoryAddr() >> 6) & 0x07) << 4) |  // AAA (inverted below)
+                       ((getAccessorySubAddr() & 0x03) << 1) |     // Port (PP)
+                       (getAccessoryActivate() & 0x01))            // Gate (G)
+                      ^ 0xF8);
         raw_dcc_cmd.length++;
         
         // Repeat the command 3 times when sent to the track
