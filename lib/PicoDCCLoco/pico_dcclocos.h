@@ -50,8 +50,20 @@ public:
     // number of locos that were actually moving.
     size_t stopAllLocos();
 
-    PicoDccLoco *findLoco(uint16_t address);
-    
+    // Copies the named loco into `out` and returns true, or returns false and
+    // leaves `out` untouched if the address is unknown. The copy is taken with
+    // the lock held.
+    //
+    // This replaces findLoco(), which handed back a raw pointer into the vector
+    // after releasing the lock (#37) -- something the caller could not safely
+    // hold and had no way to protect. Returning a copy matches the shape
+    // updateLocoThrottle() and getNextReminder() already use.
+    //
+    // To *change* a loco, use updateLocoThrottle() or setLocoSpeedSteps().
+    // Mutation belongs inside this class, under the lock; writing through a
+    // snapshot changes nothing in the collection.
+    bool getLoco(uint16_t address, PicoDccLoco &out);
+
     // Update an existing loco's throttle settings while maintaining thread safety
     // Returns true if loco was found and updated, false if not found
     bool updateLocoThrottle(uint16_t address, PicoDccExPacket *packet, raw_dcc_cmd_t &cmd);

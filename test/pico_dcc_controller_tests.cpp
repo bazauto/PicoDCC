@@ -809,9 +809,9 @@ static void test_emergency_power_cutoff(void **state)
     // decoders still hold the speed they were last given -- they would simply
     // resume.
     assert_int_equal(controller.getLocoCount(), 2);
-    PicoDccLoco *loco = controller.getLocos()->findLoco(3);
-    assert_non_null(loco);
-    assert_int_equal(loco->getSpeed(), 0);
+    PicoDccLoco loco(INVALID_LOCO_ADDR);
+    assert_true(controller.getLocos()->getLoco(3, loco));
+    assert_int_equal(loco.getSpeed(), 0);
     assert_true(gpio_states[25]); // Error LED should be on
     
     // Check for emergency cutoff message in UART output

@@ -666,8 +666,10 @@ estop, function presses and a long-address loco.
 2. **`getDccExCabUpdate()`'s 0..126 mapping disagrees with the packet encoder** (`s → s-1`
    where DCC-EX uses `s → s+1`). Named in #11; needs a JMRI bench test to settle.
 3. **`<F>` produces no `<l>` reply and no function packet.** Real function support closes both.
-4. **`findLoco()` returns a raw pointer into a vector that Core 0 can mutate.** The `MAX_LOCO`
-   cap added here removes the reallocation case; the aliasing is still unsound.
+4. ~~**`findLoco()` returns a raw pointer into a vector that Core 0 can mutate.**~~ Closed
+   (#37). `findLoco()` is gone; `getLoco(address, out)` copies under the lock, so there is no
+   pointer to alias. The `MAX_LOCO` cap added here had removed only the reallocation case —
+   the `erase` in `forgetLoco()` and `getNextReminder()` was the half that remained.
 5. **`-fno-exceptions` for the firmware build.** Now that `PicoDccLoco` no longer throws, the
    remaining source is `std::vector`; a fixed-capacity container would close it.
 

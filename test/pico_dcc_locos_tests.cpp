@@ -26,11 +26,11 @@ void test_add_loco(void **state) {
     raw_dcc_cmd_t cmd;
     locos.addLoco(&packet, cmd);
 
-    PicoDccLoco *loco = locos.findLoco(3);
-    assert_non_null(loco);
-    assert_int_equal(loco->getAddress(), 3);
+    PicoDccLoco loco(INVALID_LOCO_ADDR);
+    assert_true(locos.getLoco(3, loco));
+    assert_int_equal(loco.getAddress(), 3);
 
-    raw_dcc_cmd_t cmd1 = loco->getThrottleCommand();
+    raw_dcc_cmd_t cmd1 = loco.getThrottleCommand();
     assert_int_equal(cmd1.length, 3);
     assert_int_equal(cmd1.data[0], 3);
     assert_int_equal(cmd1.data[1], 0x3F);
@@ -45,12 +45,19 @@ void test_update_loco(void **state) {
     PicoDccExPacket packet((char *)buffer);
     locos.addLoco(&packet, cmd);
 
-    PicoDccLoco *loco = locos.findLoco(3);
+    // The update goes through the collection, which performs it under the
+    // lock. getLoco() hands back a snapshot, and writing to a snapshot changes
+    // nothing in the collection -- that is the point of #37.
     const char *bufferUpdate = "t 3 126 1";
     PicoDccExPacket packetUpdate((char *)bufferUpdate);
-    loco->update(&packetUpdate);
+    raw_dcc_cmd_t cmdUpdated;
+    assert_true(locos.updateLocoThrottle(3, &packetUpdate, cmdUpdated));
 
-    raw_dcc_cmd_t cmdUpdated = loco->getThrottleCommand();
+    // and the collection really did move
+    PicoDccLoco loco(INVALID_LOCO_ADDR);
+    assert_true(locos.getLoco(3, loco));
+    assert_int_equal(loco.getSpeed(), 126);
+    assert_true(loco.isForward());
     assert_int_equal(cmdUpdated.length, 3);
     assert_int_equal(cmdUpdated.data[0], 3);
     assert_int_equal(cmdUpdated.data[1], 0x3F);
@@ -66,7 +73,64 @@ void test_forget_loco(void **state) {
     locos.addLoco(&packet, cmd);
 
     locos.forgetLoco(3);
-    assert_null(locos.findLoco(3));
+    PicoDccLoco gone(INVALID_LOCO_ADDR);
+    assert_false(locos.getLoco(3, gone));
+}
+
+// #37: getLoco() hands back a snapshot, not a window into the vector.
+//
+// findLoco() used to return &locos[i] after releasing the lock. forgetLoco()
+// erases, which shifts every later element down one, so the caller's pointer
+// silently began describing a *different* locomotive -- and getNextReminder()
+// performs the same erase from Core 1. With a copy that is unrepresentable.
+void test_get_loco_snapshot_survives_an_erase(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    const char *c3 = "t 3 10 1";
+    const char *c4 = "t 4 20 1";
+    const char *c5 = "t 5 30 1";
+    PicoDccExPacket p3((char *)c3), p4((char *)c4), p5((char *)c5);
+    locos.addLoco(&p3, cmd);
+    locos.addLoco(&p4, cmd);
+    locos.addLoco(&p5, cmd);
+
+    PicoDccLoco snapshot(INVALID_LOCO_ADDR);
+    assert_true(locos.getLoco(5, snapshot));
+    assert_int_equal(snapshot.getAddress(), 5);
+    assert_int_equal(snapshot.getSpeed(), 30);
+
+    // Erasing the element in front of it shifts loco 5 down a slot.
+    locos.forgetLoco(3);
+    assert_int_equal(locos.getLocoCount(), 2);
+
+    // The snapshot still describes loco 5, not whatever now occupies that slot.
+    assert_int_equal(snapshot.getAddress(), 5);
+    assert_int_equal(snapshot.getSpeed(), 30);
+}
+
+// The other half of #37: a snapshot is not a handle. Writing to one must not
+// reach the collection, so that a caller reaching for the obvious-looking
+// accessor cannot mutate shared state without the lock.
+void test_writing_to_a_snapshot_does_not_touch_the_collection(void **state) {
+    PicoDccLocos locos;
+    raw_dcc_cmd_t cmd;
+
+    const char *buffer = "t 3 10 1";
+    PicoDccExPacket packet((char *)buffer);
+    locos.addLoco(&packet, cmd);
+
+    PicoDccLoco snapshot(INVALID_LOCO_ADDR);
+    assert_true(locos.getLoco(3, snapshot));
+
+    const char *faster = "t 3 126 1";
+    PicoDccExPacket packetFaster((char *)faster);
+    snapshot.update(&packetFaster);
+    assert_int_equal(snapshot.getSpeed(), 126);
+
+    PicoDccLoco fresh(INVALID_LOCO_ADDR);
+    assert_true(locos.getLoco(3, fresh));
+    assert_int_equal(fresh.getSpeed(), 10);
 }
 
 void test_forget_all_locos(void **state) {
@@ -87,8 +151,9 @@ void test_forget_all_locos(void **state) {
 
     locos.forgetAllLocos();
     assert_int_equal(locos.getLocoCount(), 0);
-    assert_null(locos.findLoco(3));
-    assert_null(locos.findLoco(4));
+    PicoDccLoco gone(INVALID_LOCO_ADDR);
+    assert_false(locos.getLoco(3, gone));
+    assert_false(locos.getLoco(4, gone));
 }
 
 void test_get_next_reminder(void **state) {
@@ -137,19 +202,17 @@ void test_get_next_reminder(void **state) {
 void test_get_emergency_stop_commands(void **state) {
     PicoDccLocos locos;
     raw_dcc_cmd_t cmd;
-    PicoDccLoco *loco = nullptr;
+    PicoDccLoco loco(INVALID_LOCO_ADDR);
 
     const char *buffer = "t 3 0 0";
     PicoDccExPacket packet((char *)buffer);
     locos.addLoco(&packet, cmd);
-    loco = locos.findLoco(3);
-    assert_non_null(loco);
+    assert_true(locos.getLoco(3, loco));
 
     const char *buffer1 = "t 4 0 0";
     PicoDccExPacket packet1((char *)buffer1);
     locos.addLoco(&packet1, cmd);
-    loco = locos.findLoco(4);
-    assert_non_null(loco);
+    assert_true(locos.getLoco(4, loco));
 
     // Emergency stop is now handled as broadcast command in controller
     // Verify we have 2 locos added
@@ -411,7 +474,8 @@ void test_update_loco_rejects_out_of_range_speed(void **state) {
     bool found = locos.updateLocoThrottle(3, &packetUpdate, updated);
 
     assert_true(found);
-    assert_false(locos.findLoco(3) == nullptr);
+    PicoDccLoco still_there(INVALID_LOCO_ADDR);
+    assert_true(locos.getLoco(3, still_there));
     assert_int_equal(updated.data[2], 0x80 | 11);  // unchanged: rejected
 }
 
@@ -514,11 +578,11 @@ void test_naming_an_unknown_cab_creates_it_stopped(void **state) {
     assert_true(locos.setLocoSpeedSteps(7, DCC_SPEED_STEPS_28));
 
     assert_int_equal(locos.getLocoCount(), 1);
-    PicoDccLoco *loco = locos.findLoco(7);
-    assert_non_null(loco);
-    assert_int_equal(loco->getSpeed(), 0);
-    assert_true(loco->isForward());
-    assert_int_equal(loco->getSpeedSteps(), DCC_SPEED_STEPS_28);
+    PicoDccLoco loco(INVALID_LOCO_ADDR);
+    assert_true(locos.getLoco(7, loco));
+    assert_int_equal(loco.getSpeed(), 0);
+    assert_true(loco.isForward());
+    assert_int_equal(loco.getSpeedSteps(), DCC_SPEED_STEPS_28);
 
     // The reminder it now generates is a stop, which is the safe direction to
     // be wrong in: it can only ever hold a locomotive still.
@@ -604,9 +668,9 @@ void test_stop_all_locos_keeps_them_at_speed_zero(void **state) {
     assert_int_equal(locos.getLocoCount(), 3);  // and all three are still here
 
     for (int cab = 1; cab <= 3; cab++) {
-        PicoDccLoco *loco = locos.findLoco((uint16_t)cab);
-        assert_non_null(loco);
-        assert_int_equal(loco->getSpeed(), 0);
+        PicoDccLoco loco(INVALID_LOCO_ADDR);
+        assert_true(locos.getLoco((uint16_t)cab, loco));
+        assert_int_equal(loco.getSpeed(), 0);
     }
 }
 
@@ -646,8 +710,12 @@ void test_stop_all_locos_preserves_direction(void **state) {
 
     locos.stopAllLocos();
 
-    assert_true(locos.findLoco(3)->isForward());
-    assert_false(locos.findLoco(4)->isForward());
+    PicoDccLoco fwd(INVALID_LOCO_ADDR);
+    PicoDccLoco rev(INVALID_LOCO_ADDR);
+    assert_true(locos.getLoco(3, fwd));
+    assert_true(locos.getLoco(4, rev));
+    assert_true(fwd.isForward());
+    assert_false(rev.isForward());
 }
 
 // Already-stopped locos are not counted as having been stopped, and are left
@@ -811,6 +879,8 @@ int main(int argc, char *argv[]) {
         cmocka_unit_test(test_add_loco),
         cmocka_unit_test(test_update_loco),
         cmocka_unit_test(test_forget_loco),
+        cmocka_unit_test(test_get_loco_snapshot_survives_an_erase),
+        cmocka_unit_test(test_writing_to_a_snapshot_does_not_touch_the_collection),
         cmocka_unit_test(test_forget_all_locos),
         cmocka_unit_test(test_get_next_reminder),
         cmocka_unit_test(test_get_emergency_stop_commands),

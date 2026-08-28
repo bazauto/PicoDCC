@@ -13,22 +13,30 @@ PicoDccLocos::PicoDccLocos()
     station_speed_steps = (uint8_t)DCC_DEFAULT_SPEED_STEPS;
 }
 
-PicoDccLoco *PicoDccLocos::findLoco(uint16_t address)
+bool PicoDccLocos::getLoco(uint16_t address, PicoDccLoco &out)
 {
-    PicoDccLoco *loco = nullptr;
+    bool found = false;
 
     sem_acquire_blocking(&locos_lock);
     for (size_t i = 0; i < locos.size(); ++i)
     {
         if (locos[i].getAddress() == address)
         {
-            loco = &locos[i];
+            // Copied here, inside the lock, so the caller never holds anything
+            // that points into the vector. This replaces findLoco(), which
+            // returned &locos[i] *after* releasing the lock (#37): addLoco()'s
+            // push_back could reallocate the buffer, and the erase in
+            // forgetLoco() and getNextReminder() -- the latter on Core 1 --
+            // shifts the elements down, so the pointer silently began
+            // referring to a different locomotive.
+            out = locos[i];
+            found = true;
             break;
         }
     }
     sem_release(&locos_lock);
 
-    return loco;
+    return found;
 }
 
 bool PicoDccLocos::getNextReminder(raw_dcc_cmd_t &cmd)
