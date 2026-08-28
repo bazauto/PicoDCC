@@ -121,6 +121,11 @@ void PicoDccController::dccexLoop()
         last_core1_check = current_time;
     }
     
+    // Heap trend (#38). Core 0 only -- mallinfo() walks the free list, which has
+    // no place in the Core 1 hot path. It rate-limits itself, so this is a call
+    // rather than a schedule.
+    diag_sample_heap();
+
     pico_dccex_packet packetData;
     bool hasCommand = pico_dccex->processCommand(&packetData);
 
