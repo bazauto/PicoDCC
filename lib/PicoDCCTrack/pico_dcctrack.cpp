@@ -213,6 +213,7 @@ void PicoDccTrack::queueCommand(raw_dcc_cmd_t *cmd)
 void PicoDccTrack::sendCommand(raw_dcc_cmd_t *cmd)
 {
     last_command_time = dcc_millis();
+    has_sent_command = true;
     if (cmd->cmd_data == 0)
     {
         // build the data and checksum to send to the PIO

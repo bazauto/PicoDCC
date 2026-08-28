@@ -154,7 +154,13 @@ static void test_timing_safety_cutoff(void **state)
 
     // Prove it tripped on the command gap specifically, and not incidentally via
     // the PIO health branch that shares this cutoff.
-    assert_true(log_contains("DCC timing violation detected"));
+    assert_true(log_contains("DCC timing violation"));
+
+    // And that the entry carries the number. A bare "violation detected" could
+    // not tell a stalled transmitter from one that never started, which is
+    // where #80 stalled.
+    assert_true(log_contains("gap "));
+    assert_true(log_contains("ms"));
 }
 
 // Boot produces a long delay between construction and the first loop pass: LCD
@@ -189,7 +195,7 @@ static void test_no_false_cutoff_during_boot_delay(void **state)
     // These are the exact three entries that appeared on the LCD every boot.
     assert_false(log_contains("Emergency power cutoff activated"));
     assert_false(log_contains("Core 1 heartbeat failure detected"));
-    assert_false(log_contains("DCC timing violation detected"));
+    assert_false(log_contains("DCC timing violation"));
 }
 
 // The grace period above must not become a blind spot: a Core 1 that is launched
@@ -294,7 +300,7 @@ static void test_no_false_timing_violation_across_the_71_minute_wrap(void **stat
     assert_true(controller.isTrackPowerOn(false));
     assert_true(controller.isTrackPowerOn(true));
     assert_false(gpio_states[25]);
-    assert_false(log_contains("DCC timing violation detected"));
+    assert_false(log_contains("DCC timing violation"));
     assert_false(log_contains("PIO transmission stall detected"));
     assert_false(log_contains("PIO transmission completely stopped"));
 }
@@ -331,7 +337,7 @@ static void test_real_timing_violation_still_detected_after_the_wrap(void **stat
     assert_false(controller.isTrackPowerOn(false));
     assert_false(controller.isTrackPowerOn(true));
     assert_true(gpio_states[25]);
-    assert_true(log_contains("DCC timing violation detected"));
+    assert_true(log_contains("DCC timing violation"));
 }
 
 // The startup banner and the <s> reply must be the same string. They were not:

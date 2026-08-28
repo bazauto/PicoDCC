@@ -166,6 +166,13 @@ public:
 
     // Safety monitoring
     uint32_t getLastCommandTime() { return last_command_time; }
+
+    // Whether this track has ever transmitted. Callers used to infer that from
+    // getLastCommandTime() == 0, which is wrong: dcc_millis() returns 0 for the
+    // whole first millisecond after boot, so a packet sent during it is
+    // indistinguishable from no packet at all (#80). Core 1 starting promptly is
+    // exactly when that happens.
+    bool hasSentCommand() { return has_sent_command; }
     uint32_t getMaxCommandGap() { return max_command_gap; }
     void resetMaxCommandGap() { max_command_gap = 0; }
     
@@ -182,6 +189,7 @@ public:
 
 private:
     uint32_t last_command_time = 0;   // Time of last command sent
+    bool has_sent_command = false;    // Distinguishes "never sent" from "sent at t=0" (#80)
     uint32_t max_command_gap = 0;     // Maximum gap between commands
 };
 
