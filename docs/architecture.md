@@ -126,7 +126,7 @@ so it can never stall Core 1's DCC timing.
   | `<0>` / `<1>` | optional `MAIN` / `PROG` | Track power off/on |
   | `<t>` | `<t cab speed dir>` | **3-field form only**; the legacy 4-field form is rejected. Cab validated **1–10239**, speed **0–126 or -1**; `-1` is a real per-loco emergency stop |
   | `<F>` | `<F cab func state>` | Accepted and cab-validated, but **inert** — functions are not implemented (`updateFunct()` is a stub). It no longer writes the function number into the loco's speed (#1) |
-  | `<a>` | `<a addr subaddr activate>` | Accessory; address validated 1–2044. `activate` is the **gate** (coil select, bit 0), matching DCC-EX's default build. The C bit is always set and no off packet is ever sent, so a decoder that holds its coil while C is asserted is never released — the open half of #15 |
+  | `<a>` | `<a addr subaddr activate>` | Accessory; address validated 1–2044. `activate` is the **gate** (bit 0), matching DCC-EX's default build — it selects the direction, 1 normal and 0 reverse. `AAA` is ones-complemented per S-9.2.1 (#15). The C bit stays set and **no off packet is sent, deliberately**: the layout's Cobalt stall motors hold their own position, and a C-cleared packet would move them. See `docs/README.md` |
   | `<!>` | no parameters | Emergency stop broadcast |
   | `<s>` | no parameters | Status |
   | `<#>` | no parameters | Number of supported cabs |

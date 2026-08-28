@@ -5,11 +5,15 @@
 // for a fixed set of inputs.
 //
 // It exists because the throttle encoding was arrived at empirically while
-// driving the station from JMRI, and the reasoning was never written down. Some
-// of what is asserted below is correct and some of it has an open issue against
-// it. The point is not to settle that here; it is that any change to the
+// driving the station from JMRI, and the reasoning was never written down. The
+// point is not to argue what is right here; it is that any change to the
 // encoding shows up as a diff in this file, so nothing a real host was relying
 // on can move without somebody noticing.
+//
+// Everything below now asserts behaviour believed correct -- the open-defects
+// section near the bottom is empty. Where the correct answer is a deliberate
+// departure from DCC-EX, the test says so and says why, because the next reader
+// will otherwise "fix" it back. The accessory off packet is the example.
 //
 // Every value below was measured from the current implementation, not derived
 // by hand. When fixing one of the referenced issues, expect to change the
@@ -574,6 +578,41 @@ static void test_accessory_port_occupies_bits_2_1(void **state)
     assert_int_equal(accessory_for("a 100 3 1").data[1], 0xEF);
 }
 
+// Both directions assert C, and nothing is scheduled behind them. This is a
+// deliberate departure from DCC-EX, and it is load-bearing on the layout.
+//
+// DCC-EX's default onoff=2 follows the on packet with a C-cleared one 100ms
+// later -- scheduleAccOnOffPacket(b, 2, 3, 100) -- which is what a solenoid
+// decoder needs to stop driving a coil. Westgate Hollow runs Cobalt IP Digital
+// stall motors, which take a direction and hold it themselves. To a Cobalt the
+// off packet is not a no-op, it is another command, and sending it can move the
+// point. Adding it would change turnout positions on a working layout.
+//
+// This lived in the open-defects section below as "the hardware-damage half of
+// #15", on the reasoning that a coil was never released. That reasoning was
+// right for solenoids and wrong for the hardware actually fitted. Confirmed in
+// operation 2026-08-28: both directions work, and it is the *absence* of the off
+// packet that lets them hold.
+//
+// If a solenoid decoder is ever fitted, the escape hatch is DCC-EX's 4-field
+// <a addr sub activate onoff>, which lets the host ask. Do not make it implicit.
+static void test_accessory_asserts_C_in_both_directions_and_sends_no_off_packet(void **state)
+{
+    (void)state;
+    raw_dcc_cmd_t normal = accessory_for("a 100 0 1");
+    raw_dcc_cmd_t reverse = accessory_for("a 100 0 0");
+
+    assert_int_equal(normal.data[1] & 0x08, 0x08);
+    assert_int_equal(reverse.data[1] & 0x08, 0x08);
+
+    // The direction lives in the gate bit, and it is the only difference.
+    assert_int_equal(normal.data[1] ^ reverse.data[1], 0x01);
+
+    // One command, three repeats, and nothing queued behind it.
+    assert_int_equal(normal.repeats, 3);
+    assert_int_equal(reverse.repeats, 3);
+}
+
 // ---------------------------------------------------------------------------
 // Responses to the host
 //
@@ -735,38 +774,20 @@ static void test_power_update_response_format(void **state)
 // ---------------------------------------------------------------------------
 // Current behaviour of open defects
 //
-// Each of these asserts what the firmware does *today*, naming the issue that
-// covers it. They are here so that a fix shows up as an explicit, reviewable
-// change to the wire format rather than a silent one.
+// This section is empty, and that is worth stating rather than deleting. It
+// held tests asserting what the firmware did *today* where that was known to be
+// wrong, each naming its issue, so that a fix showed up as an explicit change to
+// the wire format rather than a silent one.
 //
-// #11, #12 and #16 used to live here too (speed -1, cab 0, and addresses above
-// the 14-bit long-address space). They are fixed now, so their tests moved up
-// into the correct-behaviour sections above, as has the accessory address
-// encoding. What remains of #15 is the coil never being released.
+// #11, #12 and #16 lived here (speed -1, cab 0, and addresses above the 14-bit
+// long-address space), as did both halves of #15. All are resolved and their
+// tests have moved up into the correct-behaviour sections, which now assert what
+// is right rather than what merely is.
+//
+// Put a test here only with an issue number attached, and move it up when the
+// issue closes.
 // ---------------------------------------------------------------------------
 
-static void test_ISSUE_15_accessory_never_sends_an_off_packet(void **state)
-{
-    (void)state;
-    raw_dcc_cmd_t activate = accessory_for("a 100 0 1");
-    raw_dcc_cmd_t deactivate = accessory_for("a 100 0 0");
-
-    // C (bit 3) is set in both, which is correct for an *on* packet -- DCC-EX
-    // emits the same thing. What DCC-EX also does, and this does not, is follow
-    // it with the same packet with C cleared 100ms later:
-    //
-    //   scheduleAccOnOffPacket(b, 2, 3, 100)   // on x3, then off x3 at +100ms
-    //
-    // Until that exists, a solenoid point motor whose decoder holds the coil
-    // while C is asserted is never told to stop. That is the hardware-damage
-    // half of #15, and it needs delayed-packet scheduling in the controller
-    // plus a bench test -- it is not a change to this encoding.
-    assert_int_equal(activate.data[1] & 0x08, 0x08);
-    assert_int_equal(deactivate.data[1] & 0x08, 0x08);
-
-    // One command, three repeats, and nothing scheduled behind it.
-    assert_int_equal(activate.repeats, 3);
-}
 
 int main(int argc, char *argv[])
 {
@@ -805,6 +826,7 @@ int main(int argc, char *argv[])
         cmocka_unit_test_setup(test_accessory_high_address_ones_complemented, setup),
         cmocka_unit_test_setup(test_accessory_gate_bit_carries_activate, setup),
         cmocka_unit_test_setup(test_accessory_port_occupies_bits_2_1, setup),
+        cmocka_unit_test_setup(test_accessory_asserts_C_in_both_directions_and_sends_no_off_packet, setup),
         cmocka_unit_test_setup(test_cab_update_response_format, setup),
         cmocka_unit_test_setup(test_cab_update_speed_extremes, setup),
         cmocka_unit_test_setup(test_cab_update_speed_one_reports_one_not_estop, setup),
@@ -813,7 +835,6 @@ int main(int argc, char *argv[])
         cmocka_unit_test_setup(test_estop_response_reports_estop_not_full_speed, setup),
         cmocka_unit_test_setup(test_cab_update_is_not_truncated_for_long_addresses, setup),
         cmocka_unit_test_setup(test_power_update_response_format, setup),
-        cmocka_unit_test_setup(test_ISSUE_15_accessory_never_sends_an_off_packet, setup),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

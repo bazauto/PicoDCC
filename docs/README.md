@@ -14,7 +14,7 @@ workflow — live in [`CLAUDE.md`](../CLAUDE.md). This file is the map of everyt
 |---|---|---|
 | DCC signal generation (PIO) | ⚠️ Working, one open fault | Main and programming tracks, separate PIO blocks. A FIFO that slips by one word wrecks the waveform; the damage is now bounded and self-clearing, but the cause is not known — see Known Gaps |
 | Throttle / function | ✅ Working | `<t>` accepts the 3-field form only; `<F>` is accepted but inert (#1) |
-| Accessory (`<a>`) | ⚠️ Addressing fixed, coil never released | The `AAA` field was not ones-complemented, so **every** address was driven 448 high — `<a 1 0 1>` reached decoder 449. Fixed, covered by the wire-format suite, and confirmed on the bench. **Existing decoders need re-addressing — see below.** No off packet is sent, so a coil-holding decoder stays energised — the open half of #15 |
+| Accessory (`<a>`) | ✅ Working | `activate` selects the direction (the gate bit), and the C bit stays set — **no off packet is sent, deliberately**; see below. The `AAA` field was previously not ones-complemented, so every address was driven 448 high; fixed, covered by the wire-format suite, and confirmed on the bench. **Decoders addressed before that fix need re-addressing — see below.** |
 | Track power and overcurrent | ✅ Working | Only active where an ADC channel is configured |
 | Emergency stop | ✅ Working | DCC broadcast, address `0x00` instruction `0x41`, sent 5 times; every known loco is then held at speed 0 so the reminders keep asserting it (#3). Track power is left on |
 | Dual-core queue architecture | ✅ Working | Reminders generated on Core 1, self-regulating |
@@ -32,6 +32,36 @@ workflow — live in [`CLAUDE.md`](../CLAUDE.md). This file is the map of everyt
 **Tests**: 11 CMocka suites, all passing. CI runs them on every push and PR. The per-suite
 test counts live in [`architecture.md`](architecture.md) and nowhere else — repeating them
 here only guaranteed they would disagree.
+
+### Accessory commands do not send an off packet, and must not start
+
+Westgate Hollow uses **Cobalt IP Digital point motors** throughout. These are slow-action
+stall motors with their own decoder: they take a direction, drive to it, and hold position
+themselves. There is no coil to release.
+
+`<a addr sub activate>` therefore means "go to this position", not "energise this coil":
+
+| Command | Gate bit (G) | Result |
+|---|---|---|
+| `<a addr sub 1>` | 1 | normal |
+| `<a addr sub 0>` | 0 | reverse |
+
+Both packets carry `C = 1`. That is correct and is what DCC-EX emits for the on packet.
+
+**Do not add the off packet.** DCC-EX's default `onoff=2` follows the on packet with a
+C-cleared one 100ms later (`scheduleAccOnOffPacket(b, 2, 3, 100)`), which is what a solenoid
+decoder needs to stop driving a coil. A Cobalt does not treat that as a no-op — it is another
+command, and sending it can move the point. Adding it here would be a regression that changes
+turnout positions on the layout, not a fix.
+
+This was previously written up as the "open half of #15", a hardware-damage path where a coil
+was never de-energised. That analysis was correct for solenoid motors and wrong for the
+hardware this layout actually has. Confirmed in operation on 2026-08-28: both directions work,
+and the absence of the off packet is what makes them hold.
+
+If a solenoid decoder is ever added, the escape hatch is DCC-EX's 4-field form
+`<a addr sub activate onoff>`, which lets the host ask for it explicitly. That is not
+implemented, and should not be built until something needs it.
 
 ### Upgrading past the accessory address fix (#15)
 
@@ -77,15 +107,7 @@ describe them as finished:
    and `writeCVBit()` are declared in `lib/PicoDCCLoco/pico_dccloco.h` with no definitions.
 3. **ACK detection is absent** from `PicoDccTrack`, which is the prerequisite for all of the
    above.
-4. **An accessory command is never followed by an off packet.** DCC-EX answers
-   `<a addr sub activate>` with the on packet three times and then, 100ms later, the same
-   packet with the C bit cleared (`scheduleAccOnOffPacket(b, 2, 3, 100)`). PicoDCC sends only
-   the on packet. A solenoid point motor whose decoder holds its coil while C is asserted is
-   therefore never told to release it. Adding the off packet needs delayed-packet scheduling
-   in `PicoDccController` — the repeat logic pops from the front and pushes to the back, so
-   simply queueing an off packet behind the on packet interleaves them rather than sending
-   three of each. This is the open half of #15 and wants a bench test.
-5. **A one-word FIFO slip on the main track has been seen, and its cause is unknown.** On the
+4. **A one-word FIFO slip on the main track has been seen, and its cause is unknown.** On the
    bench the main track stopped emitting DCC packets entirely and instead put the raw 32-bit
    PIO words on the rails as data bytes, with no preamble, until the board was rebooted
    (`DCC_Broken.png`). The state machine now discards a header claiming zero bytes, which
