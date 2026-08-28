@@ -2,6 +2,7 @@
 #define PICO_DCCLOCO_H
 
 #include <stdio.h>
+#include <string.h>
 #ifdef TEST_BUILD
 #include "../../test/mocks.h"
 #else
@@ -55,6 +56,28 @@ public:
         : address(other.address), speed(other.speed), forward(other.forward),
           speed_steps(other.speed_steps),
           speed_steps_overridden(other.speed_steps_overridden), cmd(other.cmd) {}
+
+    // Copy assignment, listing every member for the same reason as the copy
+    // constructor above. PicoDccLocos::getLoco() uses this to hand a caller a
+    // snapshot taken under the lock, so a member missing from this list is a
+    // field the caller silently never sees.
+    //
+    // Written out member by member rather than left implicit, and rather than
+    // done with a struct assignment: rule 4 in CLAUDE.md forbids assigning
+    // structs wholesale, and `cmd` is a raw_dcc_cmd_t.
+    PicoDccLoco &operator=(const PicoDccLoco &other)
+    {
+        if (this != &other)
+        {
+            address = other.address;
+            speed = other.speed;
+            forward = other.forward;
+            speed_steps = other.speed_steps;
+            speed_steps_overridden = other.speed_steps_overridden;
+            memcpy(&cmd, &other.cmd, sizeof(cmd));
+        }
+        return *this;
+    }
 
     // Comparision operator for ease of comparing objects
     bool operator==(const PicoDccLoco &other) const {
