@@ -13,7 +13,8 @@ workflow — live in [`CLAUDE.md`](../CLAUDE.md). This file is the map of everyt
 | Subsystem | State | Notes |
 |---|---|---|
 | DCC signal generation (PIO) | ⚠️ Working, one open fault | Main and programming tracks, separate PIO blocks. A FIFO that slips by one word wrecks the waveform; the damage is now bounded and self-clearing, but the cause is not known — see Known Gaps |
-| Throttle / function / accessory | ✅ Working | `<t>` accepts the 3-field form only |
+| Throttle / function | ✅ Working | `<t>` accepts the 3-field form only; `<F>` is accepted but inert (#1) |
+| Accessory (`<a>`) | ⚠️ Addressing fixed, coil never released | The `AAA` field was not ones-complemented, so **every** address was driven 448 high — `<a 1 0 1>` reached decoder 449. Fixed and covered by the wire-format suite, but **not yet re-tested on hardware**. No off packet is sent, so a coil-holding decoder stays energised — the open half of #15 |
 | Track power and overcurrent | ✅ Working | Only active where an ADC channel is configured |
 | Emergency stop | ✅ Working | DCC broadcast, address `0x00` instruction `0x41`, sent 5 times; every known loco is then held at speed 0 so the reminders keep asserting it (#3). Track power is left on |
 | Dual-core queue architecture | ✅ Working | Reminders generated on Core 1, self-regulating |
@@ -48,7 +49,15 @@ describe them as finished:
    and `writeCVBit()` are declared in `lib/PicoDCCLoco/pico_dccloco.h` with no definitions.
 3. **ACK detection is absent** from `PicoDccTrack`, which is the prerequisite for all of the
    above.
-4. **A one-word FIFO slip on the main track has been seen, and its cause is unknown.** On the
+4. **An accessory command is never followed by an off packet.** DCC-EX answers
+   `<a addr sub activate>` with the on packet three times and then, 100ms later, the same
+   packet with the C bit cleared (`scheduleAccOnOffPacket(b, 2, 3, 100)`). PicoDCC sends only
+   the on packet. A solenoid point motor whose decoder holds its coil while C is asserted is
+   therefore never told to release it. Adding the off packet needs delayed-packet scheduling
+   in `PicoDccController` — the repeat logic pops from the front and pushes to the back, so
+   simply queueing an off packet behind the on packet interleaves them rather than sending
+   three of each. This is the open half of #15 and wants a bench test.
+5. **A one-word FIFO slip on the main track has been seen, and its cause is unknown.** On the
    bench the main track stopped emitting DCC packets entirely and instead put the raw 32-bit
    PIO words on the rails as data bytes, with no preamble, until the board was rebooted
    (`DCC_Broken.png`). The state machine now discards a header claiming zero bytes, which

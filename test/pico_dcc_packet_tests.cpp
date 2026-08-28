@@ -210,8 +210,9 @@ void test_acc_1_packet(void **state)
   
   raw_dcc_cmd_t *cmd = packet.getRawDccAccessoryCmd();
   assert_int_equal(cmd->length, 2);
-  assert_int_equal(cmd->data[0], 165);  // 0101 0101
-  assert_int_equal(cmd->data[1], 159);  // 1001 1111
+  assert_int_equal(cmd->data[0], 165);  // 1010 0101 -- 10 100101, low 6 bits of 101
+  // 1 110 1 11 1 -- AAA ones-complemented (#15), C on, port 3, gate 1.
+  assert_int_equal(cmd->data[1], 239);  // 1110 1111
   assert_int_equal(cmd->repeats, 3);
 }
 void test_acc_2_packet(void **state)
@@ -235,8 +236,9 @@ void test_acc_2_packet(void **state)
   
   raw_dcc_cmd_t *cmd = packet.getRawDccAccessoryCmd();
   assert_int_equal(cmd->length, 2);
-  assert_int_equal(cmd->data[0], 165);  // 0101 0101
-  assert_int_equal(cmd->data[1], 153);  // 1001 1001
+  assert_int_equal(cmd->data[0], 165);  // 1010 0101 -- 10 100101, low 6 bits of 101
+  // 1 110 1 00 1 -- AAA ones-complemented (#15), C on, port 0, gate 1.
+  assert_int_equal(cmd->data[1], 233);  // 1110 1001
   assert_int_equal(cmd->repeats, 3);
 }
 

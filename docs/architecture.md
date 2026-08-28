@@ -126,7 +126,7 @@ so it can never stall Core 1's DCC timing.
   | `<0>` / `<1>` | optional `MAIN` / `PROG` | Track power off/on |
   | `<t>` | `<t cab speed dir>` | **3-field form only**; the legacy 4-field form is rejected. Cab validated **1–10239**, speed **0–126 or -1**; `-1` is a real per-loco emergency stop |
   | `<F>` | `<F cab func state>` | Accepted and cab-validated, but **inert** — functions are not implemented (`updateFunct()` is a stub). It no longer writes the function number into the loco's speed (#1) |
-  | `<a>` | `<a addr subaddr activate>` | Accessory; address validated 1–2044 |
+  | `<a>` | `<a addr subaddr activate>` | Accessory; address validated 1–2044. `activate` is the **gate** (coil select, bit 0), matching DCC-EX's default build. The C bit is always set and no off packet is ever sent, so a decoder that holds its coil while C is asserted is never released — the open half of #15 |
   | `<!>` | no parameters | Emergency stop broadcast |
   | `<s>` | no parameters | Status |
   | `<#>` | no parameters | Number of supported cabs |
@@ -510,7 +510,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **290 total tests** across all components: Controller (45), DCCEX (9), Locos (36), Loco (28), Packet (45), Track (37), Config Storage (12), Display (9), Diagnostic (9), Wire Format (37), PIO Wire Format (23)
+- **292 total tests** across all components: Controller (45), DCCEX (9), Locos (36), Loco (28), Packet (45), Track (37), Config Storage (12), Display (9), Diagnostic (9), Wire Format (39), PIO Wire Format (23)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation
