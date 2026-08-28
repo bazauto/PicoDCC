@@ -475,3 +475,42 @@ void dcc_program_init(PIO pio, uint sm, uint offset, uint signal_pin, uint pream
 {
     (void)pio; (void)sm; (void)offset; (void)signal_pin; (void)preamble;
 }
+
+// --- Heap telemetry (#38) ---------------------------------------------------
+//
+// The host build has no mallinfo(), so these stand in for it. Values are set by
+// the test rather than derived from the host's real heap: the point is to
+// exercise the sampler's rate limiting, formatting and refusal path, none of
+// which should depend on what the host allocator happens to be doing.
+
+static uint32_t mock_heap_used = 0;
+static uint32_t mock_heap_free = 0;
+static uint32_t mock_heap_arena = 0;
+static bool mock_heap_available = true;
+
+void mock_set_heap(uint32_t used, uint32_t bytes_free, uint32_t arena) {
+    mock_heap_used = used;
+    mock_heap_free = bytes_free;
+    mock_heap_arena = arena;
+}
+
+void mock_set_heap_available(bool available) {
+    mock_heap_available = available;
+}
+
+bool mock_read_heap(uint32_t* used, uint32_t* bytes_free, uint32_t* arena) {
+    if (!mock_heap_available) {
+        return false;
+    }
+    *used = mock_heap_used;
+    *bytes_free = mock_heap_free;
+    *arena = mock_heap_arena;
+    return true;
+}
+
+void mock_reset_heap(void) {
+    mock_heap_used = 0;
+    mock_heap_free = 0;
+    mock_heap_arena = 0;
+    mock_heap_available = true;
+}

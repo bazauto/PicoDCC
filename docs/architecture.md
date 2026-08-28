@@ -400,6 +400,12 @@ so it can never stall Core 1's DCC timing.
 - **Responsibilities**:
   - 30-entry circular buffer (~2KB RAM) with severity levels
   - `LOG_CRITICAL` / `LOG_ERROR` / `LOG_WARNING` / `LOG_INFO` macros, tagged by component
+  - **Heap telemetry** (#38): `diag_sample_heap()` logs `used`, `free` and `arena` from
+    `mallinfo()` every 10 minutes, giving roughly five hours of trend across the 30-entry
+    ring. Called from `dccexLoop()` -- **Core 0 only**, because `mallinfo()` walks the free
+    list and has no business in the Core 1 hot path. It rate-limits itself, so the caller
+    owns no timing. `used` flat while `arena` climbs is fragmentation, which is the outcome
+    the issue is actually about. Read it off the board with `bash scripts/bench.sh log`
   - Entries are built **directly in the ring slot, under the lock**. Both cores log, and the
     entry used to be assembled in a function-level static shared between them *before* the
     lock was taken, so two concurrent calls could commit a hybrid — one core's level and
@@ -515,7 +521,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **298 total tests** across all components: Controller (46), DCCEX (9), Locos (38), Loco (28), Packet (45), Track (37), Config Storage (12), Display (9), Diagnostic (12), Wire Format (39), PIO Wire Format (23)
+- **303 total tests** across all components: Controller (46), DCCEX (9), Locos (38), Loco (28), Packet (45), Track (37), Config Storage (12), Display (9), Diagnostic (17), Wire Format (39), PIO Wire Format (23)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

@@ -1,10 +1,21 @@
 /* lib/pico_diagnostic.cpp */
 #include "pico_diagnostic.h"
 #include <string.h>
+#include <stdio.h>
 #include "../dcc_time.h"
+#ifndef TEST_BUILD
+#include <malloc.h>   // mallinfo(), for the heap telemetry in #38
+#endif
 
 // Global log buffer instance - initialized explicitly to avoid C++11 initialization issues
 diagnostic_log_buffer_t g_diag_log_buffer;
+
+// Heap sampler state (#38). File scope rather than function-local statics so
+// that diag_log_init() owns its lifetime: re-initialising the diagnostic
+// subsystem should reset the sampler with it, and a test that clears the log
+// should not inherit a rate limit from the test before it.
+static uint32_t g_heap_last_sample_ms = 0;
+static bool g_heap_sampled_once = false;
 
 /**
  * @brief Initialize the diagnostic log buffer
@@ -14,6 +25,10 @@ void diag_log_init(void) {
     g_diag_log_buffer.head = 0;
     g_diag_log_buffer.count = 0;
     g_diag_log_buffer.initialized = true;
+
+    // The heap sampler is part of this subsystem; reset it too.
+    g_heap_last_sample_ms = 0;
+    g_heap_sampled_once = false;
     
 #ifndef TEST_BUILD
     // Initialize semaphore for multi-core access
@@ -285,4 +300,56 @@ void log_diagnostic(diagnostic_level_t level, const char* component, const char*
         uart_puts(uart0, diagnostic_output);
     }
 #endif
+}
+
+/**
+ * @brief Read the current heap statistics
+ *
+ * Split on TEST_BUILD because the mechanism is platform-specific, not because
+ * the behaviour differs: newlib's mallinfo() exists on the target, and the host
+ * build runs against UCRT, which has no equivalent. Rule 3 allows exactly this
+ * -- hardware abstraction -- and nothing downstream branches on the build.
+ */
+bool diag_read_heap(heap_stats_t* out) {
+    if (!out) {
+        return false;
+    }
+
+#ifdef TEST_BUILD
+    return mock_read_heap(&out->used, &out->bytes_free, &out->arena);
+#else
+    struct mallinfo mi = mallinfo();
+    out->used = (uint32_t)mi.uordblks;
+    out->bytes_free = (uint32_t)mi.fordblks;
+    out->arena = (uint32_t)mi.arena;
+    return true;
+#endif
+}
+
+void diag_sample_heap(void) {
+    const uint32_t now = dcc_millis();
+
+    // The first call always emits, so a bench session sees the baseline
+    // immediately rather than waiting out a whole interval to learn whether the
+    // sampler works at all. Unsigned delta, never an absolute comparison
+    // (rule 7).
+    if (g_heap_sampled_once &&
+        (now - g_heap_last_sample_ms) < DIAG_HEAP_SAMPLE_INTERVAL_MS) {
+        return;
+    }
+
+    heap_stats_t heap;
+    if (!diag_read_heap(&heap)) {
+        return;  // Platform cannot report it; say nothing rather than log zeroes
+    }
+
+    g_heap_sampled_once = true;
+    g_heap_last_sample_ms = now;
+
+    // Static, not a stack buffer, per rule 4. Core 0 only, and only once per
+    // interval, so there is no sharing hazard of the kind #18 describes.
+    static char heap_msg[DIAG_MESSAGE_MAX_LEN] __attribute__((aligned(8)));
+    snprintf(heap_msg, sizeof(heap_msg), "heap used=%u free=%u arena=%u",
+             (unsigned)heap.used, (unsigned)heap.bytes_free, (unsigned)heap.arena);
+    LOG_INFO(COMPONENT_SYSTEM, heap_msg);
 }

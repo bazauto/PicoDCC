@@ -146,6 +146,14 @@ void mock_reset_asserts(void);
 extern uint32_t mock_sem_would_block;
 void mock_reset_sem_stats(void);
 
+// Heap telemetry (#38). The host build runs against UCRT, which has no
+// mallinfo(), so the numbers are supplied here. mock_set_heap_available(false)
+// models a platform that cannot report them at all.
+void mock_set_heap(uint32_t used, uint32_t bytes_free, uint32_t arena);
+void mock_set_heap_available(bool available);
+bool mock_read_heap(uint32_t* used, uint32_t* bytes_free, uint32_t* arena);
+void mock_reset_heap(void);
+
 // PIO: the raw 32-bit words pushed to the state machine, in order, alongside
 // the assembled 64-bit packets. Word pairing is derived from the length field
 // in the packet header rather than an alternating toggle, so a short packet

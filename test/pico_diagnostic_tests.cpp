@@ -358,6 +358,107 @@ static void test_log_add_null_is_ignored(void **state) {
     assert_int_equal(diag_log_get_count(), 0);
 }
 
+/**
+ * Test: the first sample is emitted immediately (#38)
+ *
+ * A bench session needs to see the baseline without waiting out a whole
+ * interval, otherwise there is no way to tell a working sampler from a silent
+ * one until ten minutes have passed.
+ */
+static void test_heap_first_sample_is_immediate(void **state) {
+    (void)state;
+    mock_reset_heap();
+    mock_set_heap(1024, 2048, 4096);
+
+    diag_sample_heap();
+
+    assert_int_equal(diag_log_get_count(), 1);
+    diagnostic_msg_t entry;
+    assert_true(diag_log_get_entry(0, &entry));
+    assert_int_equal(entry.level, DIAG_INFO);
+    assert_string_equal(entry.component, COMPONENT_SYSTEM);
+    assert_string_equal(entry.message, "heap used=1024 free=2048 arena=4096");
+}
+
+/**
+ * Test: further samples inside the interval are suppressed
+ *
+ * The ring holds 30 entries. A sampler that emitted every pass would erase the
+ * history it exists to build, in well under a second.
+ */
+static void test_heap_rate_limited_within_interval(void **state) {
+    (void)state;
+    mock_reset_heap();
+    mock_set_heap(1, 2, 3);
+
+    mock_time_ms = 0;
+    diag_sample_heap();
+    assert_int_equal(diag_log_get_count(), 1);
+
+    for (int i = 0; i < 50; i++) {
+        mock_time_ms += DIAG_HEAP_SAMPLE_INTERVAL_MS / 100;
+        diag_sample_heap();
+    }
+    assert_int_equal(diag_log_get_count(), 1);
+
+    // One tick past the interval and it speaks again.
+    mock_time_ms = DIAG_HEAP_SAMPLE_INTERVAL_MS + 1;
+    diag_sample_heap();
+    assert_int_equal(diag_log_get_count(), 2);
+}
+
+/**
+ * Test: a creeping arena is visible across samples
+ *
+ * This is the shape #38 is actually asking about -- `used` flat while `arena`
+ * climbs is fragmentation, and the two numbers have to be readable apart.
+ */
+static void test_heap_reports_a_growing_arena(void **state) {
+    (void)state;
+    mock_reset_heap();
+
+    mock_time_ms = 0;
+    mock_set_heap(500, 100, 1000);
+    diag_sample_heap();
+
+    mock_time_ms = DIAG_HEAP_SAMPLE_INTERVAL_MS + 1;
+    mock_set_heap(500, 100, 2000);   // same in use, arena doubled
+    diag_sample_heap();
+
+    assert_int_equal(diag_log_get_count(), 2);
+    diagnostic_msg_t first, second;
+    assert_true(diag_log_get_entry(0, &first));
+    assert_true(diag_log_get_entry(1, &second));
+    assert_string_equal(first.message, "heap used=500 free=100 arena=1000");
+    assert_string_equal(second.message, "heap used=500 free=100 arena=2000");
+}
+
+/**
+ * Test: a platform that cannot report the heap logs nothing
+ *
+ * Silence is right here. Logging zeroes would look like a heap that vanished,
+ * and would burn ring entries saying nothing.
+ */
+static void test_heap_unavailable_logs_nothing(void **state) {
+    (void)state;
+    mock_reset_heap();
+    mock_set_heap_available(false);
+
+    diag_sample_heap();
+
+    assert_int_equal(diag_log_get_count(), 0);
+    mock_set_heap_available(true);
+}
+
+/**
+ * Test: diag_read_heap(NULL) is refused rather than faulting
+ */
+static void test_heap_read_null_is_refused(void **state) {
+    (void)state;
+    mock_reset_heap();
+    assert_false(diag_read_heap(NULL));
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test_setup_teardown(test_log_buffer_init, setup, teardown),
@@ -372,6 +473,11 @@ int main(void) {
         cmocka_unit_test_setup_teardown(test_reused_slot_has_no_residue, setup, teardown),
         cmocka_unit_test_setup_teardown(test_oversized_fields_are_truncated, setup, teardown),
         cmocka_unit_test_setup_teardown(test_log_add_null_is_ignored, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_heap_first_sample_is_immediate, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_heap_rate_limited_within_interval, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_heap_reports_a_growing_arena, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_heap_unavailable_logs_nothing, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_heap_read_null_is_refused, setup, teardown),
     };
 
     printf("Running Diagnostic Tests\n");

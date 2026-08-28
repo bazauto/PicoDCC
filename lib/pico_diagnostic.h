@@ -61,6 +61,50 @@ typedef struct {
 // Global log buffer (initialized in diag_log_init)
 extern diagnostic_log_buffer_t g_diag_log_buffer;
 
+/**
+ * Heap telemetry (#38)
+ *
+ * The DCC-EX command path allocates per received command, and the controller's
+ * main_cmd_queue is a std::queue<raw_dcc_cmd_t> -- a std::deque underneath, which
+ * allocates its blocks. On a target with no MMU, where the heap grows towards the
+ * stack and there is no allocation-failure handling, the question is whether the
+ * high-water mark is flat or creeping over a long session.
+ *
+ * `used` answers "is anything leaking". `arena` answers "is it fragmenting":
+ * the arena is what has been claimed from the system and never returns, so an
+ * arena that climbs while `used` stays flat is fragmentation, which is the
+ * outcome #38 is actually worried about.
+ */
+typedef struct {
+    uint32_t used;   // bytes currently allocated
+    uint32_t bytes_free;  // bytes free inside the arena
+    uint32_t arena;  // total heap claimed from the system
+} heap_stats_t;
+
+// How often diag_sample_heap() emits an entry. Ten minutes gives roughly five
+// hours of trend across the 30-entry ring, which is the shape #38 asks for.
+// Shorten it for a quick bench check; the ring is the limit, not the sampler.
+#define DIAG_HEAP_SAMPLE_INTERVAL_MS (10u * 60u * 1000u)
+
+/**
+ * @brief Read the current heap statistics
+ * @return false if the platform cannot report them, leaving out untouched
+ *
+ * The mechanism is platform-specific -- newlib's mallinfo() on the target, a
+ * mock on the host -- so it is split on TEST_BUILD. That is hardware
+ * abstraction, which rule 3 allows; no behaviour branches on it.
+ */
+bool diag_read_heap(heap_stats_t* out);
+
+/**
+ * @brief Emit one heap entry to the log, at most once per interval
+ *
+ * Rate-limits itself, so the caller does not own the timing (rule 6). Call it
+ * from Core 0 only: mallinfo() walks the free list, which has no place in the
+ * Core 1 DCC hot path.
+ */
+void diag_sample_heap(void);
+
 // Log buffer management functions
 void diag_log_init(void);
 // Takes a pointer, not a value: the parameter used to be an 88-byte struct
