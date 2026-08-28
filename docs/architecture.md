@@ -400,6 +400,11 @@ so it can never stall Core 1's DCC timing.
 - **Responsibilities**:
   - 30-entry circular buffer (~2KB RAM) with severity levels
   - `LOG_CRITICAL` / `LOG_ERROR` / `LOG_WARNING` / `LOG_INFO` macros, tagged by component
+  - Entries are built **directly in the ring slot, under the lock**. Both cores log, and the
+    entry used to be assembled in a function-level static shared between them *before* the
+    lock was taken, so two concurrent calls could commit a hybrid — one core's level and
+    timestamp against the other's component or message (#18). Both writer and reader use
+    `sem_try_acquire` and drop rather than stall Core 1
   - Surfaced on the LCD log viewer; the main screen carries a live log-count indicator
 - **Protocol rule**: `DCCEX_RESPONSE()` is reserved for genuine DCC-EX replies. A diagnostic
   emitted on that channel desynchronises JMRI.
@@ -510,7 +515,7 @@ are safety requirements rather than UX choices. Do not relax them.
 ## Test Architecture
 
 ### Comprehensive Coverage
-- **294 total tests** across all components: Controller (45), DCCEX (9), Locos (38), Loco (28), Packet (45), Track (37), Config Storage (12), Display (9), Diagnostic (9), Wire Format (39), PIO Wire Format (23)
+- **297 total tests** across all components: Controller (45), DCCEX (9), Locos (38), Loco (28), Packet (45), Track (37), Config Storage (12), Display (9), Diagnostic (12), Wire Format (39), PIO Wire Format (23)
 - **CMocka framework** with comprehensive mocking infrastructure
 - **Hardware abstraction**: GPIO, ADC, PIO, UART, and timing mocks
 - **Integration testing**: End-to-end command processing validation

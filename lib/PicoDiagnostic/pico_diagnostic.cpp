@@ -33,11 +33,57 @@ void diag_log_init(void) {
  * - Thread-safe for multi-core access (semaphore protected)
  * - No dynamic memory allocation
  */
-void diag_log_add(diagnostic_msg_t msg) {
-    if (!g_diag_log_buffer.initialized) {
-        return;  // Buffer not initialized, ignore
+/**
+ * @brief Claim the slot the next entry will be written into
+ * @return Pointer to the slot. Only valid while the buffer lock is held.
+ *
+ * Must be called with the lock held. Bounds-checks head first, so a corrupted
+ * head cannot walk off the array.
+ */
+static diagnostic_msg_t *diag_slot_for_write(void) {
+    if (g_diag_log_buffer.head >= DIAG_LOG_BUFFER_SIZE) {
+        g_diag_log_buffer.head = 0;  // Reset to valid range
     }
-    
+    return &g_diag_log_buffer.entries[g_diag_log_buffer.head];
+}
+
+/**
+ * @brief Publish the slot claimed by diag_slot_for_write()
+ *
+ * Must be called with the lock held, after the slot has been filled. Advancing
+ * head is what makes the entry visible to a reader, so it happens last.
+ */
+static void diag_slot_written(void) {
+    g_diag_log_buffer.head = (g_diag_log_buffer.head + 1) % DIAG_LOG_BUFFER_SIZE;
+
+    if (g_diag_log_buffer.count < DIAG_LOG_BUFFER_SIZE) {
+        g_diag_log_buffer.count++;
+    }
+}
+
+/**
+ * @brief Copy a string into a fixed-size log field
+ *
+ * Byte by byte, never strncpy() -- rule 4 in CLAUDE.md, which has already cost
+ * an UNALIGNED fault on hardware. The tail is zero-filled rather than merely
+ * NUL-terminated: slots are reused as the buffer wraps, so bytes past the
+ * terminator would otherwise still hold the previous entry's text.
+ */
+static void diag_copy_field(char *dest, const char *src, size_t dest_size) {
+    size_t i = 0;
+    for (; i < dest_size - 1 && src[i] != '\0'; i++) {
+        dest[i] = src[i];
+    }
+    for (; i < dest_size; i++) {
+        dest[i] = '\0';
+    }
+}
+
+void diag_log_add(const diagnostic_msg_t* msg) {
+    if (!g_diag_log_buffer.initialized || !msg) {
+        return;  // Buffer not initialized or nothing to add, ignore
+    }
+
 #ifndef TEST_BUILD
     // Try, never wait. LOG_CRITICAL reaches here from PicoDccTrack::checkPIOHealth() and
     // PicoDccController::dccLoop(), both on Core 1 in the DCC hot path, so a blocking
@@ -54,22 +100,11 @@ void diag_log_add(diagnostic_msg_t msg) {
     }
 #endif
     
-    // CRITICAL: Bounds check head position to prevent buffer overflow
-    if (g_diag_log_buffer.head >= DIAG_LOG_BUFFER_SIZE) {
-        g_diag_log_buffer.head = 0;  // Reset to valid range
-    }
-    
-    // Add message at head position
-    g_diag_log_buffer.entries[g_diag_log_buffer.head] = msg;
-    
-    // Advance head (circular wrap-around)
-    g_diag_log_buffer.head = (g_diag_log_buffer.head + 1) % DIAG_LOG_BUFFER_SIZE;
-    
-    // Update count (saturate at buffer size)
-    if (g_diag_log_buffer.count < DIAG_LOG_BUFFER_SIZE) {
-        g_diag_log_buffer.count++;
-    }
-    
+    // memcpy, not struct assignment -- the same rule the read path in
+    // diag_log_get_entry() documents and follows (rule 4).
+    memcpy(diag_slot_for_write(), msg, sizeof(diagnostic_msg_t));
+    diag_slot_written();
+
 #ifndef TEST_BUILD
     // Release semaphore
     sem_release(&g_diag_log_buffer.sem);
@@ -193,7 +228,8 @@ void diag_log_clear(void) {
  * @param message Diagnostic message text
  * 
  * Thread-safety:
- * - Uses static allocation with 8-byte alignment to prevent UNALIGNED faults
+ * - The entry is built directly in the ring slot, inside the lock, so there is
+ *   no intermediate buffer for the other core to interleave with (#18)
  * - Copies strings byte-by-byte into fixed buffers for multicore safety
  * - dcc_millis() is a latched read of the hardware timer, multicore-safe
  * - Non-blocking read operations prevent Core 1 blocking during display updates
@@ -203,48 +239,42 @@ void log_diagnostic(diagnostic_level_t level, const char* component, const char*
     if (!component || !message || !g_diag_log_buffer.initialized) {
         return;  // Silently ignore invalid calls
     }
-    
-    // Static allocation to avoid stack issues, 8-byte aligned for ARM Cortex-M safety
-    static diagnostic_msg_t msg __attribute__((aligned(8)));
-    
-    msg.level = level;
-    msg.timestamp = dcc_millis();
-    
-    // Use safer string copy with explicit length check
-    size_t comp_len = 0;
-    size_t msg_len = 0;
-    
-    // Count component string length (with safety limit)
-    for (size_t i = 0; i < DIAG_COMPONENT_MAX_LEN && component[i] != '\0'; i++) {
-        comp_len = i + 1;
+
+#ifndef TEST_BUILD
+    // Try, never wait -- for the reasons diag_log_add() sets out at length. On
+    // contention the entry is dropped rather than stalling Core 1.
+    if (!sem_try_acquire(&g_diag_log_buffer.sem)) {
+        return;
     }
-    
-    // Count message string length (with safety limit)
-    for (size_t i = 0; i < DIAG_MESSAGE_MAX_LEN && message[i] != '\0'; i++) {
-        msg_len = i + 1;
-    }
-    
-    // Copy strings byte-by-byte instead of using strncpy
-    for (size_t i = 0; i < DIAG_COMPONENT_MAX_LEN - 1; i++) {
-        if (i < comp_len) {
-            msg.component[i] = component[i];
-        } else {
-            msg.component[i] = '\0';
-        }
-    }
-    msg.component[DIAG_COMPONENT_MAX_LEN - 1] = '\0';
-    
-    for (size_t i = 0; i < DIAG_MESSAGE_MAX_LEN - 1; i++) {
-        if (i < msg_len) {
-            msg.message[i] = message[i];
-        } else {
-            msg.message[i] = '\0';
-        }
-    }
-    msg.message[DIAG_MESSAGE_MAX_LEN - 1] = '\0';
-    
-    diag_log_add(msg);
-    
+#endif
+
+    // Built directly into the slot, under the lock.
+    //
+    // This used to be assembled in a function-level `static diagnostic_msg_t`
+    // shared by both cores, *before* the lock was taken, and then copied into
+    // the ring (#18). Core 0 and Core 1 both log, so a Core 1 call landing
+    // midway through Core 0's copy loops committed a hybrid entry: one core's
+    // level and timestamp against the other's component or message. That is a
+    // record of an event that never happened, and it was least trustworthy
+    // exactly when the log matters most -- a timing violation logs CRITICAL
+    // from Core 1 every 10ms while Core 0 logs its response to the same fault.
+    //
+    // Building in place also removes two of the three copies the old path made
+    // of an 88-byte struct: into the static, into diag_log_add's by-value
+    // parameter, then into the ring.
+    diagnostic_msg_t *entry = diag_slot_for_write();
+
+    entry->level = level;
+    entry->timestamp = dcc_millis();
+    diag_copy_field(entry->component, component, DIAG_COMPONENT_MAX_LEN);
+    diag_copy_field(entry->message, message, DIAG_MESSAGE_MAX_LEN);
+
+    diag_slot_written();
+
+#ifndef TEST_BUILD
+    sem_release(&g_diag_log_buffer.sem);
+#endif
+
 #ifdef TEST_BUILD
     // For testing: Output critical messages to UART for test validation
     if (level >= DIAG_CRITICAL) {

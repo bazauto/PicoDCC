@@ -64,7 +64,7 @@ static void test_log_buffer_add_single(void **state) {
     strcpy(msg.component, COMPONENT_TRACK);
     strcpy(msg.message, "Test error message");
     
-    diag_log_add(msg);
+    diag_log_add(&msg);
     
     // Should have 1 entry
     assert_int_equal(diag_log_get_count(), 1);
@@ -91,7 +91,7 @@ static void test_log_buffer_add_multiple(void **state) {
         msg.timestamp = 1000 + i;
         strcpy(msg.component, COMPONENT_CONTROLLER);
         strcpy(msg.message, "Test message");
-        diag_log_add(msg);
+        diag_log_add(&msg);
     }
     
     // Should have 5 entries
@@ -118,7 +118,7 @@ static void test_log_buffer_wraparound(void **state) {
         msg.timestamp = 1000 + i;
         strcpy(msg.component, COMPONENT_POWER);
         strcpy(msg.message, "Wraparound test");
-        diag_log_add(msg);
+        diag_log_add(&msg);
     }
     
     // Should be capped at buffer size
@@ -148,7 +148,7 @@ static void test_log_buffer_invalid_index(void **state) {
         msg.timestamp = 2000 + i;
         strcpy(msg.component, COMPONENT_CORE);
         strcpy(msg.message, "Critical error");
-        diag_log_add(msg);
+        diag_log_add(&msg);
     }
     
     assert_int_equal(diag_log_get_count(), 3);
@@ -178,7 +178,7 @@ static void test_log_buffer_clear(void **state) {
         msg.timestamp = 3000 + i;
         strcpy(msg.component, COMPONENT_DCCEX);
         strcpy(msg.message, "Error entry");
-        diag_log_add(msg);
+        diag_log_add(&msg);
     }
     
     assert_int_equal(diag_log_get_count(), 10);
@@ -270,7 +270,7 @@ static void test_uninitialized_buffer(void **state) {
     strcpy(msg.component, COMPONENT_TRACK);
     strcpy(msg.message, "Should be ignored");
     
-    diag_log_add(msg);  // Should do nothing
+    diag_log_add(&msg);  // Should do nothing
     
     // Count should return 0
     assert_int_equal(diag_log_get_count(), 0);
@@ -286,6 +286,78 @@ static void test_uninitialized_buffer(void **state) {
     diag_log_init();
 }
 
+/**
+ * Test: a reused slot keeps none of the previous entry's text (#18)
+ *
+ * log_diagnostic() now builds directly in the ring slot rather than in a
+ * zeroed static, so the field copy has to zero-fill the tail itself. If it
+ * only terminated the string, a short message landing in a slot that
+ * previously held a long one would read back correctly but leave the old
+ * text sitting past the NUL -- and the display reads fixed-size fields.
+ */
+static void test_reused_slot_has_no_residue(void **state) {
+    (void)state;
+
+    const char *long_message = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";  // 40 chars
+    const char *short_message = "B";
+
+    // Fill the ring, then wrap once so slot 0 is written a second time.
+    for (int i = 0; i < DIAG_LOG_BUFFER_SIZE; i++) {
+        log_diagnostic(DIAG_INFO, COMPONENT_TRACK, long_message);
+    }
+    log_diagnostic(DIAG_WARNING, COMPONENT_POWER, short_message);
+
+    // The entry just written is the newest.
+    diagnostic_msg_t newest;
+    assert_true(diag_log_get_entry(diag_log_get_count() - 1, &newest));
+    assert_int_equal(newest.level, DIAG_WARNING);
+    assert_string_equal(newest.component, COMPONENT_POWER);
+    assert_string_equal(newest.message, short_message);
+
+    // Every byte after the terminator is zero, not the 'A's that were there.
+    for (size_t i = strlen(short_message); i < DIAG_MESSAGE_MAX_LEN; i++) {
+        assert_int_equal(newest.message[i], '\0');
+    }
+    for (size_t i = strlen(COMPONENT_POWER); i < DIAG_COMPONENT_MAX_LEN; i++) {
+        assert_int_equal(newest.component[i], '\0');
+    }
+}
+
+/**
+ * Test: over-long fields are truncated and still NUL-terminated
+ */
+static void test_oversized_fields_are_truncated(void **state) {
+    (void)state;
+
+    char long_component[DIAG_COMPONENT_MAX_LEN * 2];
+    char long_message[DIAG_MESSAGE_MAX_LEN * 2];
+    memset(long_component, 'C', sizeof(long_component) - 1);
+    long_component[sizeof(long_component) - 1] = '\0';
+    memset(long_message, 'M', sizeof(long_message) - 1);
+    long_message[sizeof(long_message) - 1] = '\0';
+
+    log_diagnostic(DIAG_ERROR, long_component, long_message);
+
+    diagnostic_msg_t entry;
+    assert_true(diag_log_get_entry(0, &entry));
+    assert_int_equal(entry.component[DIAG_COMPONENT_MAX_LEN - 1], '\0');
+    assert_int_equal(entry.message[DIAG_MESSAGE_MAX_LEN - 1], '\0');
+    assert_int_equal(strlen(entry.component), DIAG_COMPONENT_MAX_LEN - 1);
+    assert_int_equal(strlen(entry.message), DIAG_MESSAGE_MAX_LEN - 1);
+}
+
+/**
+ * Test: diag_log_add(nullptr) is a no-op rather than a fault
+ *
+ * The parameter became a pointer with #18, so there is now a null to reject.
+ */
+static void test_log_add_null_is_ignored(void **state) {
+    (void)state;
+
+    diag_log_add(NULL);
+    assert_int_equal(diag_log_get_count(), 0);
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test_setup_teardown(test_log_buffer_init, setup, teardown),
@@ -297,6 +369,9 @@ int main(void) {
         cmocka_unit_test_setup_teardown(test_log_macros, setup, teardown),
         cmocka_unit_test_setup_teardown(test_component_identifiers, setup, teardown),
         cmocka_unit_test_setup_teardown(test_uninitialized_buffer, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_reused_slot_has_no_residue, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_oversized_fields_are_truncated, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_log_add_null_is_ignored, setup, teardown),
     };
 
     printf("Running Diagnostic Tests\n");
