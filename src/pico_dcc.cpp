@@ -46,6 +46,28 @@ static void main_core1()
 
 int main() {
 
+	// FIRST, before anything else touches shared state.
+	//
+	// multicore_launch_core1() documents that "core 1 must previously have been
+	// reset either as a result of a system reset or by calling
+	// multicore_reset_core1". Relying on the system reset alone is not safe: a
+	// reset that restarts Core 0 does not always stop Core 1, which then keeps
+	// running the *previous* image -- its own loop, calling dccLoop() and driving
+	// the PIO -- against BSS that Core 0 is in the middle of re-zeroing.
+	//
+	// It has to be here rather than beside multicore_launch_core1(). By the time
+	// main() reaches the launch, a stale Core 1 has already been running for the
+	// whole of display.init(), which is 546ms of ST7789 reset delays. Resetting
+	// it there is far too late; the damage is done during the window.
+	//
+	// The symptom was a "DCC timing violation" on roughly half of all boots (#80):
+	// the stale Core 1 logged and ran, the launch then reset and restarted it, and
+	// the gap across that restart -- measured with statics that survive in BSS --
+	// looked exactly like Core 1 having stalled for 546ms. Six consecutive boots
+	// were clean with this call in place, against about a one-in-two failure rate
+	// without it.
+	multicore_reset_core1();
+
 	stdio_init_all();
 	
 	// Initialize diagnostic log buffer

@@ -153,6 +153,19 @@ static, so its constructor ran during dynamic initialisation — before `main()`
 the happy path logs, so an empty diagnostic screen was the normal state and could not be
 told apart from a broken log pipeline. Do not move construction back to file scope.
 
+**`multicore_reset_core1()` is the first statement in `main()`, and must stay first.**
+`multicore_launch_core1()` requires that Core 1 has already been reset — "either as a result
+of a system reset or by calling `multicore_reset_core1`" — and a reset that restarts Core 0
+does not always stop Core 1. When it does not, Core 1 keeps running the *previous* image,
+calling `dccLoop()` and driving the PIO against BSS that Core 0 is re-zeroing underneath it.
+
+It has to be the first statement, not a line beside the launch: by the time `main()` reaches
+`multicore_launch_core1()`, a stale Core 1 has already run through the whole of
+`display.init()`, which is 546ms of ST7789 reset delays. That produced a "DCC timing
+violation" on roughly half of all boots, because the launch then reset and restarted Core 1
+and the gap across the restart — measured with statics that survive in BSS — was
+indistinguishable from Core 1 having stalled (#80).
+
 ### 7. `dcc_millis()` is the only millisecond clock
 
 `lib/dcc_time.h`. **Never write `time_us_32() / 1000`.** Unsigned delta arithmetic
