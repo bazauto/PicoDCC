@@ -327,6 +327,12 @@ void PicoDccController::dccLoop()
     if (!core1_loop_started) {
         core1_start_ms = current_time;
         core1_loop_started = true;
+
+        // The entry's own timestamp is the measurement: it says when Core 1
+        // actually began running, which is the baseline the command-gap check
+        // below measures against before the first packet goes out. Without it,
+        // a violation timestamp on its own cannot be turned into a gap (#80).
+        LOG_INFO(COMPONENT_CORE, "Core 1 loop started");
     }
     
     // Check command timing if it's been more than 10ms
@@ -364,7 +370,23 @@ void PicoDccController::dccLoop()
 
                 if (main_gap >= 100)
                 {
-                    LOG_CRITICAL(COMPONENT_CONTROLLER, "DCC timing violation detected");
+                    // Carry the numbers. "DCC timing violation detected" alone
+                    // cannot distinguish a transmitter that stalled from one
+                    // that never started, and those want opposite fixes -- which
+                    // is exactly where #80 stalled. The gap and whether any
+                    // packet has ever been sent are the two facts that separate
+                    // them.
+                    //
+                    // Static, not a stack buffer: this is the Core 1 hot path
+                    // (rule 4). It is written only here, only on Core 1, and
+                    // only once per fault because the latch guards it -- so the
+                    // shared-static hazard of #18 does not apply.
+                    static char gap_msg[DIAG_MESSAGE_MAX_LEN] __attribute__((aligned(8)));
+                    snprintf(gap_msg, sizeof(gap_msg),
+                             "DCC timing violation: gap %ums%s",
+                             (unsigned)main_gap,
+                             (last_cmd == 0) ? " (no packet sent yet)" : "");
+                    LOG_CRITICAL(COMPONENT_CONTROLLER, gap_msg);
                 }
                 if (!main_pio_healthy)
                 {
