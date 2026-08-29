@@ -14,6 +14,15 @@ PicoDccEx::PicoDccEx(int maxCab)
 {
     maxSupportedCabs = maxCab;
 
+    // currentPacket and bufferLength are initialised at their declarations, and
+    // repeated here because the constructor sets every other member and so reads
+    // as the place initialisation happens. reset() does
+    // `if (currentPacket) delete currentPacket;`, and the safety of that delete
+    // rests entirely on currentPacket having started as nullptr -- which is not
+    // obvious from a constructor that never mentions it (#38).
+    currentPacket = nullptr;
+    bufferLength = 0;
+
     setup_default_uart();
     DCCEX_RESPONSE(PICODCC_IDENTITY);
     processState = DCCEX_IDLE;
