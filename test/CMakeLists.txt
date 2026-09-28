@@ -101,6 +101,7 @@ list(APPEND TEST_TARGETS pico_dcc_display_tests)
 list(APPEND TEST_TARGETS pico_diagnostic_tests)
 list(APPEND TEST_TARGETS pico_dcc_wire_format_tests)
 list(APPEND TEST_TARGETS pico_dcc_pio_tests)
+list(APPEND TEST_TARGETS pico_dcc_programmer_tests)
 
 list(APPEND TEST_LIBS "${CMOCKA_LIBRARIES}")
 list(APPEND TEST_LIBS mocks)
@@ -111,6 +112,7 @@ list(APPEND TEST_LIBS PicoDCCController)
 list(APPEND TEST_LIBS PicoConfigStorage)
 list(APPEND TEST_LIBS PicoDCCDisplay)
 list(APPEND TEST_LIBS PicoDiagnostic)
+list(APPEND TEST_LIBS PicoDccProgrammer)
 
 # Ensure cmocka is linked to all test targets
 list(APPEND TEST_LIBS cmocka::cmocka)

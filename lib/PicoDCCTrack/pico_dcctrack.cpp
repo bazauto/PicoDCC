@@ -189,9 +189,13 @@ void PicoDccTrack::loop(Pacing pacing)
         pio_health.commands_sent++;
         pio_health.last_activity_time = dcc_millis();
     }
-    else
+    else if (send_idle_packets)
     {
-        // Priority 3: Idle packet (when no commands or reminders available)
+        // Priority 3: Idle packet (when no commands or reminders available).
+        // The programmer turns this off for the length of a service-mode
+        // sequence so only its reset and verify packets reach the decoder. With
+        // nothing to send the pass does nothing, and the PIO idles on legal '1'
+        // bits rather than putting DC on the rails (#34).
         sendIdle();
         pio_health.idle_packets_sent++;
         pio_health.last_activity_time = dcc_millis();

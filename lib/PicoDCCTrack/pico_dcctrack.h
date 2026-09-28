@@ -100,6 +100,8 @@ private:
     uint current_cnt = 0;
     bool power_on = false;
     bool tripped = false;  // Set when overcurrent protection activates
+    // Cleared by the programmer during a service-mode sequence.
+    volatile bool send_idle_packets = true;
 
     // PIO Health Monitoring (Options 1, 3, 4)
     struct {
@@ -152,6 +154,11 @@ public:
     void powerOff() { setPower(false); }
     void setPower(bool on);
     bool isTripped() { return tripped; }
+
+    // Idle packet control, for service-mode sequences on the programming track.
+    void enableIdlePackets() { send_idle_packets = true; }
+    void disableIdlePackets() { send_idle_packets = false; }
+    bool getIdlePacketsEnabled() { return send_idle_packets; }
 
     float getAverageCurrent() { return average_current_reading; }
 

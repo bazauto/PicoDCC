@@ -7,6 +7,7 @@
 #include "../pico_diagnostic.h"
 
 PicoDccController::PicoDccController(track_settings_t main_track_s, track_settings_t prog_track_s, uint8_t timing_led_pin)
+    : programmer(nullptr, nullptr)  // Rebound below, once prog_track exists
 {
     // Some things that should never be
     assert(main_track_s.signal_pin != prog_track_s.signal_pin);
@@ -57,6 +58,8 @@ PicoDccController::PicoDccController(track_settings_t main_track_s, track_settin
     // Initialize operation mode and configuration
     operation_mode = OperationMode::NORMAL;
     config_storage.load();  // Load configuration from flash
+
+    programmer = PicoDccProgrammer(prog_track, &config_storage);
     
     LOG_INFO(COMPONENT_SYSTEM, "PicoDCCController initialized in NORMAL mode");
 }
@@ -140,6 +143,20 @@ void PicoDccController::dccexLoop()
                 return;
             }
             
+            // Service-mode commands (R/V/W) go to the programmer.
+            if (packet.isReadAddressCommand()) {
+                handleReadAddressCommand();
+                return;
+            }
+            if (packet.isVerifyCommand()) {
+                handleVerifyCommand(&packet);
+                return;
+            }
+            if (packet.isWriteCommand()) {
+                handleWriteCommand(&packet);
+                return;
+            }
+
             raw_dcc_cmd_t cmd = {};
             
             if (packet.isPowerCommand())
@@ -746,5 +763,136 @@ void PicoDccController::handleStatusCommand()
     
     // Note: Mode and unsaved changes displayed on LCD only (not in DCC-EX protocol)
     // This avoids polluting JMRI logs and doesn't require Java driver modifications
+}
+
+void PicoDccController::handleReadAddressCommand()
+{
+    // Check if programming track is powered
+    if (!prog_track->getPower()) {
+        DCCEX_RESPONSE("<r -1>");
+        LOG_WARNING(COMPONENT_PROGRAMMER, "Read address failed: programming track not powered");
+        return;
+    }
+    
+    LOG_INFO(COMPONENT_PROGRAMMER, "Starting decoder address read...");
+    
+    // Try reading short address first (CV1)
+    int short_addr = programmer.readShortAddress();
+    if (short_addr >= 1 && short_addr <= 127) {
+        // Valid short address found
+        char response[32];
+        snprintf(response, sizeof(response), "<r %d>", short_addr);
+        DCCEX_RESPONSE(response);
+        LOG_INFO(COMPONENT_PROGRAMMER, "Short address read successfully");
+        return;
+    } else if (short_addr >= 0) {
+        char log_msg[DIAG_MESSAGE_MAX_LEN];
+        snprintf(log_msg, sizeof(log_msg), "Short address out of range (%d)", short_addr);
+        LOG_WARNING(COMPONENT_PROGRAMMER, log_msg);
+    }
+    
+    // Try reading long address (CV17/18)
+    int long_addr = programmer.readLongAddress();
+    if (long_addr >= 128 && long_addr <= 10239) {
+        // Valid long address found
+        char response[32];
+        snprintf(response, sizeof(response), "<r %d>", long_addr);
+        DCCEX_RESPONSE(response);
+        LOG_INFO(COMPONENT_PROGRAMMER, "Long address read successfully");
+        return;
+    } else if (long_addr >= 0) {
+        char log_msg[DIAG_MESSAGE_MAX_LEN];
+        snprintf(log_msg, sizeof(log_msg), "Long address out of range (%d)", long_addr);
+        LOG_WARNING(COMPONENT_PROGRAMMER, log_msg);
+    }
+    
+    // No valid address found
+    DCCEX_RESPONSE("<r -1>");
+    LOG_ERROR(COMPONENT_PROGRAMMER, "Failed to read decoder address");
+}
+
+void PicoDccController::handleWriteCommand(PicoDccExPacket* packet)
+{
+    int cv = packet->getCVNumber();
+    int value = packet->getCVValue();
+    int form = packet->getWriteForm();
+    
+    // Check if programming track is powered
+    if (!prog_track->getPower()) {
+        DCCEX_RESPONSE("<w -1>");
+        LOG_WARNING(COMPONENT_PROGRAMMER, "Write CV failed: programming track not powered");
+        return;
+    }
+    
+    LOG_INFO(COMPONENT_PROGRAMMER, "Writing CV value...");
+    
+    // Write CV value (includes verification per NMRA standard)
+    bool success = programmer.writeCV(cv, value);
+    
+    if (success) {
+        // Write and verify successful
+        if (form == 1) {
+            // <W addr> form - respond with <w addr>
+            char response[16];
+            snprintf(response, sizeof(response), "<w %d>", value);
+            DCCEX_RESPONSE(response);
+        } else {
+            // <W cv value> form - respond with <r cv value>
+            char response[32];
+            snprintf(response, sizeof(response), "<r %d %d>", cv, value);
+            DCCEX_RESPONSE(response);
+        }
+        LOG_INFO(COMPONENT_PROGRAMMER, "CV write and verify successful");
+    } else {
+        // Write or verify failed
+        if (form == 1) {
+            // <W addr> form failure
+            DCCEX_RESPONSE("<w -1>");
+        } else {
+            // <W cv value> form failure
+            char response[32];
+            snprintf(response, sizeof(response), "<r %d -1>", cv);
+            DCCEX_RESPONSE(response);
+        }
+        LOG_ERROR(COMPONENT_PROGRAMMER, "CV write/verify failed");
+    }
+}
+
+void PicoDccController::handleVerifyCommand(PicoDccExPacket* packet)
+{
+    int cv = packet->getCVNumber();
+    int value = packet->getCVValue();
+    
+    // Check if programming track is powered
+    if (!prog_track->getPower()) {
+        char response[32];
+        snprintf(response, sizeof(response), "<v %d -1>", cv);
+        DCCEX_RESPONSE(response);
+        LOG_WARNING(COMPONENT_PROGRAMMER, "Verify CV failed: programming track not powered");
+        return;
+    }
+    
+    {
+        char log_msg[DIAG_MESSAGE_MAX_LEN];
+        snprintf(log_msg, sizeof(log_msg), "Verifying CV %d value %d", cv, value);
+        LOG_INFO(COMPONENT_PROGRAMMER, log_msg);
+    }
+    
+    // Verify CV value
+    bool verified = programmer.verifyCV(cv, value);
+    
+    if (verified) {
+        // ACK received - value matches
+        char response[32];
+        snprintf(response, sizeof(response), "<v %d %d>", cv, value);
+        DCCEX_RESPONSE(response);
+        LOG_INFO(COMPONENT_PROGRAMMER, "CV verify successful");
+    } else {
+        // No ACK - value doesn't match or no decoder
+        char response[32];
+        snprintf(response, sizeof(response), "<v %d -1>", cv);
+        DCCEX_RESPONSE(response);
+        LOG_INFO(COMPONENT_PROGRAMMER, "CV verify failed - no ACK");
+    }
 }
 

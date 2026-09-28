@@ -19,6 +19,7 @@ else()
   target_link_libraries(${PROJECT_NAME} PRIVATE
           pico_stdlib
           pico_sync
+          PicoDCCProgrammer
   )
 
 endif(TEST_BUILD)

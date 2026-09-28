@@ -24,6 +24,24 @@ void* uart0 = &uart0_data;
 extern uint32_t mock_adc_reading;
 extern uint32_t mock_time_ms;
 
+namespace {
+struct AckPulseConfig {
+    bool enabled = false;
+    uint32_t start_us = 0;
+    uint32_t duration_us = 0;
+    uint32_t spike_reading = 0;
+};
+
+AckPulseConfig ack_pulse;
+}
+
+void mock_set_ack_pulse(bool enabled, uint32_t start_us, uint32_t duration_us, uint32_t spike_reading) {
+    ack_pulse.enabled = enabled;
+    ack_pulse.start_us = start_us;
+    ack_pulse.duration_us = duration_us;
+    ack_pulse.spike_reading = spike_reading;
+}
+
 // UART output tracking for acknowledgment testing
 extern std::vector<std::string> uart_output_log;
 
@@ -155,6 +173,15 @@ void adc_select_input(uint8_t adc_num)
 
 uint adc_read()
 {
+    // An armed ACK pulse overrides channel routing: the CV programming tests
+    // need a current spike at a specific time, regardless of which channel is
+    // selected.
+    if (ack_pulse.enabled) {
+        uint32_t current_us = mock_time_ms * 1000;
+        if (current_us >= ack_pulse.start_us && current_us < (ack_pulse.start_us + ack_pulse.duration_us)) {
+            return ack_pulse.spike_reading;
+        }
+    }
     if (adc_selected < 5 && adc_channel_set[adc_selected]) {
         return adc_channel_value[adc_selected];
     }
