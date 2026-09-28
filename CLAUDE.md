@@ -385,6 +385,9 @@ read it before assuming a feature works. High-value entries:
   JMRI expects vs. what is implemented
 - `docs/safety-recommendations.md` — safety analysis
 - `docs/gpio-pinout-reference.md` — pin assignments
+- `hardware/README.md` — the carrier PCB (KiCad, CERN-OHL-P-2.0, not MIT): connections, the
+  Gerbers the boards were made from, and revision 1.0's known concerns. `hardware/fab/rev-X.Y/`
+  is a record of what went to fab and is never regenerated in place
 - `docs/coverage-quick-start.md` — gcov/lcov workflow via `scripts/Generate-*.ps1`
 - `docs/hardware-test-quick-reference.md` — what to do at the bench
 

@@ -145,6 +145,7 @@ has shipped.
 |---|---|
 | [`architecture.md`](architecture.md) | **Start here.** Component responsibilities, the Core 0/Core 1 split, queue design, operation modes, known gaps |
 | [`gpio-pinout-reference.md`](gpio-pinout-reference.md) | Pin assignments for tracks, LEDs, ADC, LCD and touch |
+| [`../hardware/README.md`](../hardware/README.md) | The carrier PCB: KiCad project, connectors, fab files, known concerns in revision 1.0 |
 | [`lcd-integration.md`](lcd-integration.md) | Display hardware, LVGL setup and UI structure |
 | [`safety-recommendations.md`](safety-recommendations.md) | Overcurrent, emergency stop, programming-track limits, isolation |
 | [DCC Wiki: Service Mode Programming](https://dccwiki.com/Service_Mode_Programming) | External. Readable summary of NMRA S-9.2.3. The site is Cloudflare-blocked to some clients; the standard itself is the authority, at [nmra.org](https://www.nmra.org/index-nmra-standards-and-recommended-practices) |

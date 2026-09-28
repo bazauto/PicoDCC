@@ -4,6 +4,9 @@ PicoDCC itself is released under the MIT Licence â€” see [`LICENSE`](LICENSE). T
 covers the first-party firmware only: `src/`, `lib/` excluding `lib/external/`, `test/`,
 `scripts/`, `cmake/generate_version.cmake` and the documentation.
 
+The carrier board design in `hardware/` is **not** MIT: it is licensed under the CERN Open
+Hardware Licence Version 2 – Permissive, in [`hardware/LICENSE`](hardware/LICENSE).
+
 The components below are **not** covered by it. Each is redistributed or consumed under its
 own licence, reproduced in the location named.
 
@@ -29,6 +32,23 @@ so JMRI can talk to it. No code originates from the upstream CommandStation-EX p
 is GPLv3; the protocol is reimplemented from its documented wire format. Protocol
 compatibility carries no licensing obligation, and none of the GPL's terms apply here. Keep it
 that way: do not paste code from CommandStation-EX into this tree.
+
+## KiCad libraries: CC-BY-SA 4.0, with a design exception
+
+The schematic and board in `hardware/` embed symbols and footprints from the stock KiCad 9
+libraries, by the KiCad Libraries Team (<https://gitlab.com/kicad/libraries>). Those libraries
+are licensed under [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/) with this
+exception:
+
+> To the extent that the creation of electronic designs that use 'Licensed Material' can be
+> considered to be 'Adapted Material', then the copyright holder waives article 3 of the license
+> with respect to these designs and any generated files which use data provided as part of the
+> 'Licensed Material'.
+
+So the design and its generated files (Gerbers, drill files, BOM) carry no CC-BY-SA obligation.
+The one project symbol, the BTS7960 module in `hardware/ProjectSymbols.kicad_sym`, is drawn from
+scratch rather than derived from a library symbol. 3D models are referenced by path
+(`${KICAD9_3DMODEL_DIR}`), not included in the repository.
 
 ## The DCC protocol itself
 

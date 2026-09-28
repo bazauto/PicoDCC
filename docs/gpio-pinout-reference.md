@@ -1,8 +1,12 @@
 # PicoDCC GPIO Pin Assignments - Complete Reference
 
-**Date**: October 19, 2025  
-**Hardware**: Raspberry Pi Pico (RP2040)  
-**Status**: ✅ VERIFIED AND LOCKED
+**Hardware**: Raspberry Pi Pico 2 (RP2350) on the carrier board in [`hardware/`](../hardware/README.md)  
+**Checked against**: the revision 1.0 netlist, on import of the board design (September 2026)
+
+GP0–GP15 leave the carrier board on **J1**, GP*n* on pin *n*+1. The display, touch, UART and the
+spare GP12–GP15 all go out that way. The carrier board breaks out **no 3V3 pin**: anything
+needing a 3.3 V supply has to take it from the Pico's pin 36. Connector pinouts and the board's
+known concerns are in [`hardware/README.md`](../hardware/README.md).
 
 ---
 
@@ -32,14 +36,14 @@
 | **GP19** | Output | Short/Overcurrent LED | Prog Track | GPIO | Visual indicator for prog track fault |
 | **GP20** | Output | PWM Output | Prog Track | PIO | DCC signal to H-bridge (20-bit preamble) |
 | **GP21** | Output | Enable | Prog Track | GPIO | Track power on/off control |
-| **GP22** | - | Not Surfaced | - | - | Not available on PCB connector |
-| **GP23** | - | SWDCLK | Debug | SWD | Debug/programming interface |
-| **GP24** | - | SWDIO | Debug | SWD | Debug/programming interface |
+| **GP22** | - | Not connected | - | - | Not routed on the carrier board |
+| **GP23** | - | Internal | - | - | Pico 2 on-board use (SMPS mode), not on a module pin |
+| **GP24** | - | Internal | - | - | Pico 2 on-board use (VBUS sense), not on a module pin |
 | **GP25** | Output | Error LED | System | GPIO | Onboard LED (general error state) |
 | **GP26** | Input | ADC0 | Main Track | ADC | Main track current monitoring |
 | **GP27** | Input | ADC1 | Prog Track | ADC | Prog track current monitoring |
-| **GP28** | - | Not Surfaced | - | - | Not available on PCB connector |
-| **GP29** | - | ADC3 (Optional) | - | ADC | Not surfaced on PCB |
+| **GP28** | - | Not connected | - | - | Not routed on the carrier board |
+| **GP29** | - | Internal | - | - | Pico 2 on-board use (VSYS sense), not on a module pin |
 
 ---
 
@@ -47,7 +51,7 @@
 
 ### Main Track DCC Output (4 pins)
 ```yaml
-GP16: Overcurrent LED (output) - Lights when main track trips overcurrent
+GP16: Overcurrent LED (output) - Driven high when main track trips; see hardware/README.md concern 1 on LED polarity
 GP17: PWM Signal (PIO output) - DCC waveform to BTS7960 H-bridge
 GP18: Enable (GPIO output) - Controls track power (active high enables)
 GP26: Current Sense (ADC0 input) - Analog current monitoring
@@ -55,10 +59,10 @@ GP26: Current Sense (ADC0 input) - Analog current monitoring
 
 ### Programming Track DCC Output (4 pins)
 ```yaml
-GP19: Overcurrent LED (output) - Lights when prog track trips overcurrent
+GP19: Overcurrent LED (output) - Driven high when prog track trips; same polarity concern
 GP20: PWM Signal (PIO output) - DCC waveform with 20-bit preamble
 GP21: Enable (GPIO output) - Controls track power (active high enables)
-GP27: Current Sense (ADC1 input) - Analog current monitoring for ACK detection
+GP27: Current Sense (ADC1 input) - Analog current monitoring (overcurrent). Too coarse for ACK detection; see hardware/README.md concern 3
 ```
 
 ### DCC-EX Communication (2 pins)
@@ -89,8 +93,7 @@ GP11: RST (output) - Touch controller reset (active low)
 ### System/Debug (3 pins)
 ```yaml
 GP25: Onboard LED (output) - General system error indicator
-GP23: SWDCLK (debug) - SWD debug clock (used during programming)
-GP24: SWDIO (debug) - SWD debug data (used during programming)
+SWCLK/SWDIO: the Pico's dedicated debug pads (not GPIOs), routed to J2 pins 6 and 5
 ```
 
 ### Available for Future Use (4 pins)
@@ -124,8 +127,8 @@ GP15: Free GPIO (PWM7B capable - could add backlight dimming if needed)
 ### ADC Channels
 - **ADC0**: GP26 (Main track current, 0-3.3V analog)
 - **ADC1**: GP27 (Prog track current, 0-3.3V analog)
-- **ADC2**: GP28 (Not surfaced on PCB)
-- **ADC3**: GP29 (Not surfaced on PCB)
+- **ADC2**: GP28 (not routed on the carrier board)
+- **ADC3**: GP29 (internal to the Pico 2: VSYS sense)
 
 ### PIO State Machines
 - **PIO SM**: GP17 (Main track DCC waveform generation)
@@ -146,7 +149,7 @@ GP15: Free GPIO (PWM7B capable - could add backlight dimming if needed)
 - ✅ ADC pins (GP26, GP27) are dedicated, not shared
 
 ### Debug vs Functional:
-- ✅ SWD (GP23-24) only active during programming, not at runtime
+- ✅ SWD uses the Pico's dedicated debug pads, not GPIOs
 - ✅ GP25 (onboard LED) available for general error indication
 
 ---
