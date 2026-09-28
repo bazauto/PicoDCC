@@ -4,7 +4,6 @@
 .vscode/launch.json
 .vscode/ipch
 build
-CircuitDesign
 
 # Coverage files (generated)
 *.gcov
@@ -24,3 +23,13 @@ CMakeUserPresets.json
 # Claude Code local state (agents, skills and settings.json ARE committed)
 .claude/settings.local.json
 .claude/worktrees/
+
+# KiCad per-user and generated files. hardware/fab/rev-X.Y/ is the record of what
+# went to fab; a fresh plot lands in hardware/Gerber/ and must not be mistaken for it.
+hardware/Gerber/
+hardware/*-backups/
+hardware/fp-info-cache
+hardware/*.kicad_prl
+hardware/~*.lck
+hardware/*.bak
+hardware/PicoDCC.csv

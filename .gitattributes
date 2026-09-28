@@ -10,3 +10,7 @@
 CMakeLists.txt text eol=lf
 *.ld text eol=lf
 *.pio text eol=lf
+
+# The fab record is kept byte-for-byte as it went to the board house, CRLF and all:
+# normalising it would make a Linux checkout differ from the zipped set beside it.
+hardware/fab/** -text

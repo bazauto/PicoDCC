@@ -35,6 +35,9 @@ works, and do not infer behaviour from the upstream DCC-EX documentation.
 Full pin map, including what is free for expansion, in
 [`docs/gpio-pinout-reference.md`](docs/gpio-pinout-reference.md).
 
+The carrier PCB — KiCad project, BOM and the Gerbers the boards were made from — is in
+[`hardware/`](hardware/README.md), along with the concerns found in revision 1.0.
+
 `printf()` goes to USB CDC, not the UART — USB output is for bring-up only, never the protocol
 channel.
 
@@ -110,6 +113,8 @@ and workflow are in [`CLAUDE.md`](CLAUDE.md).
 
 ## Licence
 
-MIT — see [`LICENSE`](LICENSE). Third-party components, the scope of the MIT grant, and why
+The firmware is MIT — see [`LICENSE`](LICENSE). The carrier board design in `hardware/` is
+CERN-OHL-P-2.0 — see [`hardware/LICENSE`](hardware/LICENSE). Third-party components, the scope
+of each grant, and why
 implementing DCC itself needs no licence are recorded in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
